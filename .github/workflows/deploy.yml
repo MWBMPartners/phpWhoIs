@@ -1,0 +1,45 @@
+name: Deploy via SFTP
+
+on:
+  push:
+    branches:
+      - main
+      - beta
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine deployment target
+        id: target
+        run: |
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "remote_path=${{ secrets.SFTP_LIVE_PATH }}" >> $GITHUB_OUTPUT
+            echo "source_dir=web/public_html/" >> $GITHUB_OUTPUT
+            echo "channel=live" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "beta" ]]; then
+            echo "remote_path=${{ secrets.SFTP_BETA_PATH }}" >> $GITHUB_OUTPUT
+            echo "source_dir=web/public_html_beta/" >> $GITHUB_OUTPUT
+            echo "channel=beta" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+        with:
+          server: ${{ secrets.SFTP_HOST }}
+          port: ${{ secrets.SFTP_PORT }}
+          username: ${{ secrets.SFTP_USER }}
+          ssh_private_key: ${{ secrets.SFTP_KEY }}
+          local_path: ${{ steps.target.outputs.source_dir }}
+          remote_path: ${{ steps.target.outputs.remote_path }}
+          sftpArgs: '-o StrictHostKeyChecking=no'
+
+      - name: Deployment summary
+        run: |
+          echo "### Deployed to ${{ steps.target.outputs.channel }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Remote path:** ${{ steps.target.outputs.remote_path }}" >> $GITHUB_STEP_SUMMARY

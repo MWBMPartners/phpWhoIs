@@ -1,10 +1,10 @@
 <?php	
 	//Application Version Info
 		$appName = "mwWhoisLookup";
-		$appID = "mwWhoisLookup";
+		$appID = "Ltd.MWBMPartners.Whois";
 		$appWebURL = NULL;
 
-		$appVerNo = "0.3.000";
+		$appVerNo = "1.0.0";
 		$appVerName = NULL;
 		$appVerDevStatus = "Beta";
 
@@ -12,7 +12,7 @@
 		$appVendorWebURL = NULL;
 
 		$appVendorParent = "MWBM Partners Ltd";
-		$appVendorParentWebURL = NULL;
+		$appVendorParentWebURL = "https://www.MWBMpartners.Ltd";
 
 		//	
 			$appYearStart = "2024";

@@ -18,3 +18,10 @@ npm-debug.log*
 # Build
 dist/
 build/
+
+# Auto-generated TLD data (fetched at runtime)
+tlds.txt
+tld_metadata.json
+second_level_suffixes.txt
+suffix_list_metadata.json
+public_suffix_list.dat
