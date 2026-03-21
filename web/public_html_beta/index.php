@@ -2,7 +2,7 @@
 	#########################################
 	#			WhoIs Lookup Tool			#
 	#										#
-	# version: v0.2.350						#
+	# version: v0.3.000						#
 	#										#
 	#########################################
 	#		(C) 2024 MWservices.it			#
@@ -10,8 +10,29 @@
 
 	##Domain Name Whois Lookup Tool
 	##	BASED ON //https://chatgpt.com/share/66ed46d1-c1a4-800b-bc0a-93663c3084dd
-	
-	
+
+	// Session hardening & CSRF (replaces protectSessionInjection)
+	ini_set('session.use_strict_mode', 1);
+	ini_set('session.use_only_cookies', 1);
+	ini_set('session.cookie_httponly', 1);
+	ini_set('session.cookie_samesite', 'Strict');
+	if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') {
+		ini_set('session.cookie_secure', 1);
+	}
+	session_start();
+	// Regenerate session ID periodically to prevent fixation
+	if (!isset($_SESSION['_created'])) {
+		$_SESSION['_created'] = time();
+	} elseif (time() - $_SESSION['_created'] > 1800) {
+		session_regenerate_id(true);
+		$_SESSION['_created'] = time();
+	}
+	// Generate CSRF token
+	if (empty($_SESSION['csrf_token'])) {
+		$_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+	}
+	$csrfToken = $_SESSION['csrf_token'];
+
 	//Case Insensitive GET Params
 	//	https://stackoverflow.com/a/4211432/1954972
 		$_lowerGET = array_change_key_case($_GET, CASE_LOWER);
@@ -217,10 +238,7 @@
 							}
 					}
 
-			//Prevent Session Injections (//www.php.net/manual/en/reserved.variables.session.php#94676)
-				if (function_exists("protectSessionInjection")){
-					protectSessionInjection();
-				}
+			// Session injection protection handled at top of file (replaces legacy protectSessionInjection)
 
 			//Run SysCheck
 			/*	if (function_exists("defineSysCheck")){
@@ -300,155 +318,464 @@
 	//////////////////////////////////////////////////////////////////////////////
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Whois Lookup</title>
 
-    <!-- Bootstrap CSS for responsive design and default styling of buttons, forms, etc.
-         Documentation: https://getbootstrap.com/docs/4.5/getting-started/introduction/ -->
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
-    
-    <!-- Link to external CSS file for custom styles specific to this project -->
+    <!-- Bootstrap 5 CSS (Issue #8) -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <!-- Header section for the form and page title 
-         - The header includes a title and an input form where the user can enter a domain name
-         - It is styled to be positioned at the top and separated from the rest of the content -->
+    <!-- Header -->
     <div class="header-form">
-        <h1>Whois Lookup</h1> <!-- Main title of the page displayed at the top -->
-        
-        <!-- Form section: The form allows users to input a domain name and submit it 
-             - Uses the Bootstrap grid system to structure the form responsively
-             - The form uses POST method and is submitted via AJAX -->
-        <form id="whoisForm" class="form-container">
-            <!-- Form group for the domain input field 
-                 - The input is designed to accept valid domain names and uses HTML5 pattern validation -->
-            <div class="form-group">
-                <label for="domain" class="sr-only">Domain or URL</label> <!-- Screen reader only label for accessibility -->
-                <input type="text" class="form-control" id="domain" name="domain" 
-                    pattern="^(?!\-)(?:[a-zA-Z0-9\-]{1,63}\.)+(?:[a-zA-Z]{2,})$"
-                    title="Please enter a valid domain name, e.g., example.com" 
-                    placeholder="example.com" required> <!-- Placeholder and required attributes for user guidance -->
-            </div>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h1 class="mb-0">Whois Lookup</h1>
+            <button class="btn btn-sm btn-outline-secondary" id="darkModeToggle" title="Toggle dark mode">
+                <i class="bi bi-moon-fill" id="darkModeIcon"></i>
+            </button>
+        </div>
 
-            <!-- Submit button to trigger the Whois lookup via AJAX -->
+        <!-- Lookup mode tabs (Issue #5) -->
+        <ul class="nav nav-tabs mb-3" id="lookupModeTabs">
+            <li class="nav-item">
+                <a class="nav-link active" href="#" data-mode="single">Single Lookup</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#" data-mode="bulk">Bulk Lookup</a>
+            </li>
+        </ul>
+
+        <!-- Single domain form -->
+        <form id="whoisForm" class="form-container">
+            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+            <div class="form-group flex-grow-1">
+                <label for="domain" class="visually-hidden">Domain or URL</label>
+                <input type="text" class="form-control" id="domain" name="domain"
+                    title="Please enter a valid domain name, e.g., example.com"
+                    placeholder="example.com" required autocomplete="off">
+            </div>
             <button type="submit" class="btn btn-primary submit-btn">Lookup</button>
         </form>
+
+        <!-- Bulk domain form (Issue #5) -->
+        <form id="bulkWhoisForm" class="form-container" style="display:none;">
+            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+            <div class="form-group flex-grow-1">
+                <label for="bulkDomains" class="visually-hidden">Domains (one per line)</label>
+                <textarea class="form-control" id="bulkDomains" name="domains" rows="4"
+                    placeholder="example.com&#10;example.org&#10;example.net" required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary submit-btn">Lookup All</button>
+        </form>
+
+        <!-- Recent lookups (Issue #4) -->
+        <div id="historyContainer" class="mt-2" style="display:none;">
+            <div class="d-flex align-items-center gap-2">
+                <small class="text-muted">Recent:</small>
+                <div id="historyList" class="d-flex flex-wrap gap-1"></div>
+                <button class="btn btn-sm btn-link text-muted p-0" id="clearHistory" title="Clear history">
+                    <i class="bi bi-x-circle"></i>
+                </button>
+            </div>
+        </div>
     </div>
 
-    <!-- Result section where the WHOIS lookup result will be displayed 
-         - It uses a scrollable container to allow long WHOIS responses to be viewed without scrolling the whole page -->
+    <!-- Result section -->
     <div class="result-container" id="resultContainer">
-        <div id="result"></div> <!-- The result from the WHOIS lookup will be dynamically inserted here -->
+        <!-- Loading spinner (Issue #2) -->
+        <div id="loadingSpinner" class="text-center py-5" style="display:none;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Looking up domain information...</p>
+        </div>
 
-        <!-- Toggle button to switch between formatted and raw WHOIS result views 
-             - This button is hidden by default and will be shown after the first lookup -->
-        <button class="btn btn-secondary toggle-btn" id="toggleViewBtn" style="display:none;">Show Raw Whois</button>
+        <!-- Availability badge (Issue #3) -->
+        <div id="availabilityBadge" style="display:none;" class="mb-3"></div>
+
+        <!-- Data source indicator (Issue #12) -->
+        <div id="dataSourceBadge" style="display:none;" class="mb-2"></div>
+
+        <!-- Structured fields card (Issue #9) -->
+        <div id="parsedFields" style="display:none;" class="mb-3"></div>
+
+        <!-- Tab navigation for WHOIS / DNS (Issue #6) -->
+        <ul class="nav nav-pills mb-3" id="resultTabs" style="display:none;">
+            <li class="nav-item">
+                <a class="nav-link active" href="#" data-tab="whois">WHOIS</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#" data-tab="dns">DNS Records</a>
+            </li>
+        </ul>
+
+        <!-- WHOIS result -->
+        <div id="whoisResultPane">
+            <div id="result"></div>
+        </div>
+
+        <!-- DNS records pane (Issue #6) -->
+        <div id="dnsResultPane" style="display:none;"></div>
+
+        <!-- Action buttons -->
+        <div id="actionButtons" class="mt-2 d-flex gap-2 flex-wrap" style="display:none !important;">
+            <button class="btn btn-secondary btn-sm toggle-btn" id="toggleViewBtn">Show Raw Whois</button>
+            <button class="btn btn-outline-secondary btn-sm" id="copyBtn" title="Copy to clipboard">
+                <i class="bi bi-clipboard"></i> Copy
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" id="downloadBtn" title="Download as text file">
+                <i class="bi bi-download"></i> Download
+            </button>
+        </div>
+
+        <!-- Bulk results accordion (Issue #5) -->
+        <div id="bulkResults" class="accordion mt-3" style="display:none;"></div>
     </div>
 
-    <!-- Footer section that stays fixed at the bottom of the viewport 
-         - Used to display copyright or any important footer information -->
+    <!-- Footer -->
     <div class="footer">
         &copy; 2024 Whois Lookup Tool - All Rights Reserved
     </div>
 
-    <!-- jQuery for handling form submission and AJAX requests 
-         Documentation: https://api.jquery.com/jquery.ajax/ -->
-    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <!-- Bootstrap 5 JS bundle (Issue #8) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-    <!-- JavaScript for handling WHOIS lookups and formatting of the result 
-         The script handles the form submission via AJAX, processes the WHOIS result, and adds the toggle functionality -->
     <script>
-        $(document).ready(function () {
-            let formattedResult = ""; // Store formatted WHOIS result
-            let rawResult = ""; // Store raw WHOIS result
-            let isRawView = false; // Track if raw view is currently shown
+    document.addEventListener('DOMContentLoaded', function () {
+        var csrfToken = '<?php echo htmlspecialchars($csrfToken); ?>';
+        let formattedResult = '';
+        let rawWhoisText = '';
+        let isRawView = false;
+        let currentDomain = '';
 
-            // Check if a domain is passed via the URL (e.g., ?domain=example.com) and automatically trigger the lookup
-            const urlParams = new URLSearchParams(window.location.search);
-            const initialDomain = urlParams.get('domain');
-            if (initialDomain) {
-                $('#domain').val(initialDomain); // Pre-fill the input with the domain from the URL
-                triggerWhoisLookup(initialDomain); // Trigger the whois lookup automatically
-            }
+        // ---- Dark mode (Issue #8) ----
+        const darkModeToggle = document.getElementById('darkModeToggle');
+        const darkModeIcon = document.getElementById('darkModeIcon');
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-bs-theme', savedTheme);
+        updateDarkModeIcon(savedTheme);
 
-            // Handle form submission via AJAX when the user submits the form
-            $("#whoisForm").on("submit", function (event) {
-                event.preventDefault(); // Prevent the form from submitting in the traditional way (page reload)
-                var domain = $("#domain").val(); // Get the domain name entered by the user
-                triggerWhoisLookup(domain); // Perform the WHOIS lookup
-                updateURL(domain); // Update the URL with the domain name for sharing/bookmarking
-            });
-
-            // Function to perform the WHOIS lookup via an AJAX request to the backend (lookup.php)
-            function triggerWhoisLookup(domain) {
-                $.ajax({
-                    type: "POST",
-                    url: "lookup.php?nocache=" + new Date().getTime(),  // Prevent caching by appending a timestamp
-                    data: { domain: domain }, // Send the domain as POST data to the server
-                    success: function (response) {
-                        rawResult = response; // Store the raw WHOIS result
-                        formatWhoisData(); // Format the raw result for better readability
-                        $('#toggleViewBtn').show(); // Show the toggle button after the first lookup
-                        isRawView = false; // Default to showing the formatted view
-                        updateToggleButtonText(); // Update the toggle button text based on the current view
-                    }
-                });
-            }
-
-            // Function to update the browser URL with the domain name (allows bookmarking/sharing)
-            function updateURL(domain) {
-                const newUrl = window.location.origin + window.location.pathname + '?domain=' + domain;
-                history.pushState({ path: newUrl }, '', newUrl); // Modify the URL without reloading the page
-            }
-
-            // Function to format the raw WHOIS data into a more readable format
-            // It splits the WHOIS response line by line and makes labels bold, with values indented on new lines
-            function formatWhoisData() {
-                let whoisText = rawResult; // Use the raw WHOIS data for processing
-
-                // Split the WHOIS data into lines and process each line
-                formattedResult = whoisText.split('\n').map(line => {
-                    let colonIndex = line.indexOf(':'); // Find the first colon in the line
-                    if (colonIndex !== -1) {
-                        // Split the line into label (before colon) and value (after colon)
-                        let label = line.substring(0, colonIndex + 1); // Include the colon as part of the label
-                        let value = line.substring(colonIndex + 1).trim(); // Trim extra spaces from the value
-                        // Format the label and value: label bolded, value indented on a new line
-                        return `<span class="whois-label">${label}</span><div class="whois-value">${value}</div>`;
-                    } else {
-                        // If no colon is found, treat the entire line as a value (not bolded)
-                        return `<span class="whois-value">${line}</span>`;
-                    }
-                }).join(''); // Join the formatted lines back together
-
-                $("#result").html(formattedResult); // Insert the formatted result into the result container
-            }
-
-            // Function to toggle between the raw and formatted views of the WHOIS result
-            $("#toggleViewBtn").on("click", function () {
-                isRawView = !isRawView; // Toggle the state
-                if (isRawView) {
-                    $("#result").html(`<pre>${rawResult}</pre>`); // Show the raw WHOIS result
-                } else {
-                    $("#result").html(formattedResult); // Show the formatted WHOIS result
-                }
-                updateToggleButtonText(); // Update the text of the toggle button
-            });
-
-            // Function to update the toggle button text based on the current view (raw/formatted)
-            function updateToggleButtonText() {
-                if (isRawView) {
-                    $("#toggleViewBtn").text("Show Formatted Whois"); // Text to switch to formatted view
-                } else {
-                    $("#toggleViewBtn").text("Show Raw Whois"); // Text to switch to raw view
-                }
-            }
+        darkModeToggle.addEventListener('click', function () {
+            const current = document.documentElement.getAttribute('data-bs-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-bs-theme', next);
+            localStorage.setItem('theme', next);
+            updateDarkModeIcon(next);
         });
+
+        function updateDarkModeIcon(theme) {
+            darkModeIcon.className = theme === 'dark' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        }
+
+        // ---- Lookup mode tabs (Issue #5) ----
+        document.querySelectorAll('#lookupModeTabs .nav-link').forEach(function (tab) {
+            tab.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelectorAll('#lookupModeTabs .nav-link').forEach(function (t) { t.classList.remove('active'); });
+                this.classList.add('active');
+                var mode = this.dataset.mode;
+                document.getElementById('whoisForm').style.display = mode === 'single' ? '' : 'none';
+                document.getElementById('bulkWhoisForm').style.display = mode === 'bulk' ? '' : 'none';
+            });
+        });
+
+        // ---- History (Issue #4) ----
+        function getHistory() {
+            try { return JSON.parse(localStorage.getItem('whoisHistory') || '[]'); } catch (e) { return []; }
+        }
+        function saveToHistory(domain) {
+            var history = getHistory().filter(function (h) { return h.domain !== domain; });
+            history.unshift({ domain: domain, timestamp: Date.now() });
+            if (history.length > 10) history = history.slice(0, 10);
+            localStorage.setItem('whoisHistory', JSON.stringify(history));
+            renderHistory();
+        }
+        function renderHistory() {
+            var history = getHistory();
+            var container = document.getElementById('historyContainer');
+            var list = document.getElementById('historyList');
+            if (history.length === 0) { container.style.display = 'none'; return; }
+            container.style.display = '';
+            list.innerHTML = history.map(function (h) {
+                return '<button class="btn btn-sm btn-outline-primary history-item" data-domain="' + h.domain + '">' + h.domain + '</button>';
+            }).join('');
+            list.querySelectorAll('.history-item').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    document.getElementById('domain').value = this.dataset.domain;
+                    triggerWhoisLookup(this.dataset.domain);
+                    updateURL(this.dataset.domain);
+                });
+            });
+        }
+        document.getElementById('clearHistory').addEventListener('click', function () {
+            localStorage.removeItem('whoisHistory');
+            renderHistory();
+        });
+        renderHistory();
+
+        // ---- URL param auto-lookup ----
+        var urlParams = new URLSearchParams(window.location.search);
+        var initialDomain = urlParams.get('domain');
+        if (initialDomain) {
+            document.getElementById('domain').value = initialDomain;
+            triggerWhoisLookup(initialDomain);
+        }
+
+        // ---- Single form submit ----
+        document.getElementById('whoisForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            var domain = document.getElementById('domain').value.trim();
+            if (!domain) return;
+            triggerWhoisLookup(domain);
+            updateURL(domain);
+        });
+
+        // ---- Bulk form submit (Issue #5) ----
+        document.getElementById('bulkWhoisForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            var text = document.getElementById('bulkDomains').value.trim();
+            if (!text) return;
+            var domains = text.split(/[\n,]+/).map(function (d) { return d.trim(); }).filter(function (d) { return d; });
+            if (domains.length === 0) return;
+            triggerBulkLookup(domains);
+        });
+
+        // ---- Main WHOIS lookup ----
+        function triggerWhoisLookup(domain) {
+            currentDomain = domain;
+            showLoading(true);
+            hideResults();
+
+            var formData = new FormData();
+            formData.append('domain', domain);
+            formData.append('csrf_token', csrfToken);
+
+            fetch('lookup.php?nocache=' + Date.now(), { method: 'POST', body: formData })
+                .then(function (res) {
+                    if (!res.ok) throw new Error('Server error: ' + res.status);
+                    return res.json();
+                })
+                .then(function (data) {
+                    showLoading(false);
+                    if (data.error) {
+                        showError(data.error);
+                        return;
+                    }
+                    rawWhoisText = data.whois || '';
+                    displayResults(data);
+                    saveToHistory(domain);
+                })
+                .catch(function (err) {
+                    showLoading(false);
+                    showError('Lookup failed: ' + err.message + '. Please try again.');
+                });
+        }
+
+        // ---- Bulk lookup (Issue #5) ----
+        function triggerBulkLookup(domains) {
+            showLoading(true);
+            hideResults();
+            var accordion = document.getElementById('bulkResults');
+            accordion.innerHTML = '';
+            accordion.style.display = '';
+            var completed = 0;
+
+            domains.forEach(function (domain, index) {
+                setTimeout(function () {
+                    var formData = new FormData();
+                    formData.append('domain', domain);
+                    formData.append('csrf_token', csrfToken);
+
+                    fetch('lookup.php?nocache=' + Date.now(), { method: 'POST', body: formData })
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            var item = document.createElement('div');
+                            item.className = 'accordion-item';
+                            var badgeClass = data.availability === 'available' ? 'bg-success' : 'bg-info';
+                            var badgeText = data.availability === 'available' ? 'Available' : 'Registered';
+                            var bulkRegisterBtn = '';
+                            if (data.availability === 'available') {
+                                var bulkRegUrl = 'https://store.mwservices.it/cart.php?a=add&domain=register&query=' + encodeURIComponent(domain);
+                                bulkRegisterBtn = ' <a href="' + bulkRegUrl + '" target="_blank" rel="noopener" class="btn btn-success btn-sm ms-2"><i class="bi bi-cart-plus me-1"></i>Register</a>';
+                            }
+                            item.innerHTML =
+                                '<h2 class="accordion-header">' +
+                                '<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-' + index + '">' +
+                                domain + ' <span class="badge ' + badgeClass + ' ms-2">' + badgeText + '</span>' + bulkRegisterBtn +
+                                '</button></h2>' +
+                                '<div id="bulk-' + index + '" class="accordion-collapse collapse">' +
+                                '<div class="accordion-body"><pre>' + (data.whois || data.error || 'No data') + '</pre></div></div>';
+                            accordion.appendChild(item);
+                            completed++;
+                            if (completed === domains.length) showLoading(false);
+                        })
+                        .catch(function () {
+                            completed++;
+                            if (completed === domains.length) showLoading(false);
+                        });
+                }, index * 1000);
+            });
+        }
+
+        // ---- Display results ----
+        function displayResults(data) {
+            // Availability badge (Issue #3)
+            var avBadge = document.getElementById('availabilityBadge');
+            if (data.availability === 'available') {
+                var registerUrl = 'https://store.mwservices.it/cart.php?a=add&domain=register&query=' + encodeURIComponent(currentDomain);
+                avBadge.innerHTML = '<div class="alert alert-success d-flex align-items-center justify-content-between flex-wrap gap-2">' +
+                    '<div><i class="bi bi-check-circle-fill me-2"></i> <strong>' + currentDomain + '</strong>&nbsp;appears to be available!</div>' +
+                    '<a href="' + registerUrl + '" target="_blank" rel="noopener" class="btn btn-success btn-sm"><i class="bi bi-cart-plus me-1"></i>Register this domain</a>' +
+                    '</div>';
+            } else if (data.availability === 'registered') {
+                avBadge.innerHTML = '<div class="alert alert-info d-flex align-items-center"><i class="bi bi-info-circle-fill me-2"></i> <strong>' + currentDomain + '</strong>&nbsp;is registered.</div>';
+            }
+            avBadge.style.display = '';
+
+            // Data source (Issue #12)
+            var dsBadge = document.getElementById('dataSourceBadge');
+            var src = (data.data_source || 'whois').toUpperCase();
+            var cached = data.cached ? ' (cached)' : '';
+            dsBadge.innerHTML = '<span class="badge bg-secondary">Source: ' + src + cached + '</span>';
+            dsBadge.style.display = '';
+
+            // Parsed fields card (Issue #9)
+            if (data.parsed && Object.keys(data.parsed).length > 0) {
+                var pf = document.getElementById('parsedFields');
+                var html = '<div class="card"><div class="card-header"><strong>Domain Summary</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+                for (var key in data.parsed) {
+                    var val = data.parsed[key];
+                    var display = Array.isArray(val) ? val.join(', ') : val;
+                    var rowClass = '';
+                    if (key === 'Expires In') {
+                        var days = parseInt(val);
+                        if (days <= 30) rowClass = ' class="table-danger"';
+                        else if (days <= 90) rowClass = ' class="table-warning"';
+                    }
+                    html += '<tr' + rowClass + '><td class="fw-bold">' + key + '</td><td>' + display + '</td></tr>';
+                }
+                html += '</table></div></div>';
+                pf.innerHTML = html;
+                pf.style.display = '';
+            }
+
+            // WHOIS formatted result
+            formatWhoisData(data.whois || '');
+
+            // DNS records (Issue #6)
+            if (data.dns && data.dns.length > 0) {
+                document.getElementById('resultTabs').style.display = '';
+                var dnsHtml = '<table class="table table-striped table-sm"><thead><tr><th>Type</th><th>Value</th><th>Priority</th></tr></thead><tbody>';
+                data.dns.forEach(function (rec) {
+                    dnsHtml += '<tr><td><span class="badge bg-secondary">' + rec.type + '</span></td><td>' + rec.value + '</td><td>' + (rec.priority || '') + '</td></tr>';
+                });
+                dnsHtml += '</tbody></table>';
+                document.getElementById('dnsResultPane').innerHTML = dnsHtml;
+            }
+
+            // Show action buttons
+            document.getElementById('actionButtons').style.display = '';
+            document.getElementById('actionButtons').style.cssText = '';
+            isRawView = false;
+            updateToggleButtonText();
+        }
+
+        // ---- Result tabs (Issue #6) ----
+        document.querySelectorAll('#resultTabs .nav-link').forEach(function (tab) {
+            tab.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelectorAll('#resultTabs .nav-link').forEach(function (t) { t.classList.remove('active'); });
+                this.classList.add('active');
+                var target = this.dataset.tab;
+                document.getElementById('whoisResultPane').style.display = target === 'whois' ? '' : 'none';
+                document.getElementById('dnsResultPane').style.display = target === 'dns' ? '' : 'none';
+            });
+        });
+
+        // ---- Format WHOIS data ----
+        function formatWhoisData(whoisHtml) {
+            formattedResult = whoisHtml.split('\n').map(function (line) {
+                var colonIndex = line.indexOf(':');
+                if (colonIndex !== -1) {
+                    var label = line.substring(0, colonIndex + 1);
+                    var value = line.substring(colonIndex + 1).trim();
+                    return '<span class="whois-label">' + label + '</span><div class="whois-value">' + value + '</div>';
+                }
+                return '<span class="whois-value">' + line + '</span>';
+            }).join('');
+            document.getElementById('result').innerHTML = formattedResult;
+        }
+
+        // ---- Toggle raw/formatted ----
+        document.getElementById('toggleViewBtn').addEventListener('click', function () {
+            isRawView = !isRawView;
+            if (isRawView) {
+                document.getElementById('result').innerHTML = '<pre>' + rawWhoisText + '</pre>';
+            } else {
+                document.getElementById('result').innerHTML = formattedResult;
+            }
+            updateToggleButtonText();
+        });
+
+        function updateToggleButtonText() {
+            document.getElementById('toggleViewBtn').textContent = isRawView ? 'Show Formatted Whois' : 'Show Raw Whois';
+        }
+
+        // ---- Copy to clipboard (Issue #7) ----
+        document.getElementById('copyBtn').addEventListener('click', function () {
+            var text = rawWhoisText.replace(/<[^>]*>/g, '');
+            navigator.clipboard.writeText(text).then(function () {
+                var btn = document.getElementById('copyBtn');
+                btn.innerHTML = '<i class="bi bi-check"></i> Copied!';
+                setTimeout(function () { btn.innerHTML = '<i class="bi bi-clipboard"></i> Copy'; }, 2000);
+            });
+        });
+
+        // ---- Download as text (Issue #7) ----
+        document.getElementById('downloadBtn').addEventListener('click', function () {
+            var text = rawWhoisText.replace(/<[^>]*>/g, '');
+            var blob = new Blob([text], { type: 'text/plain' });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = currentDomain + '-whois.txt';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        });
+
+        // ---- Helpers ----
+        function showLoading(show) {
+            document.getElementById('loadingSpinner').style.display = show ? '' : 'none';
+        }
+
+        function hideResults() {
+            document.getElementById('availabilityBadge').style.display = 'none';
+            document.getElementById('dataSourceBadge').style.display = 'none';
+            document.getElementById('parsedFields').style.display = 'none';
+            document.getElementById('resultTabs').style.display = 'none';
+            document.getElementById('dnsResultPane').style.display = 'none';
+            document.getElementById('whoisResultPane').style.display = '';
+            document.getElementById('result').innerHTML = '';
+            document.getElementById('actionButtons').style.display = 'none';
+            document.getElementById('actionButtons').style.cssText = 'display:none !important';
+            document.getElementById('bulkResults').style.display = 'none';
+        }
+
+        function showError(message) {
+            document.getElementById('result').innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i>' + message + '</div>';
+        }
+
+        function updateURL(domain) {
+            var newUrl = window.location.origin + window.location.pathname + '?domain=' + encodeURIComponent(domain);
+            history.pushState({ path: newUrl }, '', newUrl);
+        }
+    });
     </script>
 </body>
 </html>

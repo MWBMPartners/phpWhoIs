@@ -4,7 +4,7 @@
 		$appID = "mwWhoisLookup";
 		$appWebURL = NULL;
 
-		$appVerNo = "0.2.590";
+		$appVerNo = "0.3.000";
 		$appVerName = NULL;
 		$appVerDevStatus = "Beta";
 

@@ -1,111 +1,189 @@
-/* General body styling
-   - This ensures the page uses the full viewport height and width and applies a consistent font */
+/* General body styling */
 body {
     margin: 0;
     padding: 0;
     display: flex;
     flex-direction: column;
-    height: 100vh; /* Full height of the viewport */
-    width: 100vw; /* Full width of the viewport */
-    font-family: Arial, sans-serif; /* Consistent font across the application */
+    height: 100vh;
+    width: 100vw;
+    font-family: Arial, sans-serif;
+    color: var(--bs-body-color);
+    background-color: var(--bs-body-bg);
 }
 
-/* Header section containing the form 
-   - Positioned at the top with padding and shadow for visual separation */
+/* Header section containing the form */
 .header-form {
-    background-color: #f8f9fa; /* Light background color for the header */
+    background-color: var(--bs-tertiary-bg);
     padding: 20px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Subtle shadow effect */
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     z-index: 100;
     position: relative;
+}
+
+[data-bs-theme="dark"] .header-form {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.4);
 }
 
 h1 {
     margin-bottom: 10px;
     font-size: 24px;
-    text-align: center; /* Center align the title */
+    text-align: center;
 }
 
-/* Form container for the domain input and button 
-   - On small screens, the input and button stack vertically 
-   - On larger screens, they align in a row */
+/* Form container */
 .form-container {
     display: flex;
     flex-direction: column;
 }
 
 @media (min-width: 992px) {
-    /* On larger screens, the input and button are placed in a single row */
     .form-container {
         flex-direction: row;
         align-items: center;
     }
     .form-group {
-        flex-grow: 1; /* The input field takes up available space */
+        flex-grow: 1;
         margin-bottom: 0;
     }
     .submit-btn {
-        margin-left: 10px; /* Spacing between the input and the button */
+        margin-left: 10px;
     }
 }
 
-/* Scrollable container for the results 
-   - WHOIS responses can be long, so this section allows vertical scrolling */
+/* Scrollable results container */
 .result-container {
-    flex-grow: 1; /* Take up available space */
-    overflow-y: auto; /* Enable vertical scrolling */
+    flex-grow: 1;
+    overflow-y: auto;
     padding: 20px;
-    background-color: #fff;
-    margin-bottom: 50px; /* Leave space for the footer */
+    background-color: var(--bs-body-bg);
+    margin-bottom: 50px;
 }
 
-/* Fixed footer at the bottom 
-   - Always visible and stays fixed at the bottom of the viewport */
+/* Fixed footer */
 .footer {
-    background-color: #343a40; /* Dark footer color */
-    color: white; /* White text for contrast */
-    text-align: center; /* Center align the text */
+    background-color: #343a40;
+    color: white;
+    text-align: center;
     padding: 10px;
-    position: fixed; /* Fix the footer to the bottom */
+    position: fixed;
     bottom: 0;
-    width: 100%; /* Full width footer */
+    width: 100%;
     z-index: 100;
 }
 
-/* Formatting for the WHOIS result display 
-   - Preformatted text block for displaying raw WHOIS data */
+/* WHOIS result formatting */
 pre {
-    background-color: #f8f9fa; /* Light background for the result area */
+    background-color: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
     padding: 10px;
     border-radius: 5px;
-    border: 1px solid #ddd;
-    white-space: pre-wrap; /* Allow long lines to wrap */
-    word-wrap: break-word; /* Break long words */
-    overflow-wrap: break-word; /* Ensure wrapping in all browsers */
-	font-weight: normal;
+    border: 1px solid var(--bs-border-color);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    font-weight: normal;
 }
 
-/* Bold formatting for the labels in the WHOIS result */
 .whois-label {
     font-weight: bold;
+    color: var(--bs-body-color);
 }
 
-/* Indented formatting for the associated values in the WHOIS result */
 .whois-value {
-    margin-left: 20px; /* Indent the value for better readability */
-    display: block; /* Force values onto a new line */
-	font-weight: normal;
+    margin-left: 20px;
+    display: block;
+    font-weight: normal;
+    color: var(--bs-body-color);
 }
 
-/* Adjust title font size for smaller screens */
+/* Responsive title */
 @media (max-width: 768px) {
     h1 {
-        font-size: 20px; /* Smaller font size for the title on mobile */
+        font-size: 20px;
     }
 }
 
-/* Additional styles for the toggle button 
-   - Spacing above the button for better layout */
+/* Toggle button spacing */
 .toggle-btn {
     margin-top: 10px;
+}
+
+/* History items */
+.history-item {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+}
+
+/* Spinner */
+#loadingSpinner {
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Domain summary card */
+#parsedFields .card {
+    border-radius: 8px;
+    background-color: var(--bs-secondary-bg);
+    color: var(--bs-body-color);
+    border-color: var(--bs-border-color);
+}
+
+#parsedFields .card-header {
+    background-color: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+    border-color: var(--bs-border-color);
+}
+
+#parsedFields .table {
+    color: var(--bs-body-color);
+}
+
+#parsedFields .table td {
+    font-size: 0.9rem;
+    border-color: var(--bs-border-color);
+}
+
+/* DNS records table */
+#dnsResultPane .table {
+    font-size: 0.9rem;
+    color: var(--bs-body-color);
+}
+
+/* Bulk results */
+.accordion-button:not(.collapsed) {
+    font-weight: 600;
+}
+
+/* Lookup mode tabs */
+#lookupModeTabs {
+    border-bottom: none;
+    gap: 4px;
+}
+
+#lookupModeTabs .nav-link {
+    font-size: 0.85rem;
+    padding: 4px 12px;
+    border-radius: 6px 6px 0 0;
+}
+
+/* Alert overrides for dark mode readability */
+[data-bs-theme="dark"] .alert-success {
+    background-color: #0f3d1a;
+    border-color: #1a6b2d;
+    color: #75d98e;
+}
+
+[data-bs-theme="dark"] .alert-info {
+    background-color: #0c2d4a;
+    border-color: #1a5276;
+    color: #6cb4e6;
+}
+
+[data-bs-theme="dark"] .alert-danger {
+    background-color: #3d0f0f;
+    border-color: #6b1a1a;
+    color: #d98e8e;
 }

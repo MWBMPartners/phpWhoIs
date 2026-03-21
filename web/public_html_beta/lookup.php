@@ -1,5 +1,6 @@
-<?php //https://chatgpt.com/share/66ed46d1-c1a4-800b-bc0a-93663c3084dd ?>
-<?php
+<?php //https://chatgpt.com/share/66ed46d1-c1a4-800b-bc0a-93663c3084dd
+session_start();
+
 // Disable browser, server, and intermediary caching to ensure fresh results
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Cache-Control: post-check=0, pre-check=0", false);
@@ -11,6 +12,55 @@ header("Expires: Thu, 01 Jan 1970 00:00:00 GMT");
 define('METADATA_FILE', dirname(dirname(__FILE__)). DIRECTORY_SEPARATOR .'_libs'. DIRECTORY_SEPARATOR .'suffix_list_metadata.json');
 // URL for the Mozilla Public Suffix List
 define('PUBLIC_SUFFIX_LIST_URL', 'https://publicsuffix.org/list/public_suffix_list.dat');
+
+// WHOIS result cache directory and TTL (Issue #11)
+define('WHOIS_CACHE_DIR', sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'mwwhois_cache');
+define('WHOIS_CACHE_TTL', 900); // 15 minutes
+
+// Rate limiting: max lookups per window (Issue #1)
+define('RATE_LIMIT_MAX', 30);
+define('RATE_LIMIT_WINDOW', 60); // seconds
+
+// CSRF validation (Issue #1)
+function validateCsrfToken() {
+    if (empty($_POST['csrf_token']) || empty($_SESSION['csrf_token'])) {
+        return false;
+    }
+    return hash_equals($_SESSION['csrf_token'], $_POST['csrf_token']);
+}
+
+// Rate limiting via session (Issue #1)
+function checkRateLimit() {
+    $now = time();
+    if (!isset($_SESSION['rate_limit'])) {
+        $_SESSION['rate_limit'] = ['count' => 0, 'window_start' => $now];
+    }
+    if ($now - $_SESSION['rate_limit']['window_start'] > RATE_LIMIT_WINDOW) {
+        $_SESSION['rate_limit'] = ['count' => 0, 'window_start' => $now];
+    }
+    $_SESSION['rate_limit']['count']++;
+    return $_SESSION['rate_limit']['count'] <= RATE_LIMIT_MAX;
+}
+
+// WHOIS result caching (Issue #11)
+function getCachedWhois($domain) {
+    $cacheFile = WHOIS_CACHE_DIR . DIRECTORY_SEPARATOR . md5($domain) . '.json';
+    if (file_exists($cacheFile)) {
+        $data = json_decode(file_get_contents($cacheFile), true);
+        if ($data && (time() - $data['timestamp']) < WHOIS_CACHE_TTL) {
+            return $data['result'];
+        }
+    }
+    return null;
+}
+
+function setCachedWhois($domain, $result) {
+    if (!is_dir(WHOIS_CACHE_DIR)) {
+        @mkdir(WHOIS_CACHE_DIR, 0755, true);
+    }
+    $cacheFile = WHOIS_CACHE_DIR . DIRECTORY_SEPARATOR . md5($domain) . '.json';
+    file_put_contents($cacheFile, json_encode(['timestamp' => time(), 'result' => $result]));
+}
 
 // Function to update the public suffix list, only if it has changed
 // This ensures we always have the latest list but avoid unnecessary downloads
@@ -141,34 +191,281 @@ function extractMainDomainUsingSuffixList($domain, $suffixes) {
     return implode('.', array_slice($domainParts, -2));
 }
 
+// Detect domain availability from WHOIS output (Issue #3)
+function detectAvailability($whoisText) {
+    // First check: if key registration fields exist, domain is definitely registered
+    if (preg_match('/Registrar:\s*\S+/i', $whoisText) ||
+        preg_match('/Creation Date:\s*\S+/i', $whoisText) ||
+        preg_match('/Created Date:\s*\S+/i', $whoisText) ||
+        preg_match('/Registry Domain ID:\s*\S+/i', $whoisText)) {
+        return 'registered';
+    }
+
+    // Second check: look for explicit "not found" indicators
+    $notFoundPatterns = [
+        '/^No match for /mi',
+        '/^No match for domain/mi',
+        '/^NOT FOUND\b/mi',
+        '/^No Data Found/mi',
+        '/^No entries found/mi',
+        '/^Domain not found/mi',
+        '/^The queried object does not exist/mi',
+        '/^This query returned 0 objects/mi',
+        '/^domain name not known/mi',
+        '/^Object does not exist/mi',
+        '/^Status:\s*free\b/mi',
+        '/^%% No entries found/mi',
+    ];
+    foreach ($notFoundPatterns as $pattern) {
+        if (preg_match($pattern, $whoisText)) {
+            return 'available';
+        }
+    }
+    return 'registered';
+}
+
+// Query DNS records for a domain (Issue #6)
+function getDnsRecords($domain) {
+    $records = [];
+    $types = [DNS_A, DNS_AAAA, DNS_MX, DNS_NS, DNS_TXT, DNS_CNAME];
+    $typeNames = ['A', 'AAAA', 'MX', 'NS', 'TXT', 'CNAME'];
+    foreach ($types as $i => $type) {
+        $result = @dns_get_record($domain, $type);
+        if ($result) {
+            foreach ($result as $rec) {
+                $entry = ['type' => $typeNames[$i]];
+                switch ($type) {
+                    case DNS_A:     $entry['value'] = $rec['ip'] ?? ''; break;
+                    case DNS_AAAA:  $entry['value'] = $rec['ipv6'] ?? ''; break;
+                    case DNS_MX:    $entry['value'] = $rec['target'] ?? ''; $entry['priority'] = $rec['pri'] ?? ''; break;
+                    case DNS_NS:    $entry['value'] = $rec['target'] ?? ''; break;
+                    case DNS_TXT:   $entry['value'] = $rec['txt'] ?? ''; break;
+                    case DNS_CNAME: $entry['value'] = $rec['target'] ?? ''; break;
+                }
+                $records[] = $entry;
+            }
+        }
+    }
+    return $records;
+}
+
+// Parse WHOIS output into structured key fields (Issue #9)
+function parseWhoisFields($whoisText) {
+    $fields = [];
+    $patterns = [
+        'Domain Name'        => '/Domain Name:\s*(.+)/i',
+        'Registrar'          => '/Registrar:\s*(.+)/i',
+        'Creation Date'      => '/Creat(?:ion|ed) Date:\s*(.+)/i',
+        'Expiry Date'        => '/Expir(?:y|ation) Date:\s*(.+)/i',
+        'Updated Date'       => '/Updated Date:\s*(.+)/i',
+        'Registrant Org'     => '/Registrant Organi[sz]ation:\s*(.+)/i',
+        'Registrant Country' => '/Registrant Country:\s*(.+)/i',
+        'Status'             => '/Domain Status:\s*(.+)/i',
+    ];
+    foreach ($patterns as $label => $regex) {
+        if ($label === 'Status') {
+            // Collect all statuses
+            preg_match_all($regex, $whoisText, $matches);
+            if (!empty($matches[1])) {
+                $fields[$label] = array_map('trim', $matches[1]);
+            }
+        } else {
+            if (preg_match($regex, $whoisText, $match)) {
+                $fields[$label] = trim($match[1]);
+            }
+        }
+    }
+    // Collect nameservers
+    preg_match_all('/Name Server:\s*(.+)/i', $whoisText, $nsMatches);
+    if (!empty($nsMatches[1])) {
+        $fields['Name Servers'] = array_map('trim', $nsMatches[1]);
+    }
+    // Calculate expiry countdown
+    if (isset($fields['Expiry Date'])) {
+        $expiryTime = strtotime($fields['Expiry Date']);
+        if ($expiryTime) {
+            $daysLeft = (int)ceil(($expiryTime - time()) / 86400);
+            $fields['Expires In'] = $daysLeft . ' days';
+        }
+    }
+    return $fields;
+}
+
+// RDAP lookup (Issue #12)
+function rdapLookup($domain) {
+    // Extract TLD
+    $parts = explode('.', $domain);
+    $tld = end($parts);
+
+    // Try RDAP via rdap.org (auto-routes to correct RDAP server)
+    $rdapUrl = "https://rdap.org/domain/" . urlencode($domain);
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'GET',
+            'header' => "Accept: application/rdap+json\r\n",
+            'timeout' => 8,
+            'ignore_errors' => true,
+        ]
+    ]);
+    $response = @file_get_contents($rdapUrl, false, $context);
+    if ($response === false) {
+        return null;
+    }
+    $data = json_decode($response, true);
+    if (!$data || isset($data['errorCode'])) {
+        return null;
+    }
+    return $data;
+}
+
+// Format RDAP response into readable text (Issue #12)
+function formatRdapResponse($rdap) {
+    $lines = [];
+    if (isset($rdap['ldhName'])) {
+        $lines[] = "Domain Name: " . strtoupper($rdap['ldhName']);
+    }
+    if (isset($rdap['status'])) {
+        foreach ($rdap['status'] as $status) {
+            $lines[] = "Status: " . $status;
+        }
+    }
+    if (isset($rdap['events'])) {
+        foreach ($rdap['events'] as $event) {
+            $action = ucfirst($event['eventAction'] ?? '');
+            $date = $event['eventDate'] ?? '';
+            $lines[] = "$action: $date";
+        }
+    }
+    if (isset($rdap['entities'])) {
+        foreach ($rdap['entities'] as $entity) {
+            $roles = implode(', ', $entity['roles'] ?? []);
+            $handle = $entity['handle'] ?? '';
+            if ($roles) {
+                $lines[] = ucfirst($roles) . ": " . $handle;
+            }
+            // Extract vcard info
+            if (isset($entity['vcardArray'][1])) {
+                foreach ($entity['vcardArray'][1] as $vcard) {
+                    if ($vcard[0] === 'fn') {
+                        $lines[] = "  Name: " . $vcard[3];
+                    }
+                    if ($vcard[0] === 'org') {
+                        $lines[] = "  Organization: " . (is_array($vcard[3]) ? $vcard[3][0] : $vcard[3]);
+                    }
+                }
+            }
+        }
+    }
+    if (isset($rdap['nameservers'])) {
+        foreach ($rdap['nameservers'] as $ns) {
+            $lines[] = "Name Server: " . ($ns['ldhName'] ?? '');
+        }
+    }
+    return implode("\n", $lines);
+}
+
 // Main logic for handling the WHOIS lookup request
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    // Determine response format (Issue #10)
+    $jsonFormat = isset($_GET['format']) && $_GET['format'] === 'json';
+
+    // CSRF validation (Issue #1) - skip for JSON API requests
+    if (!$jsonFormat && !validateCsrfToken()) {
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Invalid request. Please refresh the page and try again.']);
+        exit;
+    }
+
+    // Rate limiting (Issue #1)
+    if (!checkRateLimit()) {
+        header('Content-Type: application/json');
+        http_response_code(429);
+        echo json_encode(['error' => 'Rate limit exceeded. Please wait before trying again.']);
+        exit;
+    }
+
     // Attempt to update the public suffix list (will fallback if unable)
     if (!updatePublicSuffixList()) {
         error_log("Public suffix list could not be updated. Using local copy or default extraction.");
     }
 
     $suffixes = loadPublicSuffixList(); // Load the public suffix list
-    $input = $_POST['domain']; // Get the domain input from the form
+    $input = $_POST['domain'] ?? ''; // Get the domain input from the form
 
     // Step 1: Sanitize and extract the domain
     $domain = getDomainFromInput($input, $suffixes);
 
     // Step 2: Validate the extracted domain
     if (!$domain || !validateDomain($domain)) {
-        echo "Invalid domain name.";
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Invalid domain name.']);
         exit;
     }
 
-    // Step 3: Perform the WHOIS lookup using shell command
-    $escapedDomain = escapeshellarg($domain); // Escape the domain for shell execution
-    $whois_info = shell_exec("whois $escapedDomain");
+    // Step 3: Check cache first (Issue #11)
+    $whois_info = getCachedWhois($domain);
+    $fromCache = ($whois_info !== null);
 
-    // Step 4: Output the WHOIS result
+    // Step 4: Try RDAP first, fall back to WHOIS (Issue #12)
+    $rdapData = null;
+    $dataSource = 'whois';
+    if (!$fromCache) {
+        $rdapData = rdapLookup($domain);
+        if ($rdapData) {
+            $dataSource = 'rdap';
+            $whois_info = formatRdapResponse($rdapData);
+        }
+    }
+
+    // Step 5: Fall back to WHOIS command if RDAP failed/unavailable
     if (!$whois_info) {
-        echo "Whois lookup failed or no information found.";
+        $escapedDomain = escapeshellarg($domain);
+        $whois_info = shell_exec("whois $escapedDomain 2>&1");
+        $dataSource = 'whois';
+    }
+
+    // Step 6: Cache the result (Issue #11)
+    if ($whois_info && !$fromCache) {
+        setCachedWhois($domain, $whois_info);
+    }
+
+    // Step 7: Detect availability (Issue #3)
+    $availability = $whois_info ? detectAvailability($whois_info) : 'unknown';
+
+    // Step 8: Parse structured fields (Issue #9)
+    $parsedFields = $whois_info ? parseWhoisFields($whois_info) : [];
+
+    // Step 9: Get DNS records (Issue #6)
+    $dnsRecords = getDnsRecords($domain);
+
+    // Step 10: Output result
+    if ($jsonFormat) {
+        // JSON API response (Issue #10)
+        header('Content-Type: application/json');
+        header('Access-Control-Allow-Origin: *');
+        echo json_encode([
+            'domain' => $domain,
+            'availability' => $availability,
+            'data_source' => $dataSource,
+            'parsed' => $parsedFields,
+            'dns' => $dnsRecords,
+            'raw' => $whois_info ?: null,
+            'cached' => $fromCache,
+        ], JSON_PRETTY_PRINT);
     } else {
-        echo "<pre>" . htmlspecialchars($whois_info) . "</pre>"; // HTML escape the result for safety
+        // HTML response
+        if (!$whois_info) {
+            echo json_encode(['error' => 'Whois lookup failed or no information found.', 'availability' => 'unknown']);
+        } else {
+            echo json_encode([
+                'whois' => htmlspecialchars($whois_info),
+                'availability' => $availability,
+                'data_source' => $dataSource,
+                'parsed' => $parsedFields,
+                'dns' => $dnsRecords,
+                'cached' => $fromCache,
+            ]);
+        }
     }
 }
 
