@@ -452,6 +452,7 @@
 
     <!-- Footer -->
     <div class="footer">
+        <?php
         if (isset($appYearStart)){
             if (isset($appVendor)){
                 if (isset($appVendorParent)){
@@ -508,6 +509,7 @@
                 }
             }
         }
+        ?>
     </div>
 
     <!-- Bootstrap 5 JS bundle (Issue #8) -->
