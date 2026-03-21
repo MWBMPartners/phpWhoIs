@@ -304,6 +304,8 @@ function rdapLookup($domain) {
             'method' => 'GET',
             'header' => "Accept: application/rdap+json\r\n",
             'timeout' => 8,
+            'follow_location' => 1,
+            'max_redirects' => 5,
             'ignore_errors' => true,
         ]
     ]);
@@ -369,6 +371,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // Determine response format (Issue #10)
     $jsonFormat = isset($_GET['format']) && $_GET['format'] === 'json';
 
+    // Determine data source preference: ?source=rdap (default) or ?source=whois
+    $sourceParam = isset($_GET['source']) ? strtolower($_GET['source']) : 'rdap';
+    if (!in_array($sourceParam, ['rdap', 'whois'])) {
+        $sourceParam = 'rdap';
+    }
+    // Also accept via POST (for form submissions)
+    if (isset($_POST['source']) && in_array(strtolower($_POST['source']), ['rdap', 'whois'])) {
+        $sourceParam = strtolower($_POST['source']);
+    }
+
     // CSRF validation (Issue #1) - skip for JSON API requests
     if (!$jsonFormat && !validateCsrfToken()) {
         header('Content-Type: application/json');
@@ -406,10 +418,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $whois_info = getCachedWhois($domain);
     $fromCache = ($whois_info !== null);
 
-    // Step 4: Try RDAP first, fall back to WHOIS (Issue #12)
+    // Step 4: Lookup using preferred source (Issue #12)
+    // ?source=rdap (default): try RDAP first, fall back to WHOIS
+    // ?source=whois: use WHOIS directly, skip RDAP
     $rdapData = null;
     $dataSource = 'whois';
-    if (!$fromCache) {
+    if (!$fromCache && $sourceParam === 'rdap') {
         $rdapData = rdapLookup($domain);
         if ($rdapData) {
             $dataSource = 'rdap';
@@ -417,7 +431,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 
-    // Step 5: Fall back to WHOIS command if RDAP failed/unavailable
+    // Step 5: Fall back to WHOIS if RDAP skipped/failed/unavailable
     if (!$whois_info) {
         $escapedDomain = escapeshellarg($domain);
         $whois_info = shell_exec("whois $escapedDomain 2>&1");
