@@ -149,8 +149,11 @@
 			//Define & Initialise App Specific Components
 				//Define App Root Directory
 					if (!isset($pathAppRoot) or empty($pathAppRoot) or !file_exists($pathAppRoot)){
-						if (file_exists(dirname(dirname(__FILE__)))){
+					/*	if (file_exists(dirname(dirname(__FILE__)))){
 							$pathAppRoot = dirname(dirname(__FILE__));
+						}   */
+						if (file_exists(dirname(__FILE__))){
+							$pathAppRoot = dirname(__FILE__);
 						}
 						else{
 							if (function_exists("webmsStatus")){
@@ -316,6 +319,15 @@
 	//////////////////////////////////////////////////////////////////////////////
 	//			END of Integration of WebMS Shared/Global Resources				//
 	//////////////////////////////////////////////////////////////////////////////
+
+    if (file_exists($pathAppRoot. DIRECTORY_SEPARATOR ."infoAppVer.php")){
+        require_once ($pathAppRoot. DIRECTORY_SEPARATOR ."infoAppVer.php");
+    }
+    else{
+        if (function_exists("webmsStatus")){
+            webmsStatus("Application Version Info not loaded", __FILE__, __LINE__);
+        }
+    }
 ?>
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
@@ -332,7 +344,6 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
     <!-- Header -->
     <div class="header-form">
         <div class="d-flex justify-content-between align-items-center mb-2">
@@ -441,7 +452,62 @@
 
     <!-- Footer -->
     <div class="footer">
-        &copy; 2024 Whois Lookup Tool - All Rights Reserved
+        if (isset($appYearStart)){
+            if (isset($appVendor)){
+                if (isset($appVendorParent)){
+                    if ($appYearStart < date("Y")) {
+                        echo "&copy; ". $appYearStart ." - ". date("Y") ." ". $appVendorParent ."(t/a) ". $appVendor .". All Rights Reserved";
+                    }
+                    else {
+                        echo "&copy; ". $appYearStart ." ". $appVendorParent ."(t/a) ". $appVendor .". All Rights Reserved";
+                    }
+                }
+                else{
+                    if ($appYearStart < date("Y")) {
+                        echo "&copy; ". $appYearStart ." - ". date("Y") ." ". $appVendor .". All Rights Reserved";
+                    }
+                    else {
+                        echo "&copy; ". $appYearStart ." Whois Lookup Tool. All Rights Reserved";
+                    }
+                }
+            }
+            else{
+                if (isset($appVendorParent)){
+                    if ($appYearStart < date("Y")) {
+                        echo "&copy; ". $appYearStart ." - ". date("Y") ." ". $appVendorParent .". All Rights Reserved";
+                    }
+                    else {
+                        echo "&copy; ". $appYearStart ." ". $appVendorParent .". All Rights Reserved";
+                    }
+                }
+                else{
+                    if ($appYearStart < date("Y")) {
+                        echo "&copy; ". $appYearStart ." - ". date("Y") ." Whois Lookup Tool. All Rights Reserved";
+                    }
+                    else {
+                        echo "&copy; ". $appYearStart ." Whois Lookup Tool. All Rights Reserved";
+                    }
+                }
+            }
+        }
+        else{
+            if (isset($appVendor)){
+                if (isset($appVendorParent)){
+                    echo "&copy; ". date("Y") ." ". $appVendorParent ."(t/a) ". $appVendor .". All Rights Reserved";
+                }
+                else{
+                    echo "&copy; ". date("Y") ." ". $appVendor .". All Rights Reserved";
+                }
+            }
+            else{
+                if (isset($appVendorParent)){
+                    echo "&copy; ". date("Y") ." ". $appVendorParent .". All Rights Reserved";
+                }
+                else{
+                    echo "&copy; ". date("Y") ." Whois Lookup Tool. All Rights Reserved";
+                }
+            }
+        }
     </div>
 
     <!-- Bootstrap 5 JS bundle (Issue #8) -->

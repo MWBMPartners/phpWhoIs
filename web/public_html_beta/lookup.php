@@ -293,26 +293,45 @@ function parseWhoisFields($whoisText) {
 
 // RDAP lookup (Issue #12)
 function rdapLookup($domain) {
-    // Extract TLD
-    $parts = explode('.', $domain);
-    $tld = end($parts);
-
-    // Try RDAP via rdap.org (auto-routes to correct RDAP server)
     $rdapUrl = "https://rdap.org/domain/" . urlencode($domain);
-    $context = stream_context_create([
-        'http' => [
-            'method' => 'GET',
-            'header' => "Accept: application/rdap+json\r\n",
-            'timeout' => 8,
-            'follow_location' => 1,
-            'max_redirects' => 5,
-            'ignore_errors' => true,
-        ]
-    ]);
-    $response = @file_get_contents($rdapUrl, false, $context);
-    if ($response === false) {
-        return null;
+
+    // Use curl for fast redirect handling (rdap.org 302s to registry servers)
+    if (function_exists('curl_init')) {
+        $ch = curl_init($rdapUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS      => 5,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_HTTPHEADER     => ['Accept: application/rdap+json'],
+            CURLOPT_USERAGENT      => 'mwWhoisLookup/0.3',
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($response === false || $httpCode >= 400) {
+            return null;
+        }
+    } else {
+        // Fallback to file_get_contents if curl unavailable
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'header' => "Accept: application/rdap+json\r\n",
+                'timeout' => 5,
+                'follow_location' => 1,
+                'max_redirects' => 5,
+                'ignore_errors' => true,
+            ]
+        ]);
+        $response = @file_get_contents($rdapUrl, false, $context);
+        if ($response === false) {
+            return null;
+        }
     }
+
     $data = json_decode($response, true);
     if (!$data || isset($data['errorCode'])) {
         return null;
