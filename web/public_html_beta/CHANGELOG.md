@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [95a5a43] - 2026-03-22
+
+**fix: improve footer display logic for application version and commit details**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`95a5a43`](https://github.com/MWBMPartners/phpWhoIs/commit/95a5a43460a0547d4ab50a01a3ce831102bb6aee)
+
+### Changed files
+
+- `index.php`
+
+
 ## [5a63747] - 2026-03-22
 
 **fix: initialize pageTitle to NULL and conditionally display it in the footer**
