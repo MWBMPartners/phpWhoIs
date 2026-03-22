@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [3d4ee1f] - 2026-03-22
+
+**fix: increase font size for focused header links**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`3d4ee1f`](https://github.com/MWBMPartners/phpWhoIs/commit/3d4ee1f0035f0a55aa505dfbbb9cc28a3014b504)
+
+### Changed files
+
+- `style.css`
+
+
 ## [7ec91ae] - 2026-03-22
 
 **fix: add CSS cache-busting, use --transfer-all for SFTP deploy**
