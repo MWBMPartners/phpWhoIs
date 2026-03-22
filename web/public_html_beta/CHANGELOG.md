@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [4b8b1da] - 2026-03-22
+
+**feat: add Wayback Machine link to action buttons (#54)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`4b8b1da`](https://github.com/MWBMPartners/phpWhoIs/commit/4b8b1da23b4c078e346f61063c9a415c239070ef)
+
+### Changed files
+
+- `index.php`
+
+
 ## [71cd21c] - 2026-03-22
 
 **feat: handle browser back/forward with popstate (#36)**
