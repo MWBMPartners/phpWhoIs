@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [a8039b4] - 2026-03-22
+
+**feat: add PHPUnit tests, CI linting, extract functions.php (#44)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`a8039b4`](https://github.com/MWBMPartners/phpWhoIs/commit/a8039b4a9898c414f14a78975410c12adb38aad0)
+
+### Changed files
+
+- `functions.php`
+- `lookup.php`
+
+
 ## [95a5a43] - 2026-03-22
 
 **fix: improve footer display logic for application version and commit details**
