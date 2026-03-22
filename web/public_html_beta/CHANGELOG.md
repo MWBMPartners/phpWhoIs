@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [15a4250] - 2026-03-22
+
+**feat: SSL/TLS certificate info tab (#19)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`15a4250`](https://github.com/MWBMPartners/phpWhoIs/commit/15a4250b05c7bee0225c9fb731632d9bc3a7227f)
+
+### Changed files
+
+- `functions.php`
+- `index.php`
+- `lookup.php`
+
+
 ## [4fdf8c4] - 2026-03-22
 
 **feat: QR code sharing modal for lookup results (#50)**
