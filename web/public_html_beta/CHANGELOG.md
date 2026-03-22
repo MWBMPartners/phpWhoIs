@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [5a63747] - 2026-03-22
+
+**fix: initialize pageTitle to NULL and conditionally display it in the footer**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`5a63747`](https://github.com/MWBMPartners/phpWhoIs/commit/5a63747e477661afcdfbc8e9b03d16dc3123fd85)
+
+### Changed files
+
+- `index.php`
+
+
 ## [87c673b] - 2026-03-22
 
 **refactor: update license structure in infoAppVer.php for clarity**
