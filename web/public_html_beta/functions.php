@@ -16,6 +16,9 @@ function validateCsrfToken(): bool {
     return hash_equals($_SESSION['csrf_token'], $_POST['csrf_token']);
 }
 
+/**
+ * Session-based rate limiting (per-user).
+ */
 function checkRateLimit(): bool {
     $now = time();
 
@@ -26,6 +29,72 @@ function checkRateLimit(): bool {
     $_SESSION['rate_limit']['count']++;
 
     return $_SESSION['rate_limit']['count'] <= RATE_LIMIT_MAX;
+}
+
+/**
+ * IP-based rate limiting (Issue #22).
+ * Uses file-based storage in the cache directory.
+ * Harder to bypass than session-based limiting.
+ */
+function checkIpRateLimit(): bool {
+    $ip = '';
+    if (isset($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $ip = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0];
+    } elseif (isset($_SERVER['REMOTE_ADDR'])) {
+        $ip = $_SERVER['REMOTE_ADDR'];
+    }
+
+    $ip = trim($ip);
+    if ($ip === '') {
+        return true;
+    }
+
+    $rateLimitDir = CACHE_DIR . DIRECTORY_SEPARATOR . 'rate_limits';
+    if (!is_dir($rateLimitDir)) {
+        @mkdir($rateLimitDir, 0755, true);
+    }
+
+    // Use hashed IP as filename (privacy + filesystem safety)
+    $file = $rateLimitDir . DIRECTORY_SEPARATOR . md5($ip) . '.json';
+    $now = time();
+    $data = null;
+
+    if (file_exists($file)) {
+        $data = json_decode(file_get_contents($file), true);
+    }
+
+    // Reset if window expired or invalid data
+    if (!$data || !isset($data['start']) || ($now - $data['start']) > RATE_LIMIT_WINDOW) {
+        $data = ['count' => 0, 'start' => $now];
+    }
+
+    $data['count']++;
+    file_put_contents($file, json_encode($data));
+
+    // Clean up old rate limit files periodically (1 in 100 chance)
+    if (rand(1, 100) === 1) {
+        cleanExpiredRateLimits($rateLimitDir);
+    }
+
+    return $data['count'] <= RATE_LIMIT_MAX;
+}
+
+/**
+ * Remove expired rate limit files.
+ */
+function cleanExpiredRateLimits(string $dir): void {
+    $files = glob($dir . DIRECTORY_SEPARATOR . '*.json');
+    if (!$files) {
+        return;
+    }
+
+    $now = time();
+    foreach ($files as $file) {
+        $data = json_decode(file_get_contents($file), true);
+        if (!$data || !isset($data['start']) || ($now - $data['start']) > RATE_LIMIT_WINDOW * 2) {
+            @unlink($file);
+        }
+    }
 }
 
 /**

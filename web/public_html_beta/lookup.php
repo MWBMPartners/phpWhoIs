@@ -74,8 +74,8 @@ if (!$jsonFormat && !validateCsrfToken()) {
     sendError('Invalid request. Please refresh the page and try again.', 403);
 }
 
-// Rate limit
-if (!checkRateLimit()) {
+// Rate limit (session-based + IP-based)
+if (!checkRateLimit() || !checkIpRateLimit()) {
     sendError('Rate limit exceeded. Please wait before trying again.', 429);
 }
 
