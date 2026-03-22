@@ -141,21 +141,25 @@ jobs:
       - name: Deploy via SFTP (password)
         if: steps.changes.outputs.has_changes == 'true' && steps.auth.outputs.method == 'password'
         env:
-          SFTP_USER: ${{ secrets.SFTP_USER }}
-          SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
-          SFTP_HOST: ${{ secrets.SFTP_HOST }}
-          SFTP_PORT: ${{ secrets.SFTP_PORT }}
-          SOURCE_DIR: ${{ steps.target.outputs.source_dir }}
-          REMOTE_PATH: ${{ steps.target.outputs.remote_path }}
+          LFTP_USER: ${{ secrets.SFTP_USER }}
+          LFTP_PASS: ${{ secrets.SFTP_PASSWORD }}
+          LFTP_HOST: ${{ secrets.SFTP_HOST }}
+          LFTP_PORT: ${{ secrets.SFTP_PORT }}
+          LFTP_SRC: ${{ steps.target.outputs.source_dir }}
+          LFTP_DST: ${{ steps.target.outputs.remote_path }}
         run: |
-          cat > /tmp/lftp_script.txt <<LFTP_EOF
-          set sftp:auto-confirm yes
-          set ssl:verify-certificate no
-          open -u ${SFTP_USER},${SFTP_PASSWORD} sftp://${SFTP_HOST}:${SFTP_PORT}
-          mirror --reverse --verbose --ignore-time --no-empty-dirs --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md ${SOURCE_DIR} ${REMOTE_PATH}
-          bye
-          LFTP_EOF
-          lftp -f /tmp/lftp_script.txt
+          # Use LFTP_PASSWORD env var (lftp reads this automatically for authentication)
+          export LFTP_PASSWORD="$LFTP_PASS"
+
+          lftp -u "$LFTP_USER" -p "$LFTP_PORT" -e "
+            set sftp:auto-confirm yes
+            set ssl:verify-certificate no
+            mirror --reverse --verbose --ignore-time --no-empty-dirs \
+              --exclude .DS_Store --exclude .gitkeep --exclude .gitignore \
+              --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md \
+              $LFTP_SRC $LFTP_DST
+            bye
+          " "sftp://$LFTP_HOST"
 
       - name: Deployment summary
         if: steps.changes.outputs.has_changes == 'true'
