@@ -3,6 +3,28 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [5d16826] - 2026-03-22
+
+**feat: implement issues #58-#65 — i18n, monitoring, admin, API keys, HIBP, verification**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`5d16826`](https://github.com/MWBMPartners/phpWhoIs/commit/5d16826547525e83d6d7a403d9ffe2c6a209aec7)
+
+### Changed files
+
+- `admin.php`
+- `config.php`
+- `functions.php`
+- `index.php`
+- `lang/de.json`
+- `lang/en.json`
+- `lang/es.json`
+- `lang/fr.json`
+- `lookup.php`
+- `monitor.php`
+
+
 ## [b17bfdb] - 2026-03-22
 
 **feat: implement issues #39-#68 batch — theme, accessibility, API docs, and new features**
