@@ -161,6 +161,13 @@ pre {
 
 #result {
     color: var(--bs-body-color);
+    cursor: text;
+    transition: background-color 0.3s ease;
+}
+
+#result.whois-selected {
+    background-color: rgba(var(--bs-primary-rgb), 0.06);
+    border-radius: 6px;
 }
 
 /* ─── Responsive title ─── */

@@ -448,6 +448,21 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             URL.revokeObjectURL(a.href);
         });
 
+        // ── Click-to-select WHOIS output (Issue #34) ──
+        document.getElementById('result').addEventListener('click', function () {
+            var range = document.createRange();
+            range.selectNodeContents(this);
+            var sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+
+            // Brief highlight flash
+            this.classList.add('whois-selected');
+            setTimeout(function () {
+                document.getElementById('result').classList.remove('whois-selected');
+            }, 600);
+        });
+
         // ── Helpers ──
         var defaultTitle = document.title;
 
