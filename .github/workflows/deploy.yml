@@ -36,10 +36,17 @@ jobs:
         run: |
           SOURCE_DIR="${{ steps.target.outputs.source_dir }}"
           EXCLUDES="CHANGELOG.md|README.md|DEV_NOTES.md|\.DS_Store|\.gitkeep|\.gitignore"
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s")
 
-          # Get files changed in this commit within the source directory
-          CHANGED=$(git diff --name-only HEAD~1 HEAD -- "$SOURCE_DIR" 2>/dev/null \
-            | grep -vE "$EXCLUDES" || true)
+          # Force full deploy if commit message contains [deploy all]
+          if echo "$COMMIT_MSG" | grep -q "\[deploy all\]"; then
+            echo "Full deploy requested via [deploy all]"
+            CHANGED=$(find "$SOURCE_DIR" -type f | grep -vE "$EXCLUDES" || true)
+          else
+            # Check last 5 commits for changes (covers multi-commit pushes and bot commits)
+            CHANGED=$(git diff --name-only HEAD~5 HEAD -- "$SOURCE_DIR" 2>/dev/null \
+              | grep -vE "$EXCLUDES" | sort -u || true)
+          fi
 
           if [[ -z "$CHANGED" ]]; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
