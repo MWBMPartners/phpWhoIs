@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [e461ce1] - 2026-03-22
+
+**fix: split footer into two responsive columns**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`e461ce1`](https://github.com/MWBMPartners/phpWhoIs/commit/e461ce1323dee838b9918fe00445adeafc3f1d11)
+
+### Changed files
+
+- `index.php`
+- `logo.svg`
+- `style.css`
+
+
 ## [15a4250] - 2026-03-22
 
 **feat: SSL/TLS certificate info tab (#19)**
