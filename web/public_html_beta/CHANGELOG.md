@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [897e57f] - 2026-03-22
+
+**fix: update line break formatting in app version output**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`897e57f`](https://github.com/MWBMPartners/phpWhoIs/commit/897e57f0b87b457fe5f676bc81244a3fb0a19264)
+
+### Changed files
+
+- `index.php`
+
+
 ## [a038d9f] - 2026-03-22
 
 **feat: update page description logic and add synopsis to app version info**
