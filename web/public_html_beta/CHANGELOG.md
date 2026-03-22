@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [4fdf8c4] - 2026-03-22
+
+**feat: QR code sharing modal for lookup results (#50)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`4fdf8c4`](https://github.com/MWBMPartners/phpWhoIs/commit/4fdf8c40933a16c578ff9c442192dfc400163501)
+
+### Changed files
+
+- `index.php`
+
+
 ## [bfd555e] - 2026-03-22
 
 **feat: DMARC/SPF/DKIM email security check (#56)**
