@@ -1,0 +1,114 @@
+name: Update Changelog
+
+on:
+  push:
+    branches:
+      - main
+      - beta
+
+permissions:
+  contents: write
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine target directory
+        id: target
+        run: |
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "dir=web/public_html" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "beta" ]]; then
+            echo "dir=web/public_html_beta" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check for relevant changes
+        id: check
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- "${{ steps.target.outputs.dir }}/" 2>/dev/null | grep -v 'CHANGELOG.md' | grep -v 'README.md' || true)
+          if [[ -z "$CHANGED" ]]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate changelog entry
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          TARGET_DIR="${{ steps.target.outputs.dir }}"
+          CHANGELOG="$TARGET_DIR/CHANGELOG.md"
+          DATE=$(date +%Y-%m-%d)
+          COMMIT_SHA="${{ github.sha }}"
+          SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-7)
+          BRANCH="${{ github.ref_name }}"
+          ACTOR="${{ github.actor }}"
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s")
+
+          # Get changed files in the target directory (exclude changelog/readme)
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD -- "$TARGET_DIR/" | grep -v 'CHANGELOG.md' | grep -v 'README.md' || true)
+
+          # Build the new entry
+          ENTRY="## [$SHORT_SHA] - $DATE\n\n"
+          ENTRY+="**$COMMIT_MSG**\n\n"
+          ENTRY+="- Branch: \`$BRANCH\`\n"
+          ENTRY+="- Author: $ACTOR\n"
+          ENTRY+="- Commit: [\`$SHORT_SHA\`](https://github.com/${{ github.repository }}/commit/$COMMIT_SHA)\n\n"
+
+          if [[ -n "$CHANGED_FILES" ]]; then
+            ENTRY+="### Changed files\n\n"
+            while IFS= read -r file; do
+              # Strip the directory prefix for cleaner display
+              BASENAME=$(echo "$file" | sed "s|$TARGET_DIR/||")
+              ENTRY+="- \`$BASENAME\`\n"
+            done <<< "$CHANGED_FILES"
+            ENTRY+="\n"
+          fi
+
+          # Insert the new entry after the header lines in CHANGELOG.md
+          if [[ -f "$CHANGELOG" ]]; then
+            # Find the line number of the first "## " entry
+            FIRST_ENTRY_LINE=$(grep -n "^## " "$CHANGELOG" | head -1 | cut -d: -f1)
+
+            if [[ -n "$FIRST_ENTRY_LINE" ]]; then
+              # Insert before the first existing entry
+              {
+                head -n $((FIRST_ENTRY_LINE - 1)) "$CHANGELOG"
+                echo -e "$ENTRY"
+                tail -n +$FIRST_ENTRY_LINE "$CHANGELOG"
+              } > "${CHANGELOG}.tmp"
+              mv "${CHANGELOG}.tmp" "$CHANGELOG"
+            else
+              # No existing entries — append after header
+              echo -e "\n$ENTRY" >> "$CHANGELOG"
+            fi
+          else
+            # Create new changelog
+            {
+              echo "# Changelog"
+              echo ""
+              echo "All notable changes to this project will be documented in this file."
+              echo "This changelog is automatically maintained by GitHub Actions on each push."
+              echo ""
+              echo -e "$ENTRY"
+            } > "$CHANGELOG"
+          fi
+
+      - name: Commit changelog
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${{ steps.target.outputs.dir }}/CHANGELOG.md"
+
+          # Check if there's actually something to commit
+          if git diff --cached --quiet; then
+            echo "No changelog changes to commit"
+          else
+            git commit -m "docs: auto-update changelog for ${{ steps.target.outputs.dir }} [skip ci]"
+            git push
+          fi

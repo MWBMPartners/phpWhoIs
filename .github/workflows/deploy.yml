@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Determine deployment target
         id: target
@@ -29,10 +31,25 @@ jobs:
             echo "channel=beta" >> $GITHUB_OUTPUT
           fi
 
+      - name: Get changed files
+        id: changes
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- "${{ steps.target.outputs.source_dir }}" 2>/dev/null || echo "ALL")
+          if [[ "$CHANGED" == "" ]]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No files changed in ${{ steps.target.outputs.source_dir }}"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Changed files:"
+            echo "$CHANGED"
+          fi
+
       - name: Install lftp
+        if: steps.changes.outputs.has_changes == 'true'
         run: sudo apt-get install -y lftp
 
       - name: Check auth method
+        if: steps.changes.outputs.has_changes == 'true'
         id: auth
         run: |
           if [[ -n "${{ secrets.SFTP_KEY }}" ]]; then
@@ -42,30 +59,39 @@ jobs:
           fi
 
       - name: Deploy via SFTP (SSH key)
-        if: steps.auth.outputs.method == 'key'
+        if: steps.changes.outputs.has_changes == 'true' && steps.auth.outputs.method == 'key'
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SFTP_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           lftp -e "set sftp:connect-program 'ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key'; \
-              mirror --reverse --delete --verbose \
+              mirror --reverse --only-newer --no-empty-dirs --verbose \
+              --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md \
               ${{ steps.target.outputs.source_dir }} ${{ steps.target.outputs.remote_path }}; \
               bye" \
             sftp://${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PORT }}
 
       - name: Deploy via SFTP (password)
-        if: steps.auth.outputs.method == 'password'
+        if: steps.changes.outputs.has_changes == 'true' && steps.auth.outputs.method == 'password'
         run: |
           lftp -u "${{ secrets.SFTP_USER }},${{ secrets.SFTP_PASSWORD }}" \
             -e "set sftp:auto-confirm yes; set ssl:verify-certificate no; \
-                mirror --reverse --delete --verbose \
+                mirror --reverse --only-newer --no-empty-dirs --verbose \
+                --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md \
                 ${{ steps.target.outputs.source_dir }} ${{ steps.target.outputs.remote_path }}; \
                 bye" \
             sftp://${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PORT }}
 
       - name: Deployment summary
+        if: steps.changes.outputs.has_changes == 'true'
         run: |
           echo "### Deployed to ${{ steps.target.outputs.channel }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Remote path:** ${{ steps.target.outputs.remote_path }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Skip summary
+        if: steps.changes.outputs.has_changes == 'false'
+        run: |
+          echo "### No deployment needed" >> $GITHUB_STEP_SUMMARY
+          echo "No files changed in ${{ steps.target.outputs.source_dir }}" >> $GITHUB_STEP_SUMMARY
