@@ -7,7 +7,7 @@
 		$app["Application"]["Description"]["Keywords"] = "Free domain WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.";
 
 		//Version
-			$app["Application"]["Version"]["Version"] = "1.15.0";
+			$app["Application"]["Version"]["Version"] = "1.15.1";
 			$app["Application"]["Version"]["Name"] = NULL;
 			
 			// Environment-based override (failsafe)
