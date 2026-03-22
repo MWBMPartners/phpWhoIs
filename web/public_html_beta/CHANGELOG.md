@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [7ec91ae] - 2026-03-22
+
+**fix: add CSS cache-busting, use --transfer-all for SFTP deploy**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`7ec91ae`](https://github.com/MWBMPartners/phpWhoIs/commit/7ec91aef04b9bc2ac68e7ec9bced2fcf3ba7da51)
+
+### Changed files
+
+- `index.php`
+
+
 ## [e121deb] - 2026-03-22
 
 **fix: complete dark mode rewrite with hardcoded colours, fix title link styling**
