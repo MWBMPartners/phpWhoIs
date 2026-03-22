@@ -6,6 +6,29 @@
  */
 
 // ═══════════════════════════════════════════════════════════════════
+//  Logging (Issue #43)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Log a message to the application error log.
+ * Creates the logs directory if it doesn't exist.
+ */
+function appLog(string $message, string $level = 'ERROR'): void {
+    $logDir = dirname(__FILE__) . DIRECTORY_SEPARATOR . 'logs';
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0755, true);
+    }
+
+    $logFile = $logDir . DIRECTORY_SEPARATOR . 'error.log';
+    $timestamp = date('Y-m-d H:i:s');
+    $ip = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'CLI';
+    $entry = "[{$timestamp}] [{$level}] [{$ip}] {$message}" . PHP_EOL;
+
+    @file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  Security helpers
 // ═══════════════════════════════════════════════════════════════════
 

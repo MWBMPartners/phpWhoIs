@@ -1,5 +1,5 @@
-# Block access to markdown and dev files from web browsers
-<FilesMatch "\.(md|markdown)$">
+# Block access to markdown, dev files, and logs from web browsers
+<FilesMatch "\.(md|markdown|log)$">
     <IfModule mod_authz_core.c>
         Require all denied
     </IfModule>
@@ -8,3 +8,9 @@
         Deny from all
     </IfModule>
 </FilesMatch>
+
+# Block access to logs directory
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^logs/ - [F,L]
+</IfModule>
