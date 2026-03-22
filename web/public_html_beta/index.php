@@ -14,6 +14,12 @@ header("X-Frame-Options: DENY");
 header("X-XSS-Protection: 1; mode=block");
 header("Referrer-Policy: strict-origin-when-cross-origin");
 
+// ─── Config ───
+$config = [];
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'config.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'config.php';
+}
+
 // ─── Debug mode ───
 $modeDev = false;
 $modeDebug = false;
@@ -155,6 +161,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <script>
     document.addEventListener('DOMContentLoaded', function () {
         var CSRF = '<?php echo htmlspecialchars($csrfToken); ?>';
+        var REG_CONFIG = <?php echo json_encode(isset($config['registration']) ? $config['registration'] : ['enabled' => false]); ?>;
         var formattedResult = '';
         var rawWhoisText = '';
         var isRawView = false;
@@ -277,9 +284,10 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                             var badgeClass = data.availability === 'available' ? 'bg-success' : 'bg-info';
                             var badgeText = data.availability === 'available' ? 'Available' : 'Registered';
                             var regBtn = '';
-                            if (data.availability === 'available') {
-                                regBtn = ' <a href="https://store.mwservices.it/cart.php?a=add&domain=register&query=' + encodeURIComponent(domain) +
-                                    '" target="_blank" class="btn btn-success btn-sm ms-2"><i class="bi bi-cart-plus me-1"></i>Register</a>';
+                            if (data.availability === 'available' && REG_CONFIG.enabled) {
+                                var bulkRegUrl = REG_CONFIG.url_template.replace('{domain}', encodeURIComponent(domain));
+                                var bulkTarget = REG_CONFIG.open_in_new_tab ? ' target="_blank"' : '';
+                                regBtn = ' <a href="' + bulkRegUrl + '"' + bulkTarget + ' class="btn btn-success btn-sm ms-2"><i class="bi bi-cart-plus me-1"></i>' + REG_CONFIG.button_text + '</a>';
                             }
                             var item = document.createElement('div');
                             item.className = 'accordion-item';
@@ -302,10 +310,15 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             // Availability badge
             var avBadge = document.getElementById('availabilityBadge');
             if (data.availability === 'available') {
-                var regUrl = 'https://store.mwservices.it/cart.php?a=add&domain=register&query=' + encodeURIComponent(currentDomain);
+                var regButton = '';
+                if (REG_CONFIG.enabled) {
+                    var regUrl = REG_CONFIG.url_template.replace('{domain}', encodeURIComponent(currentDomain));
+                    var regTarget = REG_CONFIG.open_in_new_tab ? ' target="_blank"' : '';
+                    regButton = '<a href="' + regUrl + '"' + regTarget + ' class="btn btn-success btn-sm"><i class="bi bi-cart-plus me-1"></i>' + REG_CONFIG.button_text + '</a>';
+                }
                 avBadge.innerHTML = '<div class="alert alert-success d-flex align-items-center justify-content-between flex-wrap gap-2">' +
                     '<div><i class="bi bi-check-circle-fill me-2"></i><strong>' + currentDomain + '</strong> appears to be available!</div>' +
-                    '<a href="' + regUrl + '" target="_blank" class="btn btn-success btn-sm"><i class="bi bi-cart-plus me-1"></i>Register this domain</a></div>';
+                    regButton + '</div>';
             } else {
                 avBadge.innerHTML = '<div class="alert alert-info d-flex align-items-center"><i class="bi bi-info-circle-fill me-2"></i><strong>' + currentDomain + '</strong> is registered.</div>';
             }
