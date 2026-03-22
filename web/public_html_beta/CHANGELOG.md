@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [a038d9f] - 2026-03-22
+
+**feat: update page description logic and add synopsis to app version info**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`a038d9f`](https://github.com/MWBMPartners/phpWhoIs/commit/a038d9f1794f4dbabc09ea2eae3c1ae13f9926a5)
+
+### Changed files
+
+- `index.php`
+- `infoAppVer.php`
+
+
 ## [838aa9b] - 2026-03-22
 
 **fix: XSS vulnerabilities, header scroll bounce, logo/favicon updates, security hardening**
