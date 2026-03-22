@@ -65,6 +65,40 @@ jobs:
             cat /tmp/changed_files.txt
           fi
 
+      - name: Install minification tools
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          npm install -g terser clean-css-cli html-minifier-terser
+
+      - name: Minify files before upload
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          SOURCE_DIR="${{ steps.target.outputs.source_dir }}"
+
+          # Minify JS files (if any exist)
+          find "$SOURCE_DIR" -name "*.js" -type f 2>/dev/null | while read -r file; do
+            echo "Minifying JS: $file"
+            terser "$file" --compress --mangle --output "$file" || echo "  Warning: failed to minify $file"
+          done
+
+          # Minify CSS files
+          find "$SOURCE_DIR" -name "*.css" -type f 2>/dev/null | while read -r file; do
+            echo "Minifying CSS: $file"
+            cleancss -o "$file" "$file" || echo "  Warning: failed to minify $file"
+          done
+
+          # Minify HTML/HTM files
+          find "$SOURCE_DIR" \( -name "*.html" -o -name "*.htm" \) -type f 2>/dev/null | while read -r file; do
+            echo "Minifying HTML: $file"
+            html-minifier-terser --collapse-whitespace --remove-comments --minify-css true --minify-js true -o "$file" "$file" || echo "  Warning: failed to minify $file"
+          done
+
+          # Minify XML files (strip whitespace between tags)
+          find "$SOURCE_DIR" -name "*.xml" -type f 2>/dev/null | while read -r file; do
+            echo "Minifying XML: $file"
+            sed -i 's/>[[:space:]]*</></g' "$file" || echo "  Warning: failed to minify $file"
+          done
+
       - name: Set production dev status to NULL
         if: steps.changes.outputs.has_changes == 'true' && github.ref_name == 'main'
         run: |
