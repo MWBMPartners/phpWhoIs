@@ -97,8 +97,9 @@
   <!-- Text -->
   <text x="200" y="225" text-anchor="middle" fill="#fff" font-family="'Segoe UI', system-ui, sans-serif" font-size="64" font-weight="400" opacity="0.8">WHOIS</text>
 
-  <!-- ═══ Magnifying glass (moves to search) ═══ -->
+  <!-- ═══ Magnifying glass (moves to search, scaled 90%) ═══ -->
   <g class="mag-group">
+  <g transform="translate(23, 23) scale(0.9)">
 
     <!-- Ring outer shadow -->
     <circle cx="230" cy="230" r="155" fill="none" stroke="rgba(0,0,0,0.08)" stroke-width="20"/>
@@ -162,5 +163,6 @@
     <line x1="390" y1="382" x2="393" y2="385" stroke="rgba(0,0,0,0.08)" stroke-width="1.5" stroke-linecap="round"/>
     <line x1="403" y1="395" x2="406" y2="398" stroke="rgba(0,0,0,0.08)" stroke-width="1.5" stroke-linecap="round"/>
     <line x1="416" y1="408" x2="419" y2="411" stroke="rgba(0,0,0,0.08)" stroke-width="1.5" stroke-linecap="round"/>
+  </g>
   </g>
 </svg>
