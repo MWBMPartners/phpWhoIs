@@ -67,7 +67,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <?php
-    $pageTitle = '';
+    $pageTitle = NULL;
     if (isset($app["Application"]["Name"]) && $app["Application"]["Name"]) {
         $pageTitle = $app["Application"]["Name"];
     } else {
@@ -189,8 +189,12 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <!-- Footer -->
     <div class="footer">
         <?php
+            if (isset($pageTitle) && $pageTitle) {
+                echo $pageTitle;
+            }
+            
             if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]) {
-            echo "v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
+            echo "&nbsp; v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
 
             if (!empty($app["Application"]["Version"]["Development"]["Status"])) {
                 echo "&nbsp;" . htmlspecialchars($app["Application"]["Version"]["Development"]["Status"]);
