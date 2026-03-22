@@ -3,6 +3,25 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [b17bfdb] - 2026-03-22
+
+**feat: implement issues #39-#68 batch — theme, accessibility, API docs, and new features**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`b17bfdb`](https://github.com/MWBMPartners/phpWhoIs/commit/b17bfdb071d698983813d18b1b3376d983d71f54)
+
+### Changed files
+
+- `config.php`
+- `docs.php`
+- `functions.php`
+- `index.php`
+- `lookup.php`
+- `openapi.yaml`
+- `style.css`
+
+
 ## [2704392] - 2026-03-22
 
 **Add theme toggle functionality and colourblind mode support**
