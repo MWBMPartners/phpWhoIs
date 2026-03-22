@@ -77,6 +77,20 @@
         animation: search 4.5s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
         transform-origin: 230px 230px;
       }
+      /* Reverse of search — keeps magnified content stationary in world space */
+      @keyframes searchReverse {
+        0%   { transform: translate(0, 0) rotate(0deg); }
+        15%  { transform: translate(-12px, 8px) rotate(-0.8deg); }
+        35%  { transform: translate(-18px, -6px) rotate(0.3deg); }
+        55%  { transform: translate(-2px, -14px) rotate(0.6deg); }
+        75%  { transform: translate(10px, -4px) rotate(-0.4deg); }
+        90%  { transform: translate(6px, 6px) rotate(-0.2deg); }
+        100% { transform: translate(0, 0) rotate(0deg); }
+      }
+      .mag-rev {
+        animation: searchReverse 4.5s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+        transform-origin: 230px 230px;
+      }
       .refl-main { animation: shimmer 3.5s ease-in-out infinite; }
       .refl-sec { animation: shimmer2 4s ease-in-out infinite; }
       .spec-dot { animation: twinkle 2.5s ease-in-out infinite; }
@@ -100,6 +114,36 @@
   <!-- ═══ Magnifying glass (moves to search, scaled 90%) ═══ -->
   <g class="mag-group">
   <g transform="translate(23, 23) scale(0.9)">
+
+    <!-- Magnified globe content visible through lens -->
+    <clipPath id="lensClip">
+      <circle cx="230" cy="230" r="148" />
+    </clipPath>
+    <g clip-path="url(#lensClip)">
+      <!-- Reverse-animate so content stays in world space while lens moves -->
+      <g class="mag-rev">
+        <!-- Undo the 0.9 scale + translate of parent so we're back in world coords -->
+        <!-- Then apply 1.15x magnification from globe centre (200, 200) -->
+        <!-- Inverse of translate(23,23) scale(0.9) is scale(1/0.9) translate(-23,-23) = scale(1.111) translate(-25.56,-25.56) -->
+        <!-- Then magnify 1.15x from (200,200): translate(200-200*1.15, 200-200*1.15) scale(1.15) = translate(-30,-30) scale(1.15) -->
+        <!-- Combined: scale(1.111) then translate(-25.56,-25.56) then translate(-30,-30) scale(1.15) -->
+        <!-- Simplified: translate(-55.56*1.111, -55.56*1.111) scale(1.111*1.15) ≈ translate(-34, -34) scale(1.278) -->
+        <!-- Actually let's just compute: we need globe at 200,200 to appear 1.15x through the lens -->
+        <!-- Parent has scale(0.9) translate(23,23), so effective scale on content = 0.9 -->
+        <!-- To show globe at 1.15x in screen space, we need internal scale = 1.15/0.9 = 1.278 -->
+        <!-- Scale 1.278 from (200,200): translate(200*(1-1.278), 200*(1-1.278)) = translate(-55.6, -55.6) -->
+        <g transform="translate(-55.6, -55.6) scale(1.278)">
+          <circle cx="200" cy="200" r="140" fill="url(#globeGrad)" opacity="0.95"/>
+          <ellipse cx="200" cy="200" rx="140" ry="140" fill="none" stroke="#fff" stroke-width="2.2" opacity="0.35"/>
+          <ellipse cx="200" cy="200" rx="70" ry="140" fill="none" stroke="#fff" stroke-width="1.7" opacity="0.3"/>
+          <ellipse cx="200" cy="200" rx="35" ry="140" fill="none" stroke="#fff" stroke-width="1.1" opacity="0.22"/>
+          <ellipse cx="200" cy="200" rx="140" ry="50" fill="none" stroke="#fff" stroke-width="1.7" opacity="0.3"/>
+          <ellipse cx="200" cy="200" rx="140" ry="100" fill="none" stroke="#fff" stroke-width="1.1" opacity="0.22"/>
+          <line x1="60" y1="200" x2="340" y2="200" stroke="#fff" stroke-width="1.7" opacity="0.3"/>
+          <text x="200" y="225" text-anchor="middle" fill="#fff" font-family="'Segoe UI', system-ui, sans-serif" font-size="64" font-weight="500" opacity="0.9">WHOIS</text>
+        </g>
+      </g>
+    </g>
 
     <!-- Ring outer shadow -->
     <circle cx="230" cy="230" r="155" fill="none" stroke="rgba(0,0,0,0.08)" stroke-width="20"/>
