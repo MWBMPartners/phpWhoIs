@@ -453,7 +453,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                     '<div><i class="bi bi-check-circle-fill me-2"></i><strong>' + currentDomain + '</strong> appears to be available!</div>' +
                     regButton + '</div>';
             } else {
-                avBadge.innerHTML = '<div class="alert alert-info d-flex align-items-center"><i class="bi bi-info-circle-fill me-2"></i><strong>' + currentDomain + '</strong> is registered.</div>';
+                avBadge.innerHTML = '<div class="alert alert-info d-flex align-items-center"><i class="bi bi-info-circle-fill me-2"></i><strong>' + currentDomain + '</strong>&nbsp;is registered.</div>';
             }
             avBadge.style.display = '';
 
