@@ -481,6 +481,20 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 pf.style.display = '';
             }
 
+            // IP geolocation (Issue #18)
+            if (data.geolocation) {
+                var geo = data.geolocation;
+                var geoHtml = '<div class="card mt-3"><div class="card-header"><strong>Server Location</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+                if (geo.city) { geoHtml += '<tr><td class="fw-bold">City</td><td>' + geo.city + '</td></tr>'; }
+                if (geo.country) { geoHtml += '<tr><td class="fw-bold">Country</td><td>' + geo.country + ' (' + geo.country_code + ')</td></tr>'; }
+                if (geo.isp) { geoHtml += '<tr><td class="fw-bold">ISP</td><td>' + geo.isp + '</td></tr>'; }
+                if (geo.org) { geoHtml += '<tr><td class="fw-bold">Organization</td><td>' + geo.org + '</td></tr>'; }
+                if (geo.as) { geoHtml += '<tr><td class="fw-bold">AS</td><td>' + geo.as + '</td></tr>'; }
+                geoHtml += '</table></div></div>';
+                document.getElementById('parsedFields').innerHTML += geoHtml;
+                document.getElementById('parsedFields').style.display = '';
+            }
+
             // Formatted WHOIS
             formatWhoisData(data.whois || '');
 

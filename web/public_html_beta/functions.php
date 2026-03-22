@@ -526,6 +526,47 @@ function checkEmailSecurity(string $domain): array {
 
 
 // ═══════════════════════════════════════════════════════════════════
+//  IP Geolocation (Issue #18)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Get geolocation info for an IP address using ip-api.com (free, no key needed).
+ * Rate limit: 45 requests/minute.
+ */
+function getIpGeolocation(string $ip): ?array {
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+        return null;
+    }
+
+    $ctx = stream_context_create(['http' => ['timeout' => 3]]);
+    $response = @file_get_contents(
+        'http://ip-api.com/json/' . urlencode($ip) . '?fields=status,country,countryCode,region,city,isp,org,as',
+        false,
+        $ctx
+    );
+
+    if ($response === false) {
+        return null;
+    }
+
+    $data = json_decode($response, true);
+    if (!$data || $data['status'] !== 'success') {
+        return null;
+    }
+
+    return [
+        'country' => isset($data['country']) ? $data['country'] : '',
+        'country_code' => isset($data['countryCode']) ? $data['countryCode'] : '',
+        'region' => isset($data['region']) ? $data['region'] : '',
+        'city' => isset($data['city']) ? $data['city'] : '',
+        'isp' => isset($data['isp']) ? $data['isp'] : '',
+        'org' => isset($data['org']) ? $data['org'] : '',
+        'as' => isset($data['as']) ? $data['as'] : '',
+    ];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  SSL/TLS certificate info (Issue #19)
 // ═══════════════════════════════════════════════════════════════════
 

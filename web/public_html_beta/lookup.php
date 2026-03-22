@@ -164,6 +164,19 @@ if (!$isIpLookup && $domain) {
     $sslInfo = getSslInfo($domain);
 }
 
+// IP geolocation (Issue #18) — for first A record, or for IP lookups
+$geolocation = null;
+if ($isIpLookup) {
+    $geolocation = getIpGeolocation($domain);
+} elseif (!empty($dns)) {
+    foreach ($dns as $record) {
+        if ($record['type'] === 'A' && !empty($record['value'])) {
+            $geolocation = getIpGeolocation($record['value']);
+            break;
+        }
+    }
+}
+
 if ($jsonFormat) {
     header('Access-Control-Allow-Origin: *');
     header('Access-Control-Allow-Methods: POST');
@@ -179,6 +192,7 @@ if ($jsonFormat) {
         'cached'       => $fromCache,
         'email_security' => $emailSecurity,
         'ssl' => $sslInfo,
+        'geolocation' => $geolocation,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;
@@ -200,6 +214,7 @@ if ($jsonFormat) {
         'cached'       => $fromCache,
         'email_security' => $emailSecurity,
         'ssl' => $sslInfo,
+        'geolocation' => $geolocation,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;
