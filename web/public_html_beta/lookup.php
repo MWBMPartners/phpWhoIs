@@ -164,6 +164,36 @@ if (!$isIpLookup && $domain) {
     $sslInfo = getSslInfo($domain);
 }
 
+// Registrar reputation check (Issue #51)
+$registrarReputation = null;
+if (!empty($parsed['Registrar'])) {
+    $registrarReputation = checkRegistrarReputation($parsed['Registrar']);
+}
+
+// Google Safe Browsing (Issue #52) — only if API key configured
+$safeBrowsing = null;
+if (!$isIpLookup && $domain && !empty($config['safe_browsing_api_key'])) {
+    $safeBrowsing = checkSafeBrowsing($domain, $config['safe_browsing_api_key']);
+}
+
+// VirusTotal (Issue #53) — only if API key configured
+$virusTotal = null;
+if (!$isIpLookup && $domain && !empty($config['virustotal_api_key'])) {
+    $virusTotal = checkVirusTotal($domain, $config['virustotal_api_key']);
+}
+
+// Screenshot URL (Issue #55) — generate if enabled
+$screenshotUrl = null;
+if (!$isIpLookup && $domain && !empty($config['screenshot_enabled'])) {
+    $screenshotUrl = 'https://image.thum.io/get/width/600/' . urlencode('https://' . $domain);
+}
+
+// Subdomain discovery (Issue #46) — only for domain lookups
+$subdomains = [];
+if (!$isIpLookup && $domain) {
+    $subdomains = discoverSubdomains($domain);
+}
+
 // IP geolocation (Issue #18) — for first A record, or for IP lookups
 $geolocation = null;
 if ($isIpLookup) {
@@ -193,6 +223,11 @@ if ($jsonFormat) {
         'email_security' => $emailSecurity,
         'ssl' => $sslInfo,
         'geolocation' => $geolocation,
+        'subdomains' => $subdomains,
+        'registrar_reputation' => $registrarReputation,
+        'safe_browsing' => $safeBrowsing,
+        'virustotal' => $virusTotal,
+        'screenshot_url' => $screenshotUrl,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;
@@ -215,6 +250,11 @@ if ($jsonFormat) {
         'email_security' => $emailSecurity,
         'ssl' => $sslInfo,
         'geolocation' => $geolocation,
+        'subdomains' => $subdomains,
+        'registrar_reputation' => $registrarReputation,
+        'safe_browsing' => $safeBrowsing,
+        'virustotal' => $virusTotal,
+        'screenshot_url' => $screenshotUrl,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;

@@ -139,10 +139,76 @@ function validateInputSize(): bool {
 
 
 // ═══════════════════════════════════════════════════════════════════
-//  Result caching
+//  Result caching (Issue #57 — Redis/Memcached with file fallback)
 // ═══════════════════════════════════════════════════════════════════
 
+/**
+ * Get a cache backend instance. Tries Redis, then Memcached, then falls back to file.
+ * Returns: 'redis', 'memcached', or 'file'.
+ */
+function getCacheBackend() {
+    static $backend = null;
+    static $conn = null;
+
+    if ($backend !== null) {
+        return ['type' => $backend, 'conn' => $conn];
+    }
+
+    // Try Redis
+    if (class_exists('Redis')) {
+        try {
+            $redis = new Redis();
+            $host = defined('CACHE_REDIS_HOST') ? CACHE_REDIS_HOST : '127.0.0.1';
+            $port = defined('CACHE_REDIS_PORT') ? CACHE_REDIS_PORT : 6379;
+            if (@$redis->connect($host, $port, 1)) {
+                $backend = 'redis';
+                $conn = $redis;
+                return ['type' => $backend, 'conn' => $conn];
+            }
+        } catch (\Exception $e) {
+            // Fall through
+        }
+    }
+
+    // Try Memcached
+    if (class_exists('Memcached')) {
+        try {
+            $mc = new Memcached();
+            $host = defined('CACHE_MEMCACHED_HOST') ? CACHE_MEMCACHED_HOST : '127.0.0.1';
+            $port = defined('CACHE_MEMCACHED_PORT') ? CACHE_MEMCACHED_PORT : 11211;
+            $mc->addServer($host, $port);
+            // Test connection
+            $mc->getVersion();
+            if ($mc->getResultCode() === Memcached::RES_SUCCESS) {
+                $backend = 'memcached';
+                $conn = $mc;
+                return ['type' => $backend, 'conn' => $conn];
+            }
+        } catch (\Exception $e) {
+            // Fall through
+        }
+    }
+
+    $backend = 'file';
+    $conn = null;
+    return ['type' => $backend, 'conn' => $conn];
+}
+
 function getCached(string $domain): ?string {
+    $cache = getCacheBackend();
+    $key = 'mwwhois:' . md5($domain);
+
+    if ($cache['type'] === 'redis') {
+        $val = $cache['conn']->get($key);
+        return $val !== false ? $val : null;
+    }
+
+    if ($cache['type'] === 'memcached') {
+        $val = $cache['conn']->get($key);
+        return $cache['conn']->getResultCode() === Memcached::RES_SUCCESS ? $val : null;
+    }
+
+    // File fallback
     $file = CACHE_DIR . DIRECTORY_SEPARATOR . md5($domain) . '.json';
 
     if (!file_exists($file)) {
@@ -159,6 +225,20 @@ function getCached(string $domain): ?string {
 }
 
 function setCache(string $domain, string $result): void {
+    $cache = getCacheBackend();
+    $key = 'mwwhois:' . md5($domain);
+
+    if ($cache['type'] === 'redis') {
+        $cache['conn']->setex($key, CACHE_TTL, $result);
+        return;
+    }
+
+    if ($cache['type'] === 'memcached') {
+        $cache['conn']->set($key, $result, CACHE_TTL);
+        return;
+    }
+
+    // File fallback
     if (!is_dir(CACHE_DIR)) {
         @mkdir(CACHE_DIR, 0755, true);
     }
@@ -843,6 +923,144 @@ function formatRdapResponse(array $rdap): string {
 //  JSON response helper
 // ═══════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════
+//  Registrar reputation (Issue #51)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Check if a registrar is flagged as problematic/spam-friendly.
+ *
+ * Returns null if unknown, or an associative array with reputation info.
+ *
+ * @param  string $registrar  The registrar name from WHOIS data
+ * @return array|null          ['rating' => 'caution'|'warning', 'reason' => string]
+ */
+function checkRegistrarReputation(string $registrar): ?array {
+    // Normalise for matching
+    $lower = strtolower(trim($registrar));
+
+    // Known problematic registrars (curated list)
+    $flagged = [
+        'todaynic.com'       => ['rating' => 'caution', 'reason' => 'Associated with high volumes of spam and abuse domains'],
+        'regru-ru'           => ['rating' => 'caution', 'reason' => 'Frequently used for abuse domains in some reports'],
+        'west263'            => ['rating' => 'caution', 'reason' => 'Associated with high abuse rates'],
+        'bizcn.com'          => ['rating' => 'caution', 'reason' => 'Known for high abuse domain registration volumes'],
+        'ename'              => ['rating' => 'caution', 'reason' => 'Elevated abuse domain rates reported'],
+        'xinnet'             => ['rating' => 'caution', 'reason' => 'Elevated abuse domain rates reported'],
+        'jiangsu bangning'   => ['rating' => 'caution', 'reason' => 'Elevated abuse domain rates reported'],
+        'hichina'            => ['rating' => 'caution', 'reason' => 'Higher-than-average abuse rates reported'],
+        'web commerce'       => ['rating' => 'caution', 'reason' => 'Associated with fraudulent domain registrations'],
+        'nicenic'            => ['rating' => 'caution', 'reason' => 'Frequently used for phishing domains'],
+    ];
+
+    foreach ($flagged as $pattern => $info) {
+        if (strpos($lower, $pattern) !== false) {
+            return $info;
+        }
+    }
+
+    return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Google Safe Browsing check (Issue #52)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Check a domain against the Google Safe Browsing API.
+ *
+ * @param  string $domain  The domain to check
+ * @param  string $apiKey  Google Safe Browsing API key
+ * @return array           ['safe' => bool, 'threats' => array]
+ */
+function checkSafeBrowsing(string $domain, string $apiKey): array {
+    $url = 'https://safebrowsing.googleapis.com/v4/threatMatches:find?key=' . urlencode($apiKey);
+    $payload = json_encode([
+        'client' => ['clientId' => 'mwwhois', 'clientVersion' => '1.0'],
+        'threatInfo' => [
+            'threatTypes' => ['MALWARE', 'SOCIAL_ENGINEERING', 'UNWANTED_SOFTWARE', 'POTENTIALLY_HARMFUL_APPLICATION'],
+            'platformTypes' => ['ANY_PLATFORM'],
+            'threatEntryTypes' => ['URL'],
+            'threatEntries' => [
+                ['url' => 'http://' . $domain . '/'],
+                ['url' => 'https://' . $domain . '/'],
+            ],
+        ],
+    ]);
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $payload,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        CURLOPT_TIMEOUT => 5,
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode !== 200 || !$response) {
+        return ['safe' => true, 'threats' => [], 'error' => 'API unavailable'];
+    }
+
+    $data = json_decode($response, true);
+    if (!empty($data['matches'])) {
+        $threats = array_map(function ($m) {
+            return $m['threatType'];
+        }, $data['matches']);
+        return ['safe' => false, 'threats' => array_unique($threats)];
+    }
+
+    return ['safe' => true, 'threats' => []];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  VirusTotal domain reputation (Issue #53)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Query VirusTotal for domain reputation.
+ *
+ * @param  string $domain  The domain to check
+ * @param  string $apiKey  VirusTotal API key
+ * @return array|null      Reputation info or null on failure
+ */
+function checkVirusTotal(string $domain, string $apiKey): ?array {
+    $url = 'https://www.virustotal.com/api/v3/domains/' . urlencode($domain);
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => ['x-apikey: ' . $apiKey],
+        CURLOPT_TIMEOUT => 5,
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode !== 200 || !$response) {
+        return null;
+    }
+
+    $data = json_decode($response, true);
+    if (empty($data['data']['attributes']['last_analysis_stats'])) {
+        return null;
+    }
+
+    $stats = $data['data']['attributes']['last_analysis_stats'];
+    return [
+        'malicious'   => $stats['malicious'] ?? 0,
+        'suspicious'  => $stats['suspicious'] ?? 0,
+        'harmless'    => $stats['harmless'] ?? 0,
+        'undetected'  => $stats['undetected'] ?? 0,
+        'reputation'  => $data['data']['attributes']['reputation'] ?? 0,
+        'categories'  => $data['data']['attributes']['categories'] ?? [],
+    ];
+}
+
+
 function sendJson(array $data, int $status = 200): void {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
@@ -852,4 +1070,42 @@ function sendJson(array $data, int $status = 200): void {
 
 function sendError(string $message, int $status = 400): void {
     sendJson(['error' => $message], $status);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Subdomain discovery (Issue #46)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Check common subdomains for a domain and return which ones resolve.
+ *
+ * @param  string $domain  The base domain (e.g. example.com)
+ * @return array           Array of ['subdomain' => string, 'ip' => string|null]
+ */
+function discoverSubdomains(string $domain): array {
+    $prefixes = [
+        'www', 'mail', 'ftp', 'smtp', 'pop', 'imap',
+        'webmail', 'api', 'cdn', 'dev', 'staging', 'test',
+        'admin', 'portal', 'blog', 'shop', 'store', 'app',
+        'ns1', 'ns2', 'mx', 'vpn', 'remote', 'ssh',
+        'git', 'ci', 'status', 'docs', 'help', 'support',
+        'm', 'mobile', 'beta', 'alpha', 'demo', 'sandbox',
+        'media', 'static', 'assets', 'img', 'images',
+    ];
+
+    $results = [];
+    foreach ($prefixes as $prefix) {
+        $fqdn = $prefix . '.' . $domain;
+        $ip = @gethostbyname($fqdn);
+        // gethostbyname returns the hostname unchanged if it doesn't resolve
+        if ($ip !== $fqdn) {
+            $results[] = [
+                'subdomain' => $fqdn,
+                'ip' => $ip,
+            ];
+        }
+    }
+
+    return $results;
 }
