@@ -140,26 +140,9 @@ jobs:
 
       - name: Deploy via SFTP (password)
         if: steps.changes.outputs.has_changes == 'true' && steps.auth.outputs.method == 'password'
-        env:
-          LFTP_USER: ${{ secrets.SFTP_USER }}
-          LFTP_PASS: ${{ secrets.SFTP_PASSWORD }}
-          LFTP_HOST: ${{ secrets.SFTP_HOST }}
-          LFTP_PORT: ${{ secrets.SFTP_PORT }}
-          LFTP_SRC: ${{ steps.target.outputs.source_dir }}
-          LFTP_DST: ${{ steps.target.outputs.remote_path }}
         run: |
-          # Use LFTP_PASSWORD env var (lftp reads this automatically for authentication)
-          export LFTP_PASSWORD="$LFTP_PASS"
-
-          lftp -u "$LFTP_USER" -p "$LFTP_PORT" -e "
-            set sftp:auto-confirm yes
-            set ssl:verify-certificate no
-            mirror --reverse --verbose --ignore-time --no-empty-dirs \
-              --exclude .DS_Store --exclude .gitkeep --exclude .gitignore \
-              --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md \
-              $LFTP_SRC $LFTP_DST
-            bye
-          " "sftp://$LFTP_HOST"
+          export LFTP_PASSWORD="${{ secrets.SFTP_PASSWORD }}"
+          lftp -u "${{ secrets.SFTP_USER }}" -e "set sftp:auto-confirm yes; set ssl:verify-certificate no; mirror --reverse --verbose --ignore-time --no-empty-dirs --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md ${{ steps.target.outputs.source_dir }} ${{ steps.target.outputs.remote_path }}; bye" "sftp://${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PORT }}"
 
       - name: Deployment summary
         if: steps.changes.outputs.has_changes == 'true'
