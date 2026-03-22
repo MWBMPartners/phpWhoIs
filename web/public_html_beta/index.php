@@ -255,7 +255,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                                 echo ' ' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Date"]);
                             }
 
-                            echo nl2br(')\n');
+                            echo nl2br(")\n");
                         }
                     }
                 ?>
