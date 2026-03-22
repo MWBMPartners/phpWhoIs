@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [26b5267] - 2026-03-22
+
+**refactor: rename Build to Repo for commit info in app version array**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`26b5267`](https://github.com/MWBMPartners/phpWhoIs/commit/26b5267b936cd28a0099dcb48153df910578772b)
+
+### Changed files
+
+- `index.php`
+- `infoAppVer.php`
+
+
 ## [393b881] - 2026-03-22
 
 **refactor: add build placeholders to infoAppVer.php, deploy overwrites NULLs**
