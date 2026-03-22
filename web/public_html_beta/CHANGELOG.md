@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [a0a1dec] - 2026-03-22
+
+**docs: add DEV_NOTES.md, semver version bumping, block .md from web access**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`a0a1dec`](https://github.com/MWBMPartners/phpWhoIs/commit/a0a1deca0591cbb18b423672378d0fde77aefa5a)
+
+### Changed files
+
+- `.htaccess`
+- `DEV_NOTES.md`
+
+
 ## [e0198e0] - 2026-03-22
 
 **Update deployment workflow and app version handling; set production status to NULL and manage development status based on environment**
