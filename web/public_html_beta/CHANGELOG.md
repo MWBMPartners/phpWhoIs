@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [0d08aae] - 2026-03-22
+
+**fix: correct footer version display and adjust font size in header**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`0d08aae`](https://github.com/MWBMPartners/phpWhoIs/commit/0d08aae2fe75eacaad8eee51d9f28340910d93c8)
+
+### Changed files
+
+- `index.php`
+- `style.css`
+
+
 ## [5c24896] - 2026-03-22
 
 **feat: click-to-select on WHOIS output with highlight flash (#34)**
