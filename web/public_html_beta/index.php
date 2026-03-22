@@ -187,6 +187,12 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         </div>
 
         <div id="bulkResults" class="accordion mt-3" style="display:none;"></div>
+
+        <!-- Bulk export buttons (Issue #49) -->
+        <div id="bulkExportButtons" class="mt-2 d-flex gap-2" style="display:none;">
+            <button class="btn btn-outline-secondary btn-sm" id="exportCsvBtn"><i class="bi bi-filetype-csv"></i> Export CSV</button>
+            <button class="btn btn-outline-secondary btn-sm" id="exportJsonBtn"><i class="bi bi-filetype-json"></i> Export JSON</button>
+        </div>
     </div>
 
     <!-- Footer -->
@@ -328,9 +334,12 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         }
 
         // ── Bulk lookup ──
+        var bulkResultsData = [];
+
         function triggerBulkLookup(domains) {
             showLoading(true);
             hideResults();
+            bulkResultsData = [];
             var acc = document.getElementById('bulkResults');
             acc.innerHTML = '';
             acc.style.display = '';
@@ -345,6 +354,9 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                     fetch('lookup.php?nocache=' + Date.now(), { method: 'POST', body: fd })
                         .then(function (r) { return r.json(); })
                         .then(function (data) {
+                            // Store for export (Issue #49)
+                            bulkResultsData.push({ domain: domain, data: data });
+
                             var badgeClass = data.availability === 'available' ? 'bg-success' : 'bg-info';
                             var badgeText = data.availability === 'available' ? 'Available' : 'Registered';
                             var regBtn = '';
@@ -364,10 +376,46 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                             acc.appendChild(item);
                         })
                         .catch(function () {})
-                        .finally(function () { if (++done === domains.length) showLoading(false); });
+                        .finally(function () {
+                            if (++done === domains.length) {
+                                showLoading(false);
+                                if (bulkResultsData.length > 0) {
+                                    document.getElementById('bulkExportButtons').style.display = '';
+                                }
+                            }
+                        });
                 }, i * 1000);
             });
         }
+
+        // ── Bulk export (Issue #49) ──
+        document.getElementById('exportCsvBtn').addEventListener('click', function () {
+            if (bulkResultsData.length === 0) { return; }
+            var csv = 'Domain,Availability,Registrar,Creation Date,Expiry Date,Data Source\n';
+            bulkResultsData.forEach(function (r) {
+                var p = r.data.parsed || {};
+                csv += '"' + r.domain + '","' + (r.data.availability || '') + '","' +
+                    (p['Registrar'] || '') + '","' + (p['Creation Date'] || '') + '","' +
+                    (p['Expiry Date'] || '') + '","' + (r.data.data_source || '') + '"\n';
+            });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+            a.download = 'whois-bulk-export.csv';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        });
+
+        document.getElementById('exportJsonBtn').addEventListener('click', function () {
+            if (bulkResultsData.length === 0) { return; }
+            var jsonData = bulkResultsData.map(function (r) {
+                return { domain: r.domain, availability: r.data.availability, parsed: r.data.parsed, dns: r.data.dns, data_source: r.data.data_source };
+            });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' }));
+            a.download = 'whois-bulk-export.json';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        });
 
         // ── Display results ──
         function displayResults(data) {
