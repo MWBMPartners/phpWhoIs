@@ -345,8 +345,8 @@ function isValidDomain(string $domain): bool {
         return false;
     }
 
-    // Standard domain format validation
-    return (bool) preg_match('/^(?!-)(?:[a-zA-Z0-9-]{1,63}\.)+[a-zA-Z]{2,}$/', $domain);
+    // Standard domain format validation (no leading/trailing hyphens per label)
+    return (bool) preg_match('/^(?!-)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/', $domain);
 }
 
 
