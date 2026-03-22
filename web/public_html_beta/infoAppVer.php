@@ -1,7 +1,7 @@
 <?php
 	//Application
 		$app["Application"]["ID"] = "Ltd.MWBMPartners.Whois";
-		$app["Application"]["Name"] = "mwWhoisLookup";
+		$app["Application"]["Name"] = "WHOIS Lookup";
 		$app["Application"]["Website"]["URL"] = NULL;
 
 		//Version

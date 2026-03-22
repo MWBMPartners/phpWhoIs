@@ -60,17 +60,17 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Whois Lookup</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <title><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";} ?></title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <!-- Header -->
     <div class="header-form">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-            <h1 class="mb-0"><a href="/">WHOIS Lookup</a></h1>
-            <button class="btn btn-sm btn-outline-secondary" id="darkModeToggle" title="Toggle dark mode">
+        <div class="position-relative text-center mb-2">
+            <h1 class="mb-0"><a href="/"><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";} ?></a></h1>
+            <button class="btn btn-sm btn-outline-secondary position-absolute top-50 end-0 translate-middle-y" id="darkModeToggle" title="Toggle dark mode">
                 <i class="bi bi-moon-fill" id="darkModeIcon"></i>
             </button>
         </div>
@@ -116,6 +116,12 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
 
     <!-- Results section -->
     <div class="result-container" id="resultContainer">
+        <!-- Empty state -->
+        <div id="emptyState" class="text-center py-5">
+            <i class="bi bi-search" style="font-size: 3rem; opacity: 0.15;"></i>
+            <p class="mt-3 text-muted">Enter a domain above to get started</p>
+        </div>
+
         <div id="loadingSpinner" class="text-center py-5" style="display:none;">
             <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
             <p class="mt-2 text-muted">Looking up domain information...</p>
@@ -145,7 +151,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <!-- Footer -->
     <div class="footer">&copy; <?php echo htmlspecialchars("$copyrightYear $copyrightOwner"); ?>. All Rights Reserved</div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
     <script>
     document.addEventListener('DOMContentLoaded', function () {
         var CSRF = '<?php echo htmlspecialchars($csrfToken); ?>';
@@ -398,7 +404,13 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         });
 
         // ── Helpers ──
-        function showLoading(on) { document.getElementById('loadingSpinner').style.display = on ? '' : 'none'; }
+        var defaultTitle = document.title;
+
+        function showLoading(on) {
+            document.getElementById('loadingSpinner').style.display = on ? '' : 'none';
+            document.getElementById('emptyState').style.display = 'none';
+        }
+
         function hideResults() {
             ['availabilityBadge', 'dataSourceBadge', 'parsedFields', 'resultTabs', 'dnsResultPane', 'bulkResults'].forEach(function (id) {
                 document.getElementById(id).style.display = 'none';
@@ -406,9 +418,17 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             document.getElementById('whoisResultPane').style.display = '';
             document.getElementById('result').innerHTML = '';
             document.getElementById('actionButtons').style.cssText = 'display:none !important';
+            document.getElementById('emptyState').style.display = 'none';
         }
-        function showError(msg) { document.getElementById('result').innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i>' + msg + '</div>'; }
-        function updateURL(d) { history.pushState(null, '', window.location.pathname + '?domain=' + encodeURIComponent(d)); }
+
+        function showError(msg) {
+            document.getElementById('result').innerHTML = '<div class="alert alert-danger fade-in"><i class="bi bi-exclamation-triangle-fill me-2"></i>' + msg + '</div>';
+        }
+
+        function updateURL(d) {
+            history.pushState(null, '', window.location.pathname + '?domain=' + encodeURIComponent(d));
+            document.title = d + ' — ' + defaultTitle;
+        }
     });
     </script>
 </body>
