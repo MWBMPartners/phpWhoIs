@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [be59d2b] - 2026-03-22
+
+**feat: reverse DNS lookup — enter IP address, get PTR hostname (#45)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`be59d2b`](https://github.com/MWBMPartners/phpWhoIs/commit/be59d2b0f9e3940b7b3474a1bab126ea9325104d)
+
+### Changed files
+
+- `functions.php`
+- `lookup.php`
+
+
 ## [4b8b1da] - 2026-03-22
 
 **feat: add Wayback Machine link to action buttons (#54)**
