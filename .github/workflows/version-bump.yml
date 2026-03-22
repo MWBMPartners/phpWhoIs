@@ -1,0 +1,66 @@
+name: Auto-increment version
+
+on:
+  push:
+    branches:
+      - beta
+    paths:
+      - 'web/public_html_beta/**'
+      - '!web/public_html_beta/CHANGELOG.md'
+      - '!web/public_html_beta/README.md'
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    # Skip if this commit was made by the bot (prevents infinite loops)
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Bump patch version
+        run: |
+          VERFILE="web/public_html_beta/infoAppVer.php"
+
+          # Extract current version
+          CURRENT=$(grep -oP '\["Version"\]\["Version"\] = "\K[^"]+' "$VERFILE")
+          echo "Current version: $CURRENT"
+
+          # Split into major.minor.patch
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+          # Increment patch
+          PATCH=$((PATCH + 1))
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "New version: $NEW_VERSION"
+
+          # Update the file
+          sed -i "s/\[\"Version\"\]\[\"Version\"\] = \"$CURRENT\"/[\"Version\"][\"Version\"] = \"$NEW_VERSION\"/" "$VERFILE"
+
+          # Verify the change
+          grep 'Version\"\]\[\"Version' "$VERFILE"
+
+          # Also update README.md version badge if it exists
+          README="web/public_html_beta/README.md"
+          if [[ -f "$README" ]]; then
+            sed -i "s/\*\*Version:\*\* .*/\*\*Version:\*\* ${NEW_VERSION}-beta/" "$README"
+          fi
+
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add web/public_html_beta/infoAppVer.php web/public_html_beta/README.md
+
+          if git diff --cached --quiet; then
+            echo "No version changes to commit"
+          else
+            git commit -m "chore: bump version to $(grep -oP '\["Version"\]\["Version"\] = "\K[^"]+' web/public_html_beta/infoAppVer.php) [skip ci]"
+            git push
+          fi
