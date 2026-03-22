@@ -183,6 +183,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             <button class="btn btn-secondary btn-sm" id="toggleViewBtn">Show Raw Whois</button>
             <button class="btn btn-outline-secondary btn-sm" id="copyBtn"><i class="bi bi-clipboard"></i> Copy</button>
             <button class="btn btn-outline-secondary btn-sm" id="downloadBtn"><i class="bi bi-download"></i> Download</button>
+            <a href="#" target="_blank" class="btn btn-outline-secondary btn-sm" id="waybackBtn"><i class="bi bi-clock-history"></i> Wayback Machine</a>
         </div>
 
         <div id="bulkResults" class="accordion mt-3" style="display:none;"></div>
@@ -423,6 +424,12 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 });
                 dnsHtml += '</tbody></table>';
                 document.getElementById('dnsResultPane').innerHTML = dnsHtml;
+            }
+
+            // Wayback Machine link (Issue #54)
+            var waybackBtn = document.getElementById('waybackBtn');
+            if (waybackBtn) {
+                waybackBtn.href = 'https://web.archive.org/web/*/' + encodeURIComponent(currentDomain);
             }
 
             // Action buttons
