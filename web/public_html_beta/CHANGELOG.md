@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [bfd555e] - 2026-03-22
+
+**feat: DMARC/SPF/DKIM email security check (#56)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`bfd555e`](https://github.com/MWBMPartners/phpWhoIs/commit/bfd555e612a9d6b7f6e67de485b945d6fbbb813f)
+
+### Changed files
+
+- `functions.php`
+- `index.php`
+- `lookup.php`
+
+
 ## [6039757] - 2026-03-22
 
 **feat: batch export bulk results as CSV or JSON (#49)**
