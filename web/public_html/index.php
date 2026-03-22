@@ -1,454 +1,525 @@
-<?php //https://chatgpt.com/share/66ed46d1-c1a4-800b-bc0a-93663c3084dd ?><?php
-	#########################################
-	#			WhoIs Lookup Tool			#
-	#										#
-	# version: v0.2.350						#
-	#										#
-	#########################################
-	#		(C) 2024 MWservices.it			#
-	#########################################
+<?php
+/**
+ * mwWhoIs - Domain WHOIS/RDAP Lookup Tool
+ * (C) 2024 MWBM Partners Ltd (t/a MWservices)
+ */
 
-	##Domain Name Whois Lookup Tool
-	##	BASED ON //https://chatgpt.com/share/66ed46d1-c1a4-800b-bc0a-93663c3084dd
-	
-	
-	//Case Insensitive GET Params
-	//	https://stackoverflow.com/a/4211432/1954972
-		$_lowerGET = array_change_key_case($_GET, CASE_LOWER);
+// ─── Session & CSRF ───
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'session_config.php';
+$csrfToken = $_SESSION['csrf_token'];
 
-	//////////////////////////////////////////////////////////////////////////////
-	//			START of Integration of WebMS Shared/Global Resources			//
-	//////////////////////////////////////////////////////////////////////////////
-		//Check loading status
-			//Dev
-				if (isset($_lowerGET['dev']) or isset($_GET['dev'])){
-					$modeDev = TRUE;
-				
-					//Debug
-						if (isset($_lowerGET['debug']) or isset($_GET['debug'])){
-							$modeDebug = TRUE;
-						}
-						else{
-							$modeDebug = FALSE;
-						}
-				}
-				else{
-					$modeDev = FALSE;
-					$modeDebug = FALSE;
-				}
-				
-				if (isset($modeDebug) && $modeDebug === TRUE){
-					echo nl2br("modeDev: ". $modeDev." (FILE: ".__FILE__."; LINE: ".__LINE__.")". PHP_EOL . PHP_EOL);
-					echo nl2br("modeDebug: ". $modeDebug." (FILE: ".__FILE__."; LINE: ".__LINE__.")". PHP_EOL . PHP_EOL);
-				}
-			
-		//Enable Error Reporting if accessed in Debug mode
-			if (isset($modeDebug) && $modeDebug === TRUE){
-				if (isset($_lowerGET['debug']) or isset($debug) or $debug or isset($_lowerGET['dev']) or isset($dev) or $dev){
-					ini_set('display_errors',1);
-					error_reporting(E_ALL);
-				}
-			}
+// ─── Security headers ───
+header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: DENY");
+header("X-XSS-Protection: 1; mode=block");
+header("Referrer-Policy: strict-origin-when-cross-origin");
 
-		$countError = 0;
+// ─── Config ───
+$config = [];
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'config.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'config.php';
+}
 
-		//melaS WebMS Shared Components
-			//Define & Initialise WebMS Shared Components
-				//Define Host Root Directory
-					if (!isset($pathHostRoot) or empty($pathHostRoot) or !file_exists($pathHostRoot)){
-						if (file_exists(dirname(dirname(dirname(dirname(dirname(dirname(__FILE__)))))))){
-							$pathHostRoot = dirname(dirname(dirname(dirname(dirname(dirname(__FILE__))))));
-						}
-						else{
-							if (function_exists("webmsStatus")){
-								webmsStatus("Host Root directory not defined", __FILE__, __LINE__);
-							}
-						}
-					}
+// ─── Debug mode ───
+$modeDev = false;
+$modeDebug = false;
 
-					if (isset($pathHostRoot) && $pathHostRoot){
-						//Directory to WebMS Functions
-							if (!isset($pathFunctions) or empty($pathFunctions) or !file_exists($pathFunctions. DIRECTORY_SEPARATOR ."all.php")){
-								if (file_exists($pathHostRoot. DIRECTORY_SEPARATOR ."_functions")){
-									$pathFunctions = $pathHostRoot. DIRECTORY_SEPARATOR ."_functions";
+if (isset($_GET['dev'])) {
+    $modeDev = true;
 
-									//Add Support for WebMS Shared Functions
-										require_once ($pathFunctions. DIRECTORY_SEPARATOR ."all.php");
-								}
-								elseif (file_exists(dirname(__FILE__))){
-									$pathFunctions = dirname(__FILE__);
+    if (isset($_GET['debug'])) {
+        $modeDebug = true;
+    }
+}
 
-									//Add Support for WebMS Shared Functions
-										require_once ($pathFunctions. DIRECTORY_SEPARATOR ."all.php");
-								}
-								else{
-									if (function_exists("webmsStatus")){
-										webmsStatus("WebMS shared functions directory not found", __FILE__, __LINE__);
-									}
-								}
-							}
+if ($modeDebug) {
+    ini_set('display_errors', 1);
+    error_reporting(E_ALL);
+}
 
-						//Directory to WebMS Shared Libraries
-							if (!isset($pathLibraries) or empty($pathLibraries) or !file_exists($pathLibraries)){
-								if (file_exists($pathHostRoot. DIRECTORY_SEPARATOR ."_libraries")){
-									$pathLibraries = $pathHostRoot. DIRECTORY_SEPARATOR ."_libraries";
-								}
-								else{
-									if (function_exists("webmsStatus")){
-										webmsStatus("WebMS shared libraries directory not found", __FILE__, __LINE__);
-									}
-								}
-							}
+// ─── App version info ───
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'infoAppVer.php';
+}
 
-						//Directory to WebMS Error Pages
-							if (!isset($pathErrors) or empty($pathErrors) or !file_exists($pathErrors)){
-								if (file_exists($pathHostRoot. DIRECTORY_SEPARATOR ."_errors")){
-									$pathErrors = $pathHostRoot. DIRECTORY_SEPARATOR ."_errors";
-								}
-								else{
-									if (function_exists("webmsStatus")){
-										webmsStatus("WebMS shared errors directory not found", __FILE__, __LINE__);
-									}
-								}
-							}
+// ─── Copyright helper ───
+if (isset($app["Application"]["Copyright"]["Year"]["Start"])
+    && is_numeric($app["Application"]["Copyright"]["Year"]["Start"])
+    && $app["Application"]["Copyright"]["Year"]["Start"] < date("Y")) {
+    $copyrightYear = $app["Application"]["Copyright"]["Year"]["Start"] . "-" . date("Y");
+} else {
+    $copyrightYear = date("Y");
+}
 
-						//Directory to SysCheck
-						/*	if (!isset($pathSysCheck) or empty($pathSysCheck) or !file_exists($pathSysCheck)){
-								if (file_exists($pathHostRoot. DIRECTORY_SEPARATOR ."_syscheck")){
-									$pathSysCheck = $pathHostRoot. DIRECTORY_SEPARATOR ."_syscheck";
-								}
-								else{
-									if (function_exists("webmsStatus")){
-										webmsStatus("SysCheck directory not found", __FILE__, __LINE__);
-									}
-								}
-							}	*/
-					}
-
-			//Define & Initialise App Specific Components
-				//Define App Root Directory
-					if (!isset($pathAppRoot) or empty($pathAppRoot) or !file_exists($pathAppRoot)){
-						if (file_exists(dirname(dirname(__FILE__)))){
-							$pathAppRoot = dirname(dirname(__FILE__));
-						}
-						else{
-							if (function_exists("webmsStatus")){
-								webmsStatus("Application root directory (pathAppRoot) not specified", __FILE__, __LINE__);
-							}
-						}
-					}
-
-					if (isset($pathAppRoot) && !empty($pathAppRoot)){
-						//App Functions Directory
-							if (!isset($pathAppFunctions) or empty($pathAppFunctions) or !file_exists($pathAppFunctions)){
-								if (file_exists($pathAppRoot. DIRECTORY_SEPARATOR ."_functions")){
-									$pathAppFunctions = $pathAppRoot. DIRECTORY_SEPARATOR ."_functions";
-
-									//Declare all App Specific Functions
-										if (file_exists($pathAppFunctions. DIRECTORY_SEPARATOR ."all.php")){
-											require_once ($pathAppFunctions. DIRECTORY_SEPARATOR ."all.php");
-										}
-
-								//		require_once ($pathAppFunctions. DIRECTORY_SEPARATOR ."dbFunctions.php");
-								}
-								else{
-									if (function_exists("webmsStatus")){
-										webmsStatus("Application functions directory not found", __FILE__, __LINE__);
-									}
-								}
-							}
-
-						//App Libraries Directory
-							if (!isset($pathAppLibraries) or empty($pathAppLibraries) or !file_exists($pathAppLibraries)){
-								if (file_exists($pathAppRoot. DIRECTORY_SEPARATOR ."_libraries")){
-									$pathAppLibraries = $pathAppRoot. DIRECTORY_SEPARATOR ."_libraries";
-								}
-								else{
-									if (function_exists("webmsStatus")){
-										webmsStatus("Application functions directory not found", __FILE__, __LINE__);
-									}
-								}
-							}
-
-						//App Configuration Directory
-							if (!isset($pathAppConfig) or empty($pathAppConfig) or !file_exists($pathAppConfig)){
-								if (file_exists($pathAppRoot. DIRECTORY_SEPARATOR ."_config")){
-									$pathAppConfig = $pathAppRoot. DIRECTORY_SEPARATOR ."_config";
-								}
-								else{
-									//COMING SOON
-										$countError = $countError+1;
-
-										$streamLoadData["Response"]["Status"]["Error"][$countError]["Code"] = "AppConfigDirFail";
-										$streamLoadData["Response"]["Status"]["Error"][$countError]["Severity"] = "WARNING";
-										$streamLoadData["Response"]["Status"]["Error"][$countError]["ErrorDescription"] = "App specific config folder not found (this is not necessarily a problem)";
-
-										if (isset($modeDebug) && $modeDebug === TRUE){
-											$streamLoadData["Response"]["Status"]["Error"][$countError]["Backtrace"] = var_dump(debug_backtrace());
-										}
-
-								/*	if (function_exists("webmsStatus")){
-										webmsStatus("Application configuration data directory not found", __FILE__, __LINE__);
-									}	*/
-								}
-							}
-
-						//App Templates Directory
-							if (!isset($pathAppTemplates) or empty($pathAppTemplates) or !file_exists($pathAppTemplates)){
-								if (file_exists($pathAppRoot. DIRECTORY_SEPARATOR ."_templates")){
-									$pathAppTemplates = $pathAppRoot. DIRECTORY_SEPARATOR ."_templates";
-								}
-								else{
-									//COMING SOON
-										$countError = $countError+1;
-
-										$streamLoadData["Response"]["Status"]["Error"][$countError]["Code"] = "AppTemplatesDirFail";
-										$streamLoadData["Response"]["Status"]["Error"][$countError]["Severity"] = "WARNING";
-										$streamLoadData["Response"]["Status"]["Error"][$countError]["ErrorDescription"] = "App templates folder not found (this is not necessarily an issue)";
-
-										if (isset($modeDebug) && $modeDebug === TRUE){
-											$streamLoadData["Response"]["Status"]["Error"][$countError]["Backtrace"] = var_dump(debug_backtrace());
-										}
-
-								/*	if (function_exists("webmsStatus")){
-										webmsStatus("Application templates directory not found", __FILE__, __LINE__);
-									}	*/
-								}
-							}
-					}
-
-			//Prevent Session Injections (//www.php.net/manual/en/reserved.variables.session.php#94676)
-				if (function_exists("protectSessionInjection")){
-					protectSessionInjection();
-				}
-
-			//Run SysCheck
-			/*	if (function_exists("defineSysCheck")){
-					$pathSysCheck = defineSysCheck(NULL, NULL, NULL, TRUE);
-				}
-				else{
-					if (function_exists("webmsStatus")){
-						webmsStatus("SysCheck not loaded", __FILE__, __LINE__);
-					}
-				}	*/
-
-			//Allow for viewing of PHP Source Code
-				if (function_exists("allowViewSourceCode")){
-					allowViewSourceCode();
-				}
-
-			//phpGlobalVars - Sets common PHP variables
-				if (function_exists("phpGlobalVars")){
-					$phpCommonVars = phpGlobalVars();
-				}
-				else{
-					echo "no GlobalVars";
-				}
-
-			//Retrieve/Initialise WebMS Global Variables
-				if (function_exists("getParams")){
-					getParams();
-				}
-				else{
-					if (function_exists("webmsStatus")){
-						webmsStatus("Parameters not collected, function (getParams()) not found", __FILE__, __LINE__);
-					}
-				}
-
-			//////////////////////////////////////////////////////////
-			//														//
-			// When "debug" variable is used, extra debugging info	//
-			// is displayed, such as hidden variables set, etc. To 	//
-			// be used be developers only.				 			//
-			//														//
-			// NOTE: This variable does NOT need to have a value. 	//
-			// 		 It just needs to be present.					//
-			//														//
-			//////////////////////////////////////////////////////////
-				if (function_exists("paramDebug")){
-					paramDebug();
-				}
-
-			//////////////////////////////////////////////////////////
-			//  When "stealth" variable is used, website visitor	//
-			//  monitoring & statistics gathering (analytics) is	//
-			//				disabled.								//
-			//														//
-			// NOTE: This variable does NOT need to have a value. 	//
-			// 	   It just needs to be present.						//
-			//////////////////////////////////////////////////////////
-				if (function_exists("getPrivacyMode")){
-					getPrivacyMode();
-				}
-
-			//////////////////////////////////////////////////////////
-			// When "textselect" variable is used, it allows the  	//
-			// user to select text on the website which can then  	//
-			//  be copied to the clipboard. Failure to use this   	//
-			//   variable disables the selection of text. This is 	//
-			//	 done to prevent source code viewing/copying		//
-			//													  	//
-			// NOTE: This variable does NOT need to have a value. 	//
-			// 	   It just needs to be present.						//
-			//////////////////////////////////////////////////////////
-				if (function_exists("paramAllowTextSelect")){
-					paramAllowTextSelect();
-				}
-
-	//////////////////////////////////////////////////////////////////////////////
-	//			END of Integration of WebMS Shared/Global Resources				//
-	//////////////////////////////////////////////////////////////////////////////
+if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"]["Vendor"]["Parent"]["Name"]) {
+    $copyrightOwner = $app["Application"]["Vendor"]["Parent"]["Name"];
+} elseif (isset($app["Application"]["Vendor"]["Name"]) && $app["Application"]["Vendor"]["Name"]) {
+    $copyrightOwner = $app["Application"]["Vendor"]["Name"];
+} elseif (isset($app["Application"]["Name"]) && $app["Application"]["Name"]) {
+    $copyrightOwner = $app["Application"]["Name"];
+} else {
+    $copyrightOwner = null;
+}
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Whois Lookup</title>
+<?php
+    $pageTitle = NULL;
+    if (isset($app["Application"]["Name"]) && $app["Application"]["Name"]) {
+        $pageTitle = $app["Application"]["Name"];
+    } else {
+        $pageTitle = 'WHOIS Lookup';
+    }
+    if (isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]) {
+        $pageTitle .= ' (' . $app["Application"]["Version"]["Development"]["Status"] . ')';
+    }
+    $pageDescription = 'Free domain WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.';
+    $pageUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+?>
+    <title><?php echo htmlspecialchars($pageTitle); ?></title>
+    <meta name="description" content="<?php echo htmlspecialchars($pageDescription); ?>">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="<?php echo htmlspecialchars(strtok($pageUrl, '?')); ?>">
 
-    <!-- Bootstrap CSS for responsive design and default styling of buttons, forms, etc.
-         Documentation: https://getbootstrap.com/docs/4.5/getting-started/introduction/ -->
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
-    
-    <!-- Link to external CSS file for custom styles specific to this project -->
-    <link rel="stylesheet" href="style.css">
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="<?php echo htmlspecialchars($pageTitle); ?>">
+    <meta property="og:description" content="<?php echo htmlspecialchars($pageDescription); ?>">
+    <meta property="og:url" content="<?php echo htmlspecialchars($pageUrl); ?>">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="<?php echo htmlspecialchars($pageTitle); ?>">
+    <meta name="twitter:description" content="<?php echo htmlspecialchars($pageDescription); ?>">
+
+    <!-- CSRF token for JS -->
+    <meta name="csrf-token" content="<?php echo htmlspecialchars($csrfToken); ?>">
+
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'style.css'); ?>">
 </head>
 <body>
-
-    <!-- Header section for the form and page title 
-         - The header includes a title and an input form where the user can enter a domain name
-         - It is styled to be positioned at the top and separated from the rest of the content -->
+    <!-- Header -->
     <div class="header-form">
-        <h1>Whois Lookup</h1> <!-- Main title of the page displayed at the top -->
-        
-        <!-- Form section: The form allows users to input a domain name and submit it 
-             - Uses the Bootstrap grid system to structure the form responsively
-             - The form uses POST method and is submitted via AJAX -->
-        <form id="whoisForm" class="form-container">
-            <!-- Form group for the domain input field 
-                 - The input is designed to accept valid domain names and uses HTML5 pattern validation -->
-            <div class="form-group">
-                <label for="domain" class="sr-only">Domain or URL</label> <!-- Screen reader only label for accessibility -->
-                <input type="text" class="form-control" id="domain" name="domain" 
-                    pattern="^(?!\-)(?:[a-zA-Z0-9\-]{1,63}\.)+(?:[a-zA-Z]{2,})$"
-                    title="Please enter a valid domain name, e.g., example.com" 
-                    placeholder="example.com" required> <!-- Placeholder and required attributes for user guidance -->
-            </div>
+        <div class="position-relative text-center mb-2">
+            <h1 class="mb-0"><a href="/"><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";}if(isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]){echo " (".$app["Application"]["Version"]["Development"]["Status"].")";} ?></a></h1>
+            <button class="btn btn-sm btn-outline-secondary position-absolute top-50 end-0 translate-middle-y" id="darkModeToggle" title="Toggle dark mode">
+                <i class="bi bi-moon-fill" id="darkModeIcon"></i>
+            </button>
+        </div>
 
-            <!-- Submit button to trigger the Whois lookup via AJAX -->
+        <!-- Lookup mode tabs -->
+        <ul class="nav nav-tabs mb-3" id="lookupModeTabs">
+            <li class="nav-item"><a class="nav-link active" href="#" data-mode="single">Single Lookup</a></li>
+            <li class="nav-item"><a class="nav-link" href="#" data-mode="bulk">Bulk Lookup</a></li>
+        </ul>
+
+        <!-- Single domain form -->
+        <form id="whoisForm" class="form-container">
+            <div class="form-group flex-grow-1">
+                <label for="domain" class="visually-hidden">Domain or URL</label>
+                <input type="text" class="form-control" id="domain" name="domain"
+                    title="Please enter a valid domain name, e.g., example.com"
+                    placeholder="example.com" required autocomplete="off">
+            </div>
             <button type="submit" class="btn btn-primary submit-btn">Lookup</button>
         </form>
+
+        <!-- Bulk domain form -->
+        <form id="bulkWhoisForm" class="form-container" style="display:none;">
+            <div class="form-group flex-grow-1">
+                <label for="bulkDomains" class="visually-hidden">Domains (one per line)</label>
+                <textarea class="form-control" id="bulkDomains" name="domains" rows="4"
+                    placeholder="example.com&#10;example.org&#10;example.net" required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary submit-btn">Lookup All</button>
+        </form>
+
+        <!-- Recent lookups -->
+        <div id="historyContainer" class="mt-2" style="display:none;">
+            <div class="d-flex align-items-center gap-2">
+                <small class="text-muted">Recent:</small>
+                <div id="historyList" class="d-flex flex-wrap gap-1"></div>
+                <button class="btn btn-sm btn-link text-muted p-0" id="clearHistory" title="Clear history">
+                    <i class="bi bi-x-circle"></i>
+                </button>
+            </div>
+        </div>
     </div>
 
-    <!-- Result section where the WHOIS lookup result will be displayed 
-         - It uses a scrollable container to allow long WHOIS responses to be viewed without scrolling the whole page -->
+    <!-- Results section -->
     <div class="result-container" id="resultContainer">
-        <div id="result"></div> <!-- The result from the WHOIS lookup will be dynamically inserted here -->
+        <!-- Empty state -->
+        <div id="emptyState" class="text-center py-5">
+            <i class="bi bi-search" style="font-size: 3rem; opacity: 0.15;"></i>
+            <p class="mt-3 text-muted">Enter a domain above to get started</p>
+        </div>
 
-        <!-- Toggle button to switch between formatted and raw WHOIS result views 
-             - This button is hidden by default and will be shown after the first lookup -->
-        <button class="btn btn-secondary toggle-btn" id="toggleViewBtn" style="display:none;">Show Raw Whois</button>
+        <div id="loadingSpinner" class="text-center py-5" style="display:none;">
+            <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+            <p class="mt-2 text-muted">Looking up domain information...</p>
+        </div>
+
+        <div id="availabilityBadge" class="mb-3" style="display:none;"></div>
+        <div id="dataSourceBadge" class="mb-2" style="display:none;"></div>
+        <div id="parsedFields" class="mb-3" style="display:none;"></div>
+
+        <ul class="nav nav-pills mb-3" id="resultTabs" style="display:none;">
+            <li class="nav-item"><a class="nav-link active" href="#" data-tab="whois">WHOIS</a></li>
+            <li class="nav-item"><a class="nav-link" href="#" data-tab="dns">DNS Records</a></li>
+        </ul>
+
+        <div id="whoisResultPane"><div id="result"></div></div>
+        <div id="dnsResultPane" style="display:none;"></div>
+
+        <div id="actionButtons" class="mt-2 d-flex gap-2 flex-wrap" style="display:none !important;">
+            <button class="btn btn-secondary btn-sm" id="toggleViewBtn">Show Raw Whois</button>
+            <button class="btn btn-outline-secondary btn-sm" id="copyBtn"><i class="bi bi-clipboard"></i> Copy</button>
+            <button class="btn btn-outline-secondary btn-sm" id="downloadBtn"><i class="bi bi-download"></i> Download</button>
+        </div>
+
+        <div id="bulkResults" class="accordion mt-3" style="display:none;"></div>
     </div>
 
-    <!-- Footer section that stays fixed at the bottom of the viewport 
-         - Used to display copyright or any important footer information -->
+    <!-- Footer -->
     <div class="footer">
-        &copy; 2024 Whois Lookup Tool - All Rights Reserved
+        <?php
+            if (isset($pageTitle) && $pageTitle) {
+                echo $pageTitle;
+            }
+
+            if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]) {
+                echo "&nbsp; v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
+
+                if (!empty($app["Application"]["Version"]["Development"]["Status"])) {
+                    echo "&nbsp;" . htmlspecialchars($app["Application"]["Version"]["Development"]["Status"]);
+                }
+
+                if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Short"])) {
+                    echo '&nbsp;(<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" class="footer-commit">';
+                    echo htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Short"]);
+                    echo '</a>';
+
+                    if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Date"])) {
+                        echo '&nbsp;' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Date"]);
+                    }
+
+                    echo ')';
+                }
+            }
+
+            echo nl2br("\n");
+        ?>
+        Copyright &copy; <?php echo htmlspecialchars("$copyrightYear $copyrightOwner"); ?>. All Rights Reserved
     </div>
 
-    <!-- jQuery for handling form submission and AJAX requests 
-         Documentation: https://api.jquery.com/jquery.ajax/ -->
-    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
-
-    <!-- JavaScript for handling WHOIS lookups and formatting of the result 
-         The script handles the form submission via AJAX, processes the WHOIS result, and adds the toggle functionality -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        $(document).ready(function () {
-            let formattedResult = ""; // Store formatted WHOIS result
-            let rawResult = ""; // Store raw WHOIS result
-            let isRawView = false; // Track if raw view is currently shown
+    document.addEventListener('DOMContentLoaded', function () {
+        var CSRF = '<?php echo htmlspecialchars($csrfToken); ?>';
+        var REG_CONFIG = <?php echo json_encode(isset($config['registration']) ? $config['registration'] : ['enabled' => false]); ?>;
+        var formattedResult = '';
+        var rawWhoisText = '';
+        var isRawView = false;
+        var currentDomain = '';
 
-            // Check if a domain is passed via the URL (e.g., ?domain=example.com) and automatically trigger the lookup
-            const urlParams = new URLSearchParams(window.location.search);
-            const initialDomain = urlParams.get('domain');
-            if (initialDomain) {
-                $('#domain').val(initialDomain); // Pre-fill the input with the domain from the URL
-                triggerWhoisLookup(initialDomain); // Trigger the whois lookup automatically
-            }
+        // ── Dark mode ──
+        var darkToggle = document.getElementById('darkModeToggle');
+        var darkIcon = document.getElementById('darkModeIcon');
+        var theme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-bs-theme', theme);
+        setIcon(theme);
 
-            // Handle form submission via AJAX when the user submits the form
-            $("#whoisForm").on("submit", function (event) {
-                event.preventDefault(); // Prevent the form from submitting in the traditional way (page reload)
-                var domain = $("#domain").val(); // Get the domain name entered by the user
-                triggerWhoisLookup(domain); // Perform the WHOIS lookup
-                updateURL(domain); // Update the URL with the domain name for sharing/bookmarking
-            });
-
-            // Function to perform the WHOIS lookup via an AJAX request to the backend (lookup.php)
-            function triggerWhoisLookup(domain) {
-                $.ajax({
-                    type: "POST",
-                    url: "lookup.php?nocache=" + new Date().getTime(),  // Prevent caching by appending a timestamp
-                    data: { domain: domain }, // Send the domain as POST data to the server
-                    success: function (response) {
-                        rawResult = response; // Store the raw WHOIS result
-                        formatWhoisData(); // Format the raw result for better readability
-                        $('#toggleViewBtn').show(); // Show the toggle button after the first lookup
-                        isRawView = false; // Default to showing the formatted view
-                        updateToggleButtonText(); // Update the toggle button text based on the current view
-                    }
-                });
-            }
-
-            // Function to update the browser URL with the domain name (allows bookmarking/sharing)
-            function updateURL(domain) {
-                const newUrl = window.location.origin + window.location.pathname + '?domain=' + domain;
-                history.pushState({ path: newUrl }, '', newUrl); // Modify the URL without reloading the page
-            }
-
-            // Function to format the raw WHOIS data into a more readable format
-            // It splits the WHOIS response line by line and makes labels bold, with values indented on new lines
-            function formatWhoisData() {
-                let whoisText = rawResult; // Use the raw WHOIS data for processing
-
-                // Split the WHOIS data into lines and process each line
-                formattedResult = whoisText.split('\n').map(line => {
-                    let colonIndex = line.indexOf(':'); // Find the first colon in the line
-                    if (colonIndex !== -1) {
-                        // Split the line into label (before colon) and value (after colon)
-                        let label = line.substring(0, colonIndex + 1); // Include the colon as part of the label
-                        let value = line.substring(colonIndex + 1).trim(); // Trim extra spaces from the value
-                        // Format the label and value: label bolded, value indented on a new line
-                        return `<span class="whois-label">${label}</span><div class="whois-value">${value}</div>`;
-                    } else {
-                        // If no colon is found, treat the entire line as a value (not bolded)
-                        return `<span class="whois-value">${line}</span>`;
-                    }
-                }).join(''); // Join the formatted lines back together
-
-                $("#result").html(formattedResult); // Insert the formatted result into the result container
-            }
-
-            // Function to toggle between the raw and formatted views of the WHOIS result
-            $("#toggleViewBtn").on("click", function () {
-                isRawView = !isRawView; // Toggle the state
-                if (isRawView) {
-                    $("#result").html(`<pre>${rawResult}</pre>`); // Show the raw WHOIS result
-                } else {
-                    $("#result").html(formattedResult); // Show the formatted WHOIS result
-                }
-                updateToggleButtonText(); // Update the text of the toggle button
-            });
-
-            // Function to update the toggle button text based on the current view (raw/formatted)
-            function updateToggleButtonText() {
-                if (isRawView) {
-                    $("#toggleViewBtn").text("Show Formatted Whois"); // Text to switch to formatted view
-                } else {
-                    $("#toggleViewBtn").text("Show Raw Whois"); // Text to switch to raw view
-                }
-            }
+        darkToggle.addEventListener('click', function () {
+            theme = theme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-bs-theme', theme);
+            localStorage.setItem('theme', theme);
+            setIcon(theme);
         });
+        function setIcon(t) { darkIcon.className = t === 'dark' ? 'bi bi-sun-fill' : 'bi bi-moon-fill'; }
+
+        // ── Lookup mode tabs ──
+        document.querySelectorAll('#lookupModeTabs .nav-link').forEach(function (tab) {
+            tab.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelectorAll('#lookupModeTabs .nav-link').forEach(function (t) { t.classList.remove('active'); });
+                this.classList.add('active');
+                var single = this.dataset.mode === 'single';
+                document.getElementById('whoisForm').style.display = single ? '' : 'none';
+                document.getElementById('bulkWhoisForm').style.display = single ? 'none' : '';
+            });
+        });
+
+        // ── History ──
+        function getHistory() { try { return JSON.parse(localStorage.getItem('whoisHistory') || '[]'); } catch (e) { return []; } }
+        function saveToHistory(domain) {
+            var h = getHistory().filter(function (x) { return x.domain !== domain; });
+            h.unshift({ domain: domain, ts: Date.now() });
+            if (h.length > 10) h = h.slice(0, 10);
+            localStorage.setItem('whoisHistory', JSON.stringify(h));
+            renderHistory();
+        }
+        function renderHistory() {
+            var h = getHistory(), c = document.getElementById('historyContainer'), l = document.getElementById('historyList');
+            if (!h.length) { c.style.display = 'none'; return; }
+            c.style.display = '';
+            l.innerHTML = h.map(function (x) {
+                return '<button class="btn btn-sm btn-outline-primary history-item" data-domain="' + x.domain + '">' + x.domain + '</button>';
+            }).join('');
+            l.querySelectorAll('.history-item').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    document.getElementById('domain').value = this.dataset.domain;
+                    triggerLookup(this.dataset.domain);
+                    updateURL(this.dataset.domain);
+                });
+            });
+        }
+        document.getElementById('clearHistory').addEventListener('click', function () { localStorage.removeItem('whoisHistory'); renderHistory(); });
+        renderHistory();
+
+        // ── URL param auto-lookup ──
+        var urlDomain = new URLSearchParams(window.location.search).get('domain');
+        if (urlDomain) { document.getElementById('domain').value = urlDomain; triggerLookup(urlDomain); }
+
+        // ── Single form submit ──
+        document.getElementById('whoisForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            var d = document.getElementById('domain').value.trim();
+            if (d) { triggerLookup(d); updateURL(d); }
+        });
+
+        // ── Bulk form submit ──
+        document.getElementById('bulkWhoisForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            var text = document.getElementById('bulkDomains').value.trim();
+            if (!text) return;
+            var domains = text.split(/[\n,]+/).map(function (d) { return d.trim(); }).filter(Boolean);
+            if (domains.length) triggerBulkLookup(domains);
+        });
+
+        // ── Main lookup ──
+        function triggerLookup(domain) {
+            currentDomain = domain;
+            showLoading(true);
+            hideResults();
+
+            var fd = new FormData();
+            fd.append('domain', domain);
+            fd.append('csrf_token', CSRF);
+
+            fetch('lookup.php?nocache=' + Date.now(), { method: 'POST', body: fd })
+                .then(function (r) { if (!r.ok) throw new Error('Server error: ' + r.status); return r.json(); })
+                .then(function (data) {
+                    showLoading(false);
+                    if (data.error) { showError(data.error); return; }
+                    rawWhoisText = data.whois || '';
+                    displayResults(data);
+                    saveToHistory(domain);
+                })
+                .catch(function (err) { showLoading(false); showError('Lookup failed: ' + err.message); });
+        }
+
+        // ── Bulk lookup ──
+        function triggerBulkLookup(domains) {
+            showLoading(true);
+            hideResults();
+            var acc = document.getElementById('bulkResults');
+            acc.innerHTML = '';
+            acc.style.display = '';
+            var done = 0;
+
+            domains.forEach(function (domain, i) {
+                setTimeout(function () {
+                    var fd = new FormData();
+                    fd.append('domain', domain);
+                    fd.append('csrf_token', CSRF);
+
+                    fetch('lookup.php?nocache=' + Date.now(), { method: 'POST', body: fd })
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            var badgeClass = data.availability === 'available' ? 'bg-success' : 'bg-info';
+                            var badgeText = data.availability === 'available' ? 'Available' : 'Registered';
+                            var regBtn = '';
+                            if (data.availability === 'available' && REG_CONFIG.enabled) {
+                                var bulkRegUrl = REG_CONFIG.url_template.replace('{domain}', encodeURIComponent(domain));
+                                var bulkTarget = REG_CONFIG.open_in_new_tab ? ' target="_blank"' : '';
+                                regBtn = ' <a href="' + bulkRegUrl + '"' + bulkTarget + ' class="btn btn-success btn-sm ms-2"><i class="bi bi-cart-plus me-1"></i>' + REG_CONFIG.button_text + '</a>';
+                            }
+                            var item = document.createElement('div');
+                            item.className = 'accordion-item';
+                            item.innerHTML =
+                                '<h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-' + i + '">' +
+                                domain + ' <span class="badge ' + badgeClass + ' ms-2">' + badgeText + '</span>' + regBtn +
+                                '</button></h2>' +
+                                '<div id="bulk-' + i + '" class="accordion-collapse collapse"><div class="accordion-body"><pre>' +
+                                (data.whois || data.error || 'No data') + '</pre></div></div>';
+                            acc.appendChild(item);
+                        })
+                        .catch(function () {})
+                        .finally(function () { if (++done === domains.length) showLoading(false); });
+                }, i * 1000);
+            });
+        }
+
+        // ── Display results ──
+        function displayResults(data) {
+            // Availability badge
+            var avBadge = document.getElementById('availabilityBadge');
+            if (data.availability === 'available') {
+                var regButton = '';
+                if (REG_CONFIG.enabled) {
+                    var regUrl = REG_CONFIG.url_template.replace('{domain}', encodeURIComponent(currentDomain));
+                    var regTarget = REG_CONFIG.open_in_new_tab ? ' target="_blank"' : '';
+                    regButton = '<a href="' + regUrl + '"' + regTarget + ' class="btn btn-success btn-sm"><i class="bi bi-cart-plus me-1"></i>' + REG_CONFIG.button_text + '</a>';
+                }
+                avBadge.innerHTML = '<div class="alert alert-success d-flex align-items-center justify-content-between flex-wrap gap-2">' +
+                    '<div><i class="bi bi-check-circle-fill me-2"></i><strong>' + currentDomain + '</strong> appears to be available!</div>' +
+                    regButton + '</div>';
+            } else {
+                avBadge.innerHTML = '<div class="alert alert-info d-flex align-items-center"><i class="bi bi-info-circle-fill me-2"></i><strong>' + currentDomain + '</strong> is registered.</div>';
+            }
+            avBadge.style.display = '';
+
+            // Source badge
+            var dsBadge = document.getElementById('dataSourceBadge');
+            dsBadge.innerHTML = '<span class="badge bg-secondary">Source: ' + (data.data_source || 'whois').toUpperCase() + (data.cached ? ' (cached)' : '') + '</span>';
+            dsBadge.style.display = '';
+
+            // Parsed fields card
+            if (data.parsed && Object.keys(data.parsed).length) {
+                var pf = document.getElementById('parsedFields');
+                var html = '<div class="card"><div class="card-header"><strong>Domain Summary</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+                for (var key in data.parsed) {
+                    var val = Array.isArray(data.parsed[key]) ? data.parsed[key].join(', ') : data.parsed[key];
+                    var cls = '';
+                    if (key === 'Expires In') {
+                        var days = parseInt(val);
+                        if (days <= 30) cls = ' class="table-danger"';
+                        else if (days <= 90) cls = ' class="table-warning"';
+                    }
+                    html += '<tr' + cls + '><td class="fw-bold">' + key + '</td><td>' + val + '</td></tr>';
+                }
+                html += '</table></div></div>';
+                pf.innerHTML = html;
+                pf.style.display = '';
+            }
+
+            // Formatted WHOIS
+            formatWhoisData(data.whois || '');
+
+            // DNS records
+            if (data.dns && data.dns.length) {
+                document.getElementById('resultTabs').style.display = '';
+                var dnsHtml = '<table class="table table-striped table-sm"><thead><tr><th>Type</th><th>Value</th><th>Priority</th></tr></thead><tbody>';
+                data.dns.forEach(function (r) {
+                    dnsHtml += '<tr><td><span class="badge bg-secondary">' + r.type + '</span></td><td>' + r.value + '</td><td>' + (r.priority || '') + '</td></tr>';
+                });
+                dnsHtml += '</tbody></table>';
+                document.getElementById('dnsResultPane').innerHTML = dnsHtml;
+            }
+
+            // Action buttons
+            document.getElementById('actionButtons').style.cssText = '';
+            isRawView = false;
+            updateToggleBtn();
+        }
+
+        // ── Result tabs ──
+        document.querySelectorAll('#resultTabs .nav-link').forEach(function (tab) {
+            tab.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelectorAll('#resultTabs .nav-link').forEach(function (t) { t.classList.remove('active'); });
+                this.classList.add('active');
+                var t = this.dataset.tab;
+                document.getElementById('whoisResultPane').style.display = t === 'whois' ? '' : 'none';
+                document.getElementById('dnsResultPane').style.display = t === 'dns' ? '' : 'none';
+            });
+        });
+
+        // ── Format WHOIS ──
+        function formatWhoisData(html) {
+            formattedResult = html.split('\n').map(function (line) {
+                var i = line.indexOf(':');
+                if (i !== -1) {
+                    return '<span class="whois-label">' + line.substring(0, i + 1) + '</span><div class="whois-value">' + line.substring(i + 1).trim() + '</div>';
+                }
+                return '<span class="whois-value">' + line + '</span>';
+            }).join('');
+            document.getElementById('result').innerHTML = formattedResult;
+        }
+
+        // ── Toggle raw/formatted ──
+        document.getElementById('toggleViewBtn').addEventListener('click', function () {
+            isRawView = !isRawView;
+            document.getElementById('result').innerHTML = isRawView ? '<pre>' + rawWhoisText + '</pre>' : formattedResult;
+            updateToggleBtn();
+        });
+        function updateToggleBtn() { document.getElementById('toggleViewBtn').textContent = isRawView ? 'Show Formatted Whois' : 'Show Raw Whois'; }
+
+        // ── Copy / Download ──
+        document.getElementById('copyBtn').addEventListener('click', function () {
+            navigator.clipboard.writeText(rawWhoisText.replace(/<[^>]*>/g, '')).then(function () {
+                var b = document.getElementById('copyBtn');
+                b.innerHTML = '<i class="bi bi-check"></i> Copied!';
+                setTimeout(function () { b.innerHTML = '<i class="bi bi-clipboard"></i> Copy'; }, 2000);
+            });
+        });
+        document.getElementById('downloadBtn').addEventListener('click', function () {
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([rawWhoisText.replace(/<[^>]*>/g, '')], { type: 'text/plain' }));
+            a.download = currentDomain + '-whois.txt';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        });
+
+        // ── Click-to-select WHOIS output (Issue #34) ──
+        document.getElementById('result').addEventListener('click', function () {
+            var range = document.createRange();
+            range.selectNodeContents(this);
+            var sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+
+            // Brief highlight flash
+            this.classList.add('whois-selected');
+            setTimeout(function () {
+                document.getElementById('result').classList.remove('whois-selected');
+            }, 600);
+        });
+
+        // ── Helpers ──
+        var defaultTitle = document.title;
+
+        function showLoading(on) {
+            document.getElementById('loadingSpinner').style.display = on ? '' : 'none';
+            document.getElementById('emptyState').style.display = 'none';
+        }
+
+        function hideResults() {
+            ['availabilityBadge', 'dataSourceBadge', 'parsedFields', 'resultTabs', 'dnsResultPane', 'bulkResults'].forEach(function (id) {
+                document.getElementById(id).style.display = 'none';
+            });
+            document.getElementById('whoisResultPane').style.display = '';
+            document.getElementById('result').innerHTML = '';
+            document.getElementById('actionButtons').style.cssText = 'display:none !important';
+            document.getElementById('emptyState').style.display = 'none';
+        }
+
+        function showError(msg) {
+            document.getElementById('result').innerHTML = '<div class="alert alert-danger fade-in"><i class="bi bi-exclamation-triangle-fill me-2"></i>' + msg + '</div>';
+        }
+
+        function updateURL(d) {
+            history.pushState(null, '', window.location.pathname + '?domain=' + encodeURIComponent(d));
+            document.title = d + ' — ' + defaultTitle;
+        }
+    });
     </script>
 </body>
 </html>
+

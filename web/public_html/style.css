@@ -1,111 +1,457 @@
-/* General body styling
-   - This ensures the page uses the full viewport height and width and applies a consistent font */
+/* ─── General body styling ─── */
 body {
     margin: 0;
     padding: 0;
     display: flex;
     flex-direction: column;
-    height: 100vh; /* Full height of the viewport */
-    width: 100vw; /* Full width of the viewport */
-    font-family: Arial, sans-serif; /* Consistent font across the application */
+    height: 100vh;
+    width: 100vw;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
-/* Header section containing the form 
-   - Positioned at the top with padding and shadow for visual separation */
+/* ─── Sticky header with form ─── */
 .header-form {
-    background-color: #f8f9fa; /* Light background color for the header */
+    background-color: #f8f9fa;
     padding: 20px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Subtle shadow effect */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     z-index: 100;
-    position: relative;
+    position: sticky;
+    top: 0;
 }
 
+/* ─── Title ─── */
 h1 {
     margin-bottom: 10px;
-    font-size: 24px;
-    text-align: center; /* Center align the title */
+    font-size: 1.5rem;
+    font-weight: 600;
+    text-align: center;
+    letter-spacing: -0.01em;
 }
 
-/* Form container for the domain input and button 
-   - On small screens, the input and button stack vertically 
-   - On larger screens, they align in a row */
+h1 a,
+h1 a:link,
+h1 a:hover,
+h1 a:visited,
+h1 a:active,
+h1 a:focus {
+    color: inherit !important;
+    text-decoration: none !important;
+    cursor: pointer;
+}
+
+/* ─── Form container ─── */
 .form-container {
     display: flex;
     flex-direction: column;
+    gap: 10px;
+}
+
+.form-container .form-control {
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 1rem;
+}
+
+.form-container .form-control:focus {
+    box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.15);
+}
+
+.form-container .submit-btn {
+    border-radius: 8px;
+    padding: 10px 24px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.form-container .submit-btn:active {
+    transform: scale(0.97);
 }
 
 @media (min-width: 992px) {
-    /* On larger screens, the input and button are placed in a single row */
     .form-container {
         flex-direction: row;
         align-items: center;
     }
     .form-group {
-        flex-grow: 1; /* The input field takes up available space */
+        flex-grow: 1;
         margin-bottom: 0;
     }
-    .submit-btn {
-        margin-left: 10px; /* Spacing between the input and the button */
-    }
 }
 
-/* Scrollable container for the results 
-   - WHOIS responses can be long, so this section allows vertical scrolling */
+/* ─── Scrollable results container ─── */
 .result-container {
-    flex-grow: 1; /* Take up available space */
-    overflow-y: auto; /* Enable vertical scrolling */
+    flex-grow: 1;
+    overflow-y: auto;
     padding: 20px;
-    background-color: #fff;
-    margin-bottom: 50px; /* Leave space for the footer */
+    background-color: #ffffff;
+    margin-bottom: 50px;
 }
 
-/* Fixed footer at the bottom 
-   - Always visible and stays fixed at the bottom of the viewport */
+/* ─── Empty state ─── */
+#emptyState {
+    padding: 60px 20px;
+    opacity: 0.5;
+}
+
+/* ─── Fixed footer ─── */
 .footer {
-    background-color: #343a40; /* Dark footer color */
-    color: white; /* White text for contrast */
-    text-align: center; /* Center align the text */
+    background-color: #343a40;
+    color: rgba(255, 255, 255, 0.85);
+    text-align: right;
     padding: 10px;
-    position: fixed; /* Fix the footer to the bottom */
+    position: fixed;
     bottom: 0;
-    width: 100%; /* Full width footer */
+    width: 100%;
     z-index: 100;
+    font-size: 0.7rem;
 }
 
-/* Formatting for the WHOIS result display 
-   - Preformatted text block for displaying raw WHOIS data */
+.footer-commit,
+.footer-commit:link,
+.footer-commit:visited,
+.footer-commit:active {
+    color: inherit;
+    text-decoration: none;
+}
+
+.footer-commit:hover {
+    text-decoration: underline;
+    opacity: 0.8;
+}
+
+/* ─── WHOIS result formatting ─── */
 pre {
-    background-color: #f8f9fa; /* Light background for the result area */
-    padding: 10px;
-    border-radius: 5px;
-    border: 1px solid #ddd;
-    white-space: pre-wrap; /* Allow long lines to wrap */
-    word-wrap: break-word; /* Break long words */
-    overflow-wrap: break-word; /* Ensure wrapping in all browsers */
-	font-weight: normal;
+    background-color: #f8f9fa;
+    padding: 14px;
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    font-weight: normal;
+    font-size: 0.875rem;
+    line-height: 1.6;
 }
 
-/* Bold formatting for the labels in the WHOIS result */
 .whois-label {
-    font-weight: bold;
+    font-weight: 600;
 }
 
-/* Indented formatting for the associated values in the WHOIS result */
 .whois-value {
-    margin-left: 20px; /* Indent the value for better readability */
-    display: block; /* Force values onto a new line */
-	font-weight: normal;
+    margin-left: 20px;
+    display: block;
+    font-weight: normal;
 }
 
-/* Adjust title font size for smaller screens */
+#result {
+    cursor: text;
+    transition: background-color 0.3s ease;
+}
+
+#result.whois-selected {
+    background-color: rgba(13, 110, 253, 0.06);
+    border-radius: 6px;
+}
+
+/* ─── Responsive title ─── */
 @media (max-width: 768px) {
     h1 {
-        font-size: 20px; /* Smaller font size for the title on mobile */
+        font-size: 1.25rem;
     }
 }
 
-/* Additional styles for the toggle button 
-   - Spacing above the button for better layout */
+/* ─── Toggle button ─── */
 .toggle-btn {
     margin-top: 10px;
+}
+
+/* ─── History items ─── */
+.history-item {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+}
+
+/* ─── Spinner ─── */
+#loadingSpinner {
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ─── Domain summary card ─── */
+#parsedFields .card {
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+#parsedFields .card-header {
+    font-size: 0.9rem;
+}
+
+#parsedFields .table {
+    margin-bottom: 0;
+}
+
+#parsedFields .table td {
+    font-size: 0.875rem;
+    padding: 8px 12px;
+}
+
+/* ─── DNS records table ─── */
+#dnsResultPane .table {
+    font-size: 0.875rem;
+}
+
+/* ─── Bulk results ─── */
+.accordion-button:not(.collapsed) {
+    font-weight: 600;
+}
+
+/* ─── Lookup mode tabs ─── */
+#lookupModeTabs {
+    border-bottom: none;
+    gap: 4px;
+}
+
+#lookupModeTabs .nav-link {
+    font-size: 0.85rem;
+    padding: 6px 14px;
+    border-radius: 8px 8px 0 0;
+}
+
+#lookupModeTabs .nav-link.active {
+    font-weight: 600;
+}
+
+/* ─── Result tabs (WHOIS / DNS) ─── */
+#resultTabs .nav-link {
+    border-radius: 8px;
+    font-size: 0.85rem;
+    padding: 6px 16px;
+}
+
+/* ─── Fade-in animation ─── */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in,
+#availabilityBadge > div,
+#parsedFields > div,
+#dataSourceBadge > span {
+    animation: fadeIn 0.3s ease-out forwards;
+}
+
+/* ─── Action buttons ─── */
+#actionButtons .btn {
+    border-radius: 6px;
+    font-size: 0.8rem;
+}
+
+#actionButtons .btn:active {
+    transform: scale(0.96);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   DARK MODE — explicit overrides for EVERY element
+   ═══════════════════════════════════════════════════════════════════ */
+
+[data-bs-theme="dark"] body {
+    background-color: #212529;
+    color: #dee2e6;
+}
+
+[data-bs-theme="dark"] .header-form {
+    background-color: #1a1d20;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+[data-bs-theme="dark"] .result-container {
+    background-color: #212529;
+    color: #dee2e6;
+}
+
+[data-bs-theme="dark"] .footer {
+    background-color: #1a1d20;
+    color: rgba(255, 255, 255, 0.7);
+    border-top: 1px solid #495057;
+}
+
+[data-bs-theme="dark"] .form-container .form-control {
+    background-color: #2b3035;
+    color: #dee2e6;
+    border-color: #495057;
+}
+
+[data-bs-theme="dark"] .form-container .form-control::placeholder {
+    color: #6c757d;
+}
+
+[data-bs-theme="dark"] .form-container .form-control:focus {
+    background-color: #2b3035;
+    color: #dee2e6;
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.2);
+}
+
+[data-bs-theme="dark"] pre {
+    background-color: #1a1d20;
+    color: #dee2e6;
+    border-color: #495057;
+}
+
+[data-bs-theme="dark"] .whois-label {
+    color: #f8f9fa;
+}
+
+[data-bs-theme="dark"] .whois-value {
+    color: #dee2e6;
+}
+
+[data-bs-theme="dark"] #result {
+    color: #dee2e6;
+}
+
+[data-bs-theme="dark"] #emptyState {
+    color: #6c757d;
+}
+
+[data-bs-theme="dark"] #emptyState i {
+    color: #6c757d;
+}
+
+[data-bs-theme="dark"] #parsedFields .card {
+    background-color: #2b3035;
+    border-color: #495057;
+    color: #dee2e6;
+}
+
+[data-bs-theme="dark"] #parsedFields .card-header {
+    background-color: #1a1d20;
+    color: #dee2e6;
+    border-color: #495057;
+}
+
+[data-bs-theme="dark"] #parsedFields .table {
+    color: #dee2e6;
+}
+
+[data-bs-theme="dark"] #parsedFields .table td {
+    border-color: #495057;
+}
+
+[data-bs-theme="dark"] #dnsResultPane .table {
+    color: #dee2e6;
+}
+
+[data-bs-theme="dark"] #dnsResultPane .table th,
+[data-bs-theme="dark"] #dnsResultPane .table td {
+    border-color: #495057;
+    color: #dee2e6;
+}
+
+[data-bs-theme="dark"] .accordion-item {
+    background-color: #212529;
+    color: #dee2e6;
+    border-color: #495057;
+}
+
+[data-bs-theme="dark"] .accordion-body {
+    color: #dee2e6;
+}
+
+[data-bs-theme="dark"] .accordion-button {
+    background-color: #2b3035;
+    color: #dee2e6;
+}
+
+[data-bs-theme="dark"] .accordion-button:not(.collapsed) {
+    background-color: #1a1d20;
+    color: #dee2e6;
+}
+
+[data-bs-theme="dark"] #lookupModeTabs .nav-link {
+    color: #adb5bd;
+}
+
+[data-bs-theme="dark"] #lookupModeTabs .nav-link.active {
+    background-color: #212529;
+    color: #dee2e6;
+    border-color: #495057 #495057 #212529;
+}
+
+[data-bs-theme="dark"] #resultTabs .nav-link {
+    color: #adb5bd;
+}
+
+[data-bs-theme="dark"] #resultTabs .nav-link.active {
+    background-color: #495057;
+    color: #f8f9fa;
+}
+
+[data-bs-theme="dark"] .text-muted {
+    color: #6c757d !important;
+}
+
+[data-bs-theme="dark"] .alert-success {
+    background-color: #0f3d1a;
+    border-color: #1a6b2d;
+    color: #75d98e;
+}
+
+[data-bs-theme="dark"] .alert-success a.btn-success {
+    background-color: #198754;
+    border-color: #198754;
+    color: #fff;
+}
+
+[data-bs-theme="dark"] .alert-info {
+    background-color: #0c2d4a;
+    border-color: #1a5276;
+    color: #6cb4e6;
+}
+
+[data-bs-theme="dark"] .alert-danger {
+    background-color: #3d0f0f;
+    border-color: #6b1a1a;
+    color: #d98e8e;
+}
+
+[data-bs-theme="dark"] .alert-warning {
+    background-color: #3d2e0f;
+    border-color: #6b511a;
+    color: #d9c48e;
+}
+
+[data-bs-theme="dark"] .badge.bg-secondary {
+    background-color: #495057 !important;
+    color: #dee2e6;
+}
+
+[data-bs-theme="dark"] .table-striped > tbody > tr:nth-of-type(odd) {
+    background-color: rgba(255, 255, 255, 0.03);
+}
+
+[data-bs-theme="dark"] .table-danger {
+    background-color: rgba(220, 53, 69, 0.15) !important;
+    color: #ea868f;
+}
+
+[data-bs-theme="dark"] .table-warning {
+    background-color: rgba(255, 193, 7, 0.12) !important;
+    color: #e6c54b;
+}
+
+[data-bs-theme="dark"] .history-item {
+    border-color: #495057;
+    color: #6cb4e6;
+}
+
+[data-bs-theme="dark"] #result.whois-selected {
+    background-color: rgba(13, 110, 253, 0.1);
 }
