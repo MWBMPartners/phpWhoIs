@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [e2e973f] - 2026-03-22
+
+**fix: domain validation regex rejects trailing hyphens (fixes test)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`e2e973f`](https://github.com/MWBMPartners/phpWhoIs/commit/e2e973fd9d0e871f9d8bee1502e21e9417ba86d7)
+
+### Changed files
+
+- `functions.php`
+
+
 ## [897e57f] - 2026-03-22
 
 **fix: update line break formatting in app version output**
