@@ -240,7 +240,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                     echo $pageTitle;
                     
                     if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]){
-                        echo "v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
+                        echo " v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
 
                         if (!empty($app["Application"]["Version"]["Development"]["Status"])){
                             echo " " . htmlspecialchars($app["Application"]["Version"]["Development"]["Status"]);
