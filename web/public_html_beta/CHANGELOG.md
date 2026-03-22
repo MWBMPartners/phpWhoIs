@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [71cd21c] - 2026-03-22
+
+**feat: handle browser back/forward with popstate (#36)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`71cd21c`](https://github.com/MWBMPartners/phpWhoIs/commit/71cd21cc78df9e9258c393d16715685e15b90458)
+
+### Changed files
+
+- `index.php`
+
+
 ## [b334bb2] - 2026-03-22
 
 **feat: add SVG logo and favicon (#66, #31)**
