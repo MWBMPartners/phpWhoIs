@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [5c24896] - 2026-03-22
+
+**feat: click-to-select on WHOIS output with highlight flash (#34)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`5c24896`](https://github.com/MWBMPartners/phpWhoIs/commit/5c24896f72e96e74f092be0f30c6e9357f8bbb09)
+
+### Changed files
+
+- `index.php`
+- `style.css`
+
+
 ## [a0a1dec] - 2026-03-22
 
 **docs: add DEV_NOTES.md, semver version bumping, block .md from web access**
