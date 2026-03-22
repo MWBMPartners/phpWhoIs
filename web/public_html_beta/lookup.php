@@ -82,80 +82,111 @@ if (!checkRateLimit() || !checkIpRateLimit()) {
 // Update TLD data (IANA + second-level suffixes, throttled to once per day)
 updateTldDataIfNeeded();
 
-// Parse & validate domain
+// Parse & validate input
 $rawDomainInput = '';
 if (isset($_POST['domain'])) {
-    $rawDomainInput = (string)$_POST['domain'];
-}
-$domain = sanitizeDomainInput($rawDomainInput);
-
-if (!$domain || !isValidDomain($domain)) {
-    sendError('Invalid domain name.');
+    $rawDomainInput = trim((string)$_POST['domain']);
 }
 
-// ─── Lookup pipeline ───
-$whoisText = getCached($domain);
-$fromCache = ($whoisText !== null);
-$dataSource = 'whois';
+// ─── Check if input is an IP address (Issue #45) ───
+$isIpLookup = isIpAddress($rawDomainInput);
+$reverseDns = null;
 
-// Try RDAP first (unless source=whois or cached)
-if (!$fromCache && $sourceParam === 'rdap') {
-    $rdap = rdapLookup($domain);
-    if ($rdap) {
-        $dataSource = 'rdap';
-        $whoisText = formatRdapResponse($rdap);
-    }
-}
-
-// Fall back to system WHOIS
-if (!$whoisText) {
-    $whoisText = shell_exec("whois " . escapeshellarg($domain) . " 2>&1");
+if ($isIpLookup) {
+    $domain = $rawDomainInput;
+    $reverseDns = reverseDnsLookup($domain);
+    $whoisText = ipWhoisLookup($domain);
     $dataSource = 'whois';
-}
+    $fromCache = false;
+    $availability = 'n/a';
+    $parsed = [];
+    $dns = [];
 
-// Cache result
-if ($whoisText && !$fromCache) {
-    setCache($domain, $whoisText);
-}
+    if ($reverseDns) {
+        $parsed['PTR Hostname'] = $reverseDns;
+        $dns = getDnsRecords($reverseDns);
+    }
+} else {
+    $domain = sanitizeDomainInput($rawDomainInput);
 
-// Build response
-$availability = 'unknown';
-if ($whoisText) {
-    $availability = detectAvailability($whoisText);
-}
+    if (!$domain || !isValidDomain($domain)) {
+        sendError('Invalid domain name.');
+    }
 
-$parsed = [];
-if ($whoisText) {
-    $parsed = parseWhoisFields($whoisText);
-}
+    // ─── Lookup pipeline ───
+    $whoisText = getCached($domain);
+    $fromCache = ($whoisText !== null);
+    $dataSource = 'whois';
 
-$dns = getDnsRecords($domain);
+    // Try RDAP first (unless source=whois or cached)
+    if (!$fromCache && $sourceParam === 'rdap') {
+        $rdap = rdapLookup($domain);
+        if ($rdap) {
+            $dataSource = 'rdap';
+            $whoisText = formatRdapResponse($rdap);
+        }
+    }
+
+    // Fall back to system WHOIS
+    if (!$whoisText) {
+        $whoisText = shell_exec("whois " . escapeshellarg($domain) . " 2>&1");
+        $dataSource = 'whois';
+    }
+
+    // Cache result
+    if ($whoisText && !$fromCache) {
+        setCache($domain, $whoisText);
+    }
+
+    // Build response
+    $availability = 'unknown';
+    if ($whoisText) {
+        $availability = detectAvailability($whoisText);
+    }
+
+    $parsed = [];
+    if ($whoisText) {
+        $parsed = parseWhoisFields($whoisText);
+    }
+
+    $dns = getDnsRecords($domain);
+}
 
 if ($jsonFormat) {
     header('Access-Control-Allow-Origin: *');
     header('Access-Control-Allow-Methods: POST');
     header('Access-Control-Allow-Headers: Content-Type');
-    sendJson([
+    $response = [
         'domain'       => $domain,
+        'is_ip'        => $isIpLookup,
         'availability' => $availability,
         'data_source'  => $dataSource,
         'parsed'       => $parsed,
         'dns'          => $dns,
         'raw'          => $whoisText,
         'cached'       => $fromCache,
-    ]);
+    ];
+    if ($reverseDns) {
+        $response['reverse_dns'] = $reverseDns;
+    }
+    sendJson($response);
 } else {
     $whoisOutput = '';
     if ($whoisText) {
         $whoisOutput = $whoisText;
     }
 
-    sendJson([
+    $response = [
         'whois'        => htmlspecialchars($whoisOutput, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+        'is_ip'        => $isIpLookup,
         'availability' => $availability,
         'data_source'  => $dataSource,
         'parsed'       => $parsed,
         'dns'          => $dns,
         'cached'       => $fromCache,
-    ]);
+    ];
+    if ($reverseDns) {
+        $response['reverse_dns'] = $reverseDns;
+    }
+    sendJson($response);
 }

@@ -272,6 +272,42 @@ function extractRegistrableDomain(string $domain): string {
 
 
 // ═══════════════════════════════════════════════════════════════════
+//  IP / Reverse DNS (Issue #45)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Check if input is an IP address (v4 or v6).
+ */
+function isIpAddress(string $input): bool {
+    return filter_var($input, FILTER_VALIDATE_IP) !== false;
+}
+
+/**
+ * Perform reverse DNS lookup for an IP address.
+ * Returns PTR hostname or null.
+ */
+function reverseDnsLookup(string $ip): ?string {
+    $hostname = gethostbyaddr($ip);
+    if ($hostname === false || $hostname === $ip) {
+        return null;
+    }
+    return $hostname;
+}
+
+/**
+ * Get WHOIS info for an IP address.
+ */
+function ipWhoisLookup(string $ip): ?string {
+    $escapedIp = escapeshellarg($ip);
+    $result = shell_exec("whois {$escapedIp} 2>&1");
+    if ($result) {
+        return $result;
+    }
+    return null;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  Domain input handling
 // ═══════════════════════════════════════════════════════════════════
 
