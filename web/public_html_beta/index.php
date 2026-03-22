@@ -66,7 +66,39 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";}if(isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]){echo " (".$app["Application"]["Version"]["Development"]["Status"].")";} ?></title>
+<?php
+    $pageTitle = '';
+    if (isset($app["Application"]["Name"]) && $app["Application"]["Name"]) {
+        $pageTitle = $app["Application"]["Name"];
+    } else {
+        $pageTitle = 'WHOIS Lookup';
+    }
+    if (isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]) {
+        $pageTitle .= ' (' . $app["Application"]["Version"]["Development"]["Status"] . ')';
+    }
+    $pageDescription = 'Free domain WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.';
+    $pageUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+?>
+    <title><?php echo htmlspecialchars($pageTitle); ?></title>
+    <meta name="description" content="<?php echo htmlspecialchars($pageDescription); ?>">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="<?php echo htmlspecialchars(strtok($pageUrl, '?')); ?>">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="<?php echo htmlspecialchars($pageTitle); ?>">
+    <meta property="og:description" content="<?php echo htmlspecialchars($pageDescription); ?>">
+    <meta property="og:url" content="<?php echo htmlspecialchars($pageUrl); ?>">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="<?php echo htmlspecialchars($pageTitle); ?>">
+    <meta name="twitter:description" content="<?php echo htmlspecialchars($pageDescription); ?>">
+
+    <!-- CSRF token for JS -->
+    <meta name="csrf-token" content="<?php echo htmlspecialchars($csrfToken); ?>">
+
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
