@@ -187,7 +187,12 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     </div>
 
     <!-- Footer -->
-    <div class="footer"><?php if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]) { echo $app["Application"]["Version"]["Version"] . "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"; } ?>&copy; <?php echo htmlspecialchars("$copyrightYear $copyrightOwner"); ?>. All Rights Reserved</div>
+    <div class="footer">
+            <?php  
+                if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]){
+                    echo nl2br("v".$app["Application"]["Version"]["Version"] . "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
+                }
+            ?>&copy; <?php echo htmlspecialchars("$copyrightYear $copyrightOwner"); ?>. All Rights Reserved</div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
     <script>
