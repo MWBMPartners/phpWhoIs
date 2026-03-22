@@ -26,16 +26,30 @@ jobs:
             echo "channel=beta" >> $GITHUB_OUTPUT
           fi
 
-      - name: Deploy via SFTP
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
-        with:
-          server: ${{ secrets.SFTP_HOST }}
-          port: ${{ secrets.SFTP_PORT }}
-          username: ${{ secrets.SFTP_USER }}
-          ssh_private_key: ${{ secrets.SFTP_KEY }}
-          local_path: ${{ steps.target.outputs.source_dir }}
-          remote_path: ${{ steps.target.outputs.remote_path }}
-          sftpArgs: '-o StrictHostKeyChecking=no'
+      - name: Install lftp
+        run: sudo apt-get install -y lftp
+
+      - name: Deploy via SFTP (SSH key)
+        if: ${{ secrets.SFTP_KEY != '' }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SFTP_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          lftp -e "set sftp:connect-program 'ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key'; \
+              mirror --reverse --delete --verbose \
+              ${{ steps.target.outputs.source_dir }} ${{ steps.target.outputs.remote_path }}; \
+              bye" \
+            sftp://${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PORT }}
+
+      - name: Deploy via SFTP (password)
+        if: ${{ secrets.SFTP_KEY == '' }}
+        run: |
+          lftp -u "${{ secrets.SFTP_USER }},${{ secrets.SFTP_PASSWORD }}" \
+            -e "set sftp:auto-confirm yes; set ssl:verify-certificate no; \
+                mirror --reverse --delete --verbose \
+                ${{ steps.target.outputs.source_dir }} ${{ steps.target.outputs.remote_path }}; \
+                bye" \
+            sftp://${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PORT }}
 
       - name: Deployment summary
         run: |

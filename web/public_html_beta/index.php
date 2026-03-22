@@ -5,32 +5,55 @@
  */
 
 // ─── Session & CSRF ───
-require_once __DIR__ . '/session_config.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'session_config.php';
 $csrfToken = $_SESSION['csrf_token'];
 
+// ─── Security headers ───
+header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: DENY");
+header("X-XSS-Protection: 1; mode=block");
+header("Referrer-Policy: strict-origin-when-cross-origin");
+
 // ─── Debug mode ───
-$modeDev = isset($_GET['dev']);
-$modeDebug = $modeDev && isset($_GET['debug']);
+$modeDev = false;
+$modeDebug = false;
+
+if (isset($_GET['dev'])) {
+    $modeDev = true;
+
+    if (isset($_GET['debug'])) {
+        $modeDebug = true;
+    }
+}
+
 if ($modeDebug) {
     ini_set('display_errors', 1);
     error_reporting(E_ALL);
 }
 
 // ─── App version info ───
-if (file_exists(__DIR__ . '/infoAppVer.php')) {
-    require_once __DIR__ . '/infoAppVer.php';
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'infoAppVer.php';
 }
 
 // ─── Copyright helper ───
-$copyrightYear = isset($appYearStart) && $appYearStart < date('Y')
-    ? "{$appYearStart} - " . date('Y')
-    : date('Y');
-$copyrightOwner = match (true) {
-    isset($appVendorParent, $appVendor) => "{$appVendorParent} (t/a {$appVendor})",
-    isset($appVendorParent)            => $appVendorParent,
-    isset($appVendor)                  => $appVendor,
-    default                            => 'Whois Lookup Tool',
-};
+if (isset($app["Application"]["Copyright"]["Year"]["Start"])
+    && is_numeric($app["Application"]["Copyright"]["Year"]["Start"])
+    && $app["Application"]["Copyright"]["Year"]["Start"] < date("Y")) {
+    $copyrightYear = $app["Application"]["Copyright"]["Year"]["Start"] . "-" . date("Y");
+} else {
+    $copyrightYear = date("Y");
+}
+
+if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"]["Vendor"]["Parent"]["Name"]) {
+    $copyrightOwner = $app["Application"]["Vendor"]["Parent"]["Name"];
+} elseif (isset($app["Application"]["Vendor"]["Name"]) && $app["Application"]["Vendor"]["Name"]) {
+    $copyrightOwner = $app["Application"]["Vendor"]["Name"];
+} elseif (isset($app["Application"]["Name"]) && $app["Application"]["Name"]) {
+    $copyrightOwner = $app["Application"]["Name"];
+} else {
+    $copyrightOwner = null;
+}
 ?>
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
@@ -46,7 +69,7 @@ $copyrightOwner = match (true) {
     <!-- Header -->
     <div class="header-form">
         <div class="d-flex justify-content-between align-items-center mb-2">
-            <h1 class="mb-0">Whois Lookup</h1>
+            <h1 class="mb-0"><a href="/">WHOIS Lookup</a></h1>
             <button class="btn btn-sm btn-outline-secondary" id="darkModeToggle" title="Toggle dark mode">
                 <i class="bi bi-moon-fill" id="darkModeIcon"></i>
             </button>
@@ -120,12 +143,12 @@ $copyrightOwner = match (true) {
     </div>
 
     <!-- Footer -->
-    <div class="footer">&copy; <?= htmlspecialchars("$copyrightYear $copyrightOwner") ?>. All Rights Reserved</div>
+    <div class="footer">&copy; <?php echo htmlspecialchars("$copyrightYear $copyrightOwner"); ?>. All Rights Reserved</div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
     document.addEventListener('DOMContentLoaded', function () {
-        var CSRF = '<?= htmlspecialchars($csrfToken) ?>';
+        var CSRF = '<?php echo htmlspecialchars($csrfToken); ?>';
         var formattedResult = '';
         var rawWhoisText = '';
         var isRawView = false;

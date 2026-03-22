@@ -30,6 +30,15 @@ h1 {
     text-align: center;
 }
 
+h1 a {
+    color: var(--bs-body-color);
+    text-decoration: none;
+}
+
+h1 a:hover {
+    color: var(--bs-primary);
+}
+
 /* Form container */
 .form-container {
     display: flex;
@@ -87,6 +96,7 @@ pre {
 .whois-label {
     font-weight: bold;
     color: var(--bs-body-color);
+    opacity: 1;
 }
 
 .whois-value {
@@ -94,6 +104,17 @@ pre {
     display: block;
     font-weight: normal;
     color: var(--bs-body-color);
+    opacity: 1;
+}
+
+/* Ensure WHOIS result text is fully visible in dark mode */
+[data-bs-theme="dark"] .whois-label,
+[data-bs-theme="dark"] .whois-value {
+    color: #dee2e6;
+}
+
+[data-bs-theme="dark"] #result {
+    color: #dee2e6;
 }
 
 /* Responsive title */
