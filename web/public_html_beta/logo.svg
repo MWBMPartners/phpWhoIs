@@ -132,7 +132,9 @@
         <!-- Parent has scale(0.9) translate(23,23), so effective scale on content = 0.9 -->
         <!-- To show globe at 1.15x in screen space, we need internal scale = 1.15/0.9 = 1.278 -->
         <!-- Scale 1.278 from (200,200): translate(200*(1-1.278), 200*(1-1.278)) = translate(-55.6, -55.6) -->
-        <g transform="translate(-55.6, -55.6) scale(1.278)">
+        <!-- Magnification: net 1.12x (internal 1.244 × parent 0.9 = 1.12) -->
+        <!-- To change: set S = desired_mag / 0.9, then translate = 200*(1-S), 200*(1-S) -->
+        <g transform="translate(-48.8, -48.8) scale(1.244)">
           <circle cx="200" cy="200" r="140" fill="url(#globeGrad)" opacity="0.95"/>
           <ellipse cx="200" cy="200" rx="140" ry="140" fill="none" stroke="#fff" stroke-width="2.2" opacity="0.35"/>
           <ellipse cx="200" cy="200" rx="70" ry="140" fill="none" stroke="#fff" stroke-width="1.7" opacity="0.3"/>
