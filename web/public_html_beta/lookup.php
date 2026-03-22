@@ -382,6 +382,31 @@ function parseWhoisFields(string $text): array {
         $fields['Name Servers'] = array_map('trim', $m[1]);
     }
 
+    // Domain age (Issue #20)
+    if (isset($fields['Creation Date'])) {
+        $creationTime = strtotime($fields['Creation Date']);
+        if ($creationTime) {
+            $now = new DateTime();
+            $created = new DateTime('@' . $creationTime);
+            $diff = $created->diff($now);
+
+            $ageParts = [];
+            if ($diff->y > 0) {
+                $ageParts[] = $diff->y . ' year' . ($diff->y !== 1 ? 's' : '');
+            }
+            if ($diff->m > 0) {
+                $ageParts[] = $diff->m . ' month' . ($diff->m !== 1 ? 's' : '');
+            }
+            if (empty($ageParts) && $diff->d > 0) {
+                $ageParts[] = $diff->d . ' day' . ($diff->d !== 1 ? 's' : '');
+            }
+
+            if (!empty($ageParts)) {
+                $fields['Domain Age'] = implode(', ', $ageParts);
+            }
+        }
+    }
+
     // Expiry countdown
     if (isset($fields['Expiry Date'])) {
         $expiryTime = strtotime($fields['Expiry Date']);
