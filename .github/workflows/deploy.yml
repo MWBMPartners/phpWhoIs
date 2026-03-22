@@ -133,7 +133,7 @@ jobs:
           cat > /tmp/lftp_script.txt <<LFTP_EOF
           set sftp:connect-program "ssh -o StrictHostKeyChecking=no -i $HOME/.ssh/deploy_key"
           open sftp://${SFTP_USER}@${SFTP_HOST}:${SFTP_PORT}
-          mirror --reverse --verbose --transfer-all --no-empty-dirs --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md ${SOURCE_DIR} ${REMOTE_PATH}
+          mirror --reverse --verbose --only-newer --no-empty-dirs --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md ${SOURCE_DIR} ${REMOTE_PATH}
           bye
           LFTP_EOF
           lftp -f /tmp/lftp_script.txt
@@ -148,7 +148,7 @@ jobs:
           SOURCE_DIR: ${{ steps.target.outputs.source_dir }}
           REMOTE_PATH: ${{ steps.target.outputs.remote_path }}
         run: |
-          lftp -u "${SFTP_USER},${SFTP_PASS}" -e "set sftp:auto-confirm yes; set ssl:verify-certificate no; mirror --reverse --verbose --transfer-all --no-empty-dirs --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md ${SOURCE_DIR} ${REMOTE_PATH}; bye" "sftp://${SFTP_HOST}:${SFTP_PORT}"
+          lftp -u "${SFTP_USER},${SFTP_PASS}" -e "set sftp:auto-confirm yes; set ssl:verify-certificate no; mirror --reverse --verbose --only-newer --no-empty-dirs --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md ${SOURCE_DIR} ${REMOTE_PATH}; bye" "sftp://${SFTP_HOST}:${SFTP_PORT}"
 
       - name: Deployment summary
         if: steps.changes.outputs.has_changes == 'true'
