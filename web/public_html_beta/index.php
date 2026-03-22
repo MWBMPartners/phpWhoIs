@@ -122,10 +122,17 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <!-- Header -->
     <div class="header-form">
         <div class="position-relative text-center mb-2">
-            <h1 class="mb-0"><a href="/"><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";}if(isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]){echo " <span style=\"font-size: 0.7em\">(".$app["Application"]["Version"]["Development"]["Status"].")</span>";} ?></a></h1>
-            <button class="btn btn-sm btn-outline-secondary position-absolute top-50 end-0 translate-middle-y" id="darkModeToggle" title="Toggle dark mode">
-                <i class="bi bi-moon-fill" id="darkModeIcon"></i>
-            </button>
+            <h1 class="mb-0"><a href="/"><img src="logo-notext.svg" alt="Logo" style="height: 40px; vertical-align: middle;"><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";}if(isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]){echo " <span style=\"font-size: 0.7em\">(".$app["Application"]["Version"]["Development"]["Status"].")</span>";} ?></img></a></h1>
+            <div class="dropdown position-absolute top-50 end-0 translate-middle-y">
+                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="themeToggle" data-bs-toggle="dropdown" aria-expanded="false" title="Change theme">
+                    <i class="bi bi-sun-fill" id="themeIcon"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="themeToggle">
+                    <li><a class="dropdown-item" href="#" data-theme-value="light"><i class="bi bi-sun-fill me-2"></i>Light</a></li>
+                    <li><a class="dropdown-item" href="#" data-theme-value="dark"><i class="bi bi-moon-fill me-2"></i>Dark</a></li>
+                    <li><a class="dropdown-item" href="#" data-theme-value="colourblind"><i class="bi bi-eye-fill me-2"></i>Colourblind</a></li>
+                </ul>
+            </div>
         </div>
 
         <!-- Lookup mode tabs -->
@@ -213,7 +220,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body text-center">
-                        <img id="qrCodeImg" src="QR Code" alt="QR Code" style="max-width:100%;">
+                        <img id="qrCodeImg" src="" alt="QR Code" style="max-width:100%;">
                         <p class="small text-muted mt-2" id="qrCodeUrl"></p>
                     </div>
                 </div>
@@ -281,20 +288,37 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         }
         var currentDomain = '';
 
-        // ── Dark mode ──
-        var darkToggle = document.getElementById('darkModeToggle');
-        var darkIcon = document.getElementById('darkModeIcon');
+        // ── Theme selector (Light / Dark / Colourblind) ──
+        var themeIcon = document.getElementById('themeIcon');
         var theme = localStorage.getItem('theme') || 'light';
-        document.documentElement.setAttribute('data-bs-theme', theme);
-        setIcon(theme);
+        applyTheme(theme);
 
-        darkToggle.addEventListener('click', function () {
-            theme = theme === 'dark' ? 'light' : 'dark';
-            document.documentElement.setAttribute('data-bs-theme', theme);
-            localStorage.setItem('theme', theme);
-            setIcon(theme);
+        document.querySelectorAll('[data-theme-value]').forEach(function (item) {
+            item.addEventListener('click', function (e) {
+                e.preventDefault();
+                theme = this.dataset.themeValue;
+                applyTheme(theme);
+                localStorage.setItem('theme', theme);
+            });
         });
-        function setIcon(t) { darkIcon.className = t === 'dark' ? 'bi bi-sun-fill' : 'bi bi-moon-fill'; }
+
+        function applyTheme(t) {
+            if (t === 'colourblind') {
+                document.documentElement.setAttribute('data-bs-theme', 'light');
+                document.documentElement.setAttribute('data-theme', 'colourblind');
+            } else if (t === 'dark') {
+                document.documentElement.setAttribute('data-bs-theme', 'dark');
+                document.documentElement.removeAttribute('data-theme');
+            } else {
+                document.documentElement.setAttribute('data-bs-theme', 'light');
+                document.documentElement.removeAttribute('data-theme');
+            }
+            var icons = { light: 'bi bi-sun-fill', dark: 'bi bi-moon-fill', colourblind: 'bi bi-eye-fill' };
+            themeIcon.className = icons[t] || 'bi bi-sun-fill';
+            document.querySelectorAll('[data-theme-value]').forEach(function (item) {
+                item.classList.toggle('active', item.dataset.themeValue === t);
+            });
+        }
 
         // ── Lookup mode tabs ──
         document.querySelectorAll('#lookupModeTabs .nav-link').forEach(function (tab) {
