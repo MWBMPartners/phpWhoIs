@@ -7,7 +7,18 @@
 		//Version
 			$app["Application"]["Version"]["Version"] = "1.0.0";
 			$app["Application"]["Version"]["Name"] = NULL;
-			$app["Application"]["Version"]["Development"]["Status"] = "Beta";
+			
+			// Environment-based override (failsafe)
+			//If running from a non-beta directory, clear the dev status
+				if (strpos(__DIR__, 'public_html_dev') !== false){
+					$app["Application"]["Version"]["Development"]["Status"] = "Alpha";
+				}
+				elseif (strpos(__DIR__, 'public_html_beta') !== false){
+					$app["Application"]["Version"]["Development"]["Status"] = "Beta";
+				}
+				else{
+					$app["Application"]["Version"]["Development"]["Status"] = NULL;
+				}
 
 		//Vendor
 			$app["Application"]["Vendor"]["Name"] = "MWservices";

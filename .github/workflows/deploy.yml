@@ -44,6 +44,15 @@ jobs:
             echo "$CHANGED"
           fi
 
+      - name: Set production dev status to NULL
+        if: steps.changes.outputs.has_changes == 'true' && github.ref_name == 'main'
+        run: |
+          VERFILE="${{ steps.target.outputs.source_dir }}infoAppVer.php"
+          if [[ -f "$VERFILE" ]]; then
+            sed -i 's/\["Development"\]\["Status"\] = ".*"/["Development"]["Status"] = NULL/' "$VERFILE"
+            echo "Set Development Status to NULL in $VERFILE"
+          fi
+
       - name: Install lftp
         if: steps.changes.outputs.has_changes == 'true'
         run: sudo apt-get install -y lftp

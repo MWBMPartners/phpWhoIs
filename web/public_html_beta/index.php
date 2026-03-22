@@ -60,7 +60,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";} ?></title>
+    <title><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";}if(isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]){echo " ".$app["Application"]["Version"]["Development"]["Status"];} ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
@@ -69,7 +69,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <!-- Header -->
     <div class="header-form">
         <div class="position-relative text-center mb-2">
-            <h1 class="mb-0"><a href="/"><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";} ?></a></h1>
+            <h1 class="mb-0"><a href="/"><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";}if(isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]){echo " ".$app["Application"]["Version"]["Development"]["Status"];} ?></a></h1>
             <button class="btn btn-sm btn-outline-secondary position-absolute top-50 end-0 translate-middle-y" id="darkModeToggle" title="Toggle dark mode">
                 <i class="bi bi-moon-fill" id="darkModeIcon"></i>
             </button>
