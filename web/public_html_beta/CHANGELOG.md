@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [393b881] - 2026-03-22
+
+**refactor: add build placeholders to infoAppVer.php, deploy overwrites NULLs**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`393b881`](https://github.com/MWBMPartners/phpWhoIs/commit/393b881be70981ce22b9aa35921f43b986edcf16)
+
+### Changed files
+
+- `infoAppVer.php`
+
+
 ## [3e311d7] - 2026-03-22
 
 **refactor: move build info into infoAppVer.php, remove build_info.php**
