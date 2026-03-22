@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [52c2531] - 2026-03-22
+
+**feat: add error logging, /health endpoint, block log access (#43)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`52c2531`](https://github.com/MWBMPartners/phpWhoIs/commit/52c2531930053d66db3f9910d135d39749389b31)
+
+### Changed files
+
+- `.htaccess`
+- `functions.php`
+- `health.php`
+
+
 ## [0e43157] - 2026-03-22
 
 **feat: add per-IP rate limiting alongside session-based (#22)**
