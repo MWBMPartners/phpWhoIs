@@ -3,6 +3,27 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [838aa9b] - 2026-03-22
+
+**fix: XSS vulnerabilities, header scroll bounce, logo/favicon updates, security hardening**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`838aa9b`](https://github.com/MWBMPartners/phpWhoIs/commit/838aa9bfebdfd57f95e7948316b5fa15de96fd46)
+
+### Changed files
+
+- `favicon.gif`
+- `favicon.icns`
+- `favicon.ico`
+- `favicon.png`
+- `favicon.svg`
+- `functions.php`
+- `index.php`
+- `logo.png`
+- `style.css`
+
+
 ## [a89a475] - 2026-03-22
 
 **feat: IP geolocation for DNS A records (#18)**
