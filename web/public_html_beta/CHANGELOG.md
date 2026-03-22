@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [a89a475] - 2026-03-22
+
+**feat: IP geolocation for DNS A records (#18)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`a89a475`](https://github.com/MWBMPartners/phpWhoIs/commit/a89a47573909d52f49f1636ddcbb47e37b6f4989)
+
+### Changed files
+
+- `functions.php`
+- `index.php`
+- `lookup.php`
+
+
 ## [e461ce1] - 2026-03-22
 
 **fix: split footer into two responsive columns**
