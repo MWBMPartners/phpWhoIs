@@ -5,7 +5,7 @@
 		$app["Application"]["Website"]["URL"] = NULL;
 
 		//Version
-			$app["Application"]["Version"]["Version"] = "1.13.0";
+			$app["Application"]["Version"]["Version"] = "1.13.1";
 			$app["Application"]["Version"]["Name"] = NULL;
 			
 			// Environment-based override (failsafe)
