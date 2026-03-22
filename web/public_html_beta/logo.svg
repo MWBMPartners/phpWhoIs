@@ -37,15 +37,25 @@
     </linearGradient>
 
     <style>
-      /* Magnifying glass searching motion */
+      /* Magnifying glass searching motion — smooth figure-8 loop */
       @keyframes search {
-        0%   { transform: translate(0, 0) rotate(0deg); }
-        15%  { transform: translate(12px, -8px) rotate(0.8deg); }
-        35%  { transform: translate(18px, 6px) rotate(-0.3deg); }
-        55%  { transform: translate(2px, 14px) rotate(-0.6deg); }
-        75%  { transform: translate(-10px, 4px) rotate(0.4deg); }
-        90%  { transform: translate(-6px, -6px) rotate(0.2deg); }
-        100% { transform: translate(0, 0) rotate(0deg); }
+        0%    { transform: translate(0, 0); }
+        6.25% { transform: translate(14px, -8px); }
+        12.5% { transform: translate(25px, -12px); }
+        18.75%{ transform: translate(30px, -4px); }
+        25%   { transform: translate(28px, 8px); }
+        31.25%{ transform: translate(18px, 20px); }
+        37.5% { transform: translate(5px, 26px); }
+        43.75%{ transform: translate(-8px, 24px); }
+        50%   { transform: translate(-18px, 16px); }
+        56.25%{ transform: translate(-24px, 4px); }
+        62.5% { transform: translate(-22px, -8px); }
+        68.75%{ transform: translate(-16px, -16px); }
+        75%   { transform: translate(-6px, -20px); }
+        81.25%{ transform: translate(6px, -18px); }
+        87.5% { transform: translate(12px, -12px); }
+        93.75%{ transform: translate(8px, -5px); }
+        100%  { transform: translate(0, 0); }
       }
 
       /* Reflection shimmer - light moving across glass */
@@ -74,21 +84,31 @@
       }
 
       .mag-group {
-        animation: search 4.5s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+        animation: search 6s linear infinite;
         transform-origin: 230px 230px;
       }
       /* Reverse of search — keeps magnified content stationary in world space */
       @keyframes searchReverse {
-        0%   { transform: translate(0, 0) rotate(0deg); }
-        15%  { transform: translate(-12px, 8px) rotate(-0.8deg); }
-        35%  { transform: translate(-18px, -6px) rotate(0.3deg); }
-        55%  { transform: translate(-2px, -14px) rotate(0.6deg); }
-        75%  { transform: translate(10px, -4px) rotate(-0.4deg); }
-        90%  { transform: translate(6px, 6px) rotate(-0.2deg); }
-        100% { transform: translate(0, 0) rotate(0deg); }
+        0%    { transform: translate(0, 0); }
+        6.25% { transform: translate(-14px, 8px); }
+        12.5% { transform: translate(-25px, 12px); }
+        18.75%{ transform: translate(-30px, 4px); }
+        25%   { transform: translate(-28px, -8px); }
+        31.25%{ transform: translate(-18px, -20px); }
+        37.5% { transform: translate(-5px, -26px); }
+        43.75%{ transform: translate(8px, -24px); }
+        50%   { transform: translate(18px, -16px); }
+        56.25%{ transform: translate(24px, -4px); }
+        62.5% { transform: translate(22px, 8px); }
+        68.75%{ transform: translate(16px, 16px); }
+        75%   { transform: translate(6px, 20px); }
+        81.25%{ transform: translate(-6px, 18px); }
+        87.5% { transform: translate(-12px, 12px); }
+        93.75%{ transform: translate(-8px, 5px); }
+        100%  { transform: translate(0, 0); }
       }
       .mag-rev {
-        animation: searchReverse 4.5s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+        animation: searchReverse 6s linear infinite;
         transform-origin: 230px 230px;
       }
       .refl-main { animation: shimmer 3.5s ease-in-out infinite; }
