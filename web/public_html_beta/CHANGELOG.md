@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [7203e6c] - 2026-03-22
+
+**feat: show commit ID and date in footer, linked to GitHub commit**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`7203e6c`](https://github.com/MWBMPartners/phpWhoIs/commit/7203e6cba1a4ea4d3e6c9bec5658288c89b5ead0)
+
+### Changed files
+
+- `index.php`
+- `style.css`
+
+
 ## [3d4ee1f] - 2026-03-22
 
 **fix: increase font size for focused header links**
