@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [ee2a0d9] - 2026-03-22
+
+**fix: correct PHP syntax error in footer version display**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`ee2a0d9`](https://github.com/MWBMPartners/phpWhoIs/commit/ee2a0d9118ed85926c5ca7561fa01b772fd5cb40)
+
+### Changed files
+
+- `index.php`
+
+
 ## [0d08aae] - 2026-03-22
 
 **fix: correct footer version display and adjust font size in header**
