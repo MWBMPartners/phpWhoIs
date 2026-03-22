@@ -188,21 +188,21 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
 
     <!-- Footer -->
     <div class="footer">
-<?php
-    if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]) {
+    <?php
+        if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]) {
         echo "v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
 
         if (!empty($app["Application"]["Version"]["Development"]["Status"])) {
             echo "&nbsp;" . htmlspecialchars($app["Application"]["Version"]["Development"]["Status"]);
         }
 
-        if (!empty($app["Application"]["Version"]["Build"]["Commit"]["Short"])) {
-            echo '&nbsp;(<a href="' . htmlspecialchars($app["Application"]["Version"]["Build"]["Commit"]["URL"]) . '" target="_blank" class="footer-commit">';
-            echo htmlspecialchars($app["Application"]["Version"]["Build"]["Commit"]["Short"]);
+        if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Short"])) {
+            echo '&nbsp;(<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" class="footer-commit">';
+            echo htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Short"]);
             echo '</a>';
 
-            if (!empty($app["Application"]["Version"]["Build"]["Commit"]["Date"])) {
-                echo '&nbsp;' . htmlspecialchars($app["Application"]["Version"]["Build"]["Commit"]["Date"]);
+            if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Date"])) {
+                echo '&nbsp;' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Date"]);
             }
 
             echo ')';
