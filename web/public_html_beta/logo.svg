@@ -28,6 +28,17 @@
       <stop offset="100%" style="stop-color:rgba(0,0,0,0.08)" />
     </radialGradient>
 
+    <!-- Blur filters for soft-edged reflections -->
+    <filter id="softBlur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" />
+    </filter>
+    <filter id="softerBlur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="5" />
+    </filter>
+    <filter id="glowBlur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" />
+    </filter>
+
     <!-- Reflection: main curved highlight (gradual fade at edges) -->
     <linearGradient id="reflGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#fff;stop-opacity:0" />
@@ -190,24 +201,31 @@
     <!-- Edge darkening (curved glass effect) -->
     <circle cx="230" cy="230" r="148" fill="url(#glassEdge)"/>
 
-    <!-- Primary reflection: curved arc top-left (like overhead light on glass) -->
-    <path d="M 135 165 Q 163 122, 215 114" fill="none" stroke="url(#reflGrad)" stroke-width="12" stroke-linecap="round" class="refl-main" opacity="0.3"/>
+    <!-- Primary reflection: wide soft glow arc (blurred for diffused edges) -->
+    <path d="M 130 170 Q 160 118, 220 110" fill="none" stroke="url(#reflGrad)" stroke-width="16" stroke-linecap="round" class="refl-main" opacity="0.25" filter="url(#softerBlur)"/>
 
-    <!-- Secondary softer reflection arc -->
-    <path d="M 148 178 Q 170 145, 208 136" fill="none" stroke="url(#reflGrad)" stroke-width="5" stroke-linecap="round" class="refl-main" opacity="0.15"/>
+    <!-- Primary reflection: sharper inner core of same arc -->
+    <path d="M 138 162 Q 164 122, 212 115" fill="none" stroke="url(#reflGrad)" stroke-width="6" stroke-linecap="round" class="refl-main" opacity="0.2" filter="url(#glowBlur)"/>
+
+    <!-- Secondary reflection arc (thinner, offset, blurred) -->
+    <path d="M 148 180 Q 170 148, 210 138" fill="none" stroke="url(#reflGrad)" stroke-width="8" stroke-linecap="round" class="refl-main" opacity="0.12" filter="url(#softerBlur)"/>
 
     <!-- Broad soft highlight (elliptical, rotated - like window reflection) -->
-    <ellipse cx="182" cy="178" rx="52" ry="18" fill="#fff" opacity="0.06" transform="rotate(-40 182 178)" class="refl-sec"/>
+    <ellipse cx="180" cy="176" rx="55" ry="20" fill="#fff" opacity="0.05" transform="rotate(-40 180 176)" class="refl-sec" filter="url(#softerBlur)"/>
 
-    <!-- Small secondary highlight lower -->
-    <ellipse cx="195" cy="190" rx="30" ry="10" fill="#fff" opacity="0.04" transform="rotate(-40 195 190)" class="refl-sec"/>
+    <!-- Secondary smaller highlight -->
+    <ellipse cx="195" cy="188" rx="32" ry="11" fill="#fff" opacity="0.04" transform="rotate(-40 195 188)" class="refl-sec" filter="url(#softBlur)"/>
 
-    <!-- Specular dot (soft glow, no animation) -->
-    <circle cx="168" cy="160" r="6" fill="#fff" opacity="0.04"/>
-    <circle cx="168" cy="160" r="2.5" fill="#fff" opacity="0.08"/>
+    <!-- Specular point: layered soft glow -->
+    <circle cx="166" cy="158" r="10" fill="#fff" opacity="0.03" filter="url(#softerBlur)"/>
+    <circle cx="166" cy="158" r="5" fill="#fff" opacity="0.06" filter="url(#glowBlur)"/>
+    <circle cx="166" cy="158" r="1.5" fill="#fff" opacity="0.12"/>
 
-    <!-- Bottom-right counter-reflection (subtle, from ambient light) -->
-    <path d="M 285 300 Q 305 308, 312 290" fill="none" stroke="url(#reflGrad)" stroke-width="4" stroke-linecap="round" opacity="0.04"/>
+    <!-- Subtle rim light along upper-left inner edge of glass -->
+    <path d="M 115 210 Q 120 155, 175 110" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity="0.04" filter="url(#softerBlur)"/>
+
+    <!-- Bottom-right counter-reflection (ambient bounce, blurred) -->
+    <path d="M 280 298 Q 308 310, 315 285" fill="none" stroke="url(#reflGrad)" stroke-width="6" stroke-linecap="round" opacity="0.04" filter="url(#softerBlur)"/>
 
     <!-- Inner edge highlight ring (light catching the glass rim) -->
     <circle cx="230" cy="230" r="146" fill="none" stroke="#fff" stroke-width="0.5" opacity="0.08" class="edge-hl"/>
