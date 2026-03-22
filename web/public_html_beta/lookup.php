@@ -671,3 +671,4 @@ if ($jsonFormat) {
         'cached'       => $fromCache,
     ]);
 }
+
