@@ -20,7 +20,13 @@
 					$app["Application"]["Version"]["Development"]["Status"] = NULL;
 				}
 
-		//Vendor
+			//Build (populated by GitHub Actions deploy)
+			$app["Application"]["Version"]["Build"]["Commit"]["SHA"] = NULL;
+			$app["Application"]["Version"]["Build"]["Commit"]["Short"] = NULL;
+			$app["Application"]["Version"]["Build"]["Commit"]["Date"] = NULL;
+			$app["Application"]["Version"]["Build"]["Commit"]["URL"] = NULL;
+
+	//Vendor
 			$app["Application"]["Vendor"]["Name"] = "MWservices";
 			$app["Application"]["Vendor"]["Website"]["URL"] = NULL;
 		

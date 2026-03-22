@@ -113,13 +113,10 @@ jobs:
           REPO_URL="https://github.com/${{ github.repository }}"
           VERFILE="${SOURCE_DIR}infoAppVer.php"
           if [[ -f "$VERFILE" ]]; then
-            sed -i 's/?>//' "$VERFILE"
-            printf '\n\t\t//Build (injected by deploy action)\n' >> "$VERFILE"
-            printf '\t\t\t$app["Application"]["Version"]["Build"]["Commit"]["SHA"] = "%s";\n' "$COMMIT_SHA" >> "$VERFILE"
-            printf '\t\t\t$app["Application"]["Version"]["Build"]["Commit"]["Short"] = "%s";\n' "$SHORT_SHA" >> "$VERFILE"
-            printf '\t\t\t$app["Application"]["Version"]["Build"]["Commit"]["Date"] = "%s";\n' "$COMMIT_DATE" >> "$VERFILE"
-            printf '\t\t\t$app["Application"]["Version"]["Build"]["Commit"]["URL"] = "%s";\n' "${REPO_URL}/commit/${COMMIT_SHA}" >> "$VERFILE"
-            printf '?>' >> "$VERFILE"
+            sed -i "s|\[\"Commit\"\]\[\"SHA\"\] = NULL|\[\"Commit\"\]\[\"SHA\"\] = \"${COMMIT_SHA}\"|" "$VERFILE"
+            sed -i "s|\[\"Commit\"\]\[\"Short\"\] = NULL|\[\"Commit\"\]\[\"Short\"\] = \"${SHORT_SHA}\"|" "$VERFILE"
+            sed -i "s|\[\"Commit\"\]\[\"Date\"\] = NULL|\[\"Commit\"\]\[\"Date\"\] = \"${COMMIT_DATE}\"|" "$VERFILE"
+            sed -i "s|\[\"Commit\"\]\[\"URL\"\] = NULL|\[\"Commit\"\]\[\"URL\"\] = \"${REPO_URL}/commit/${COMMIT_SHA}\"|" "$VERFILE"
             echo "Injected build info into infoAppVer.php - ${SHORT_SHA} @ ${COMMIT_DATE}"
           fi
 
