@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [3e311d7] - 2026-03-22
+
+**refactor: move build info into infoAppVer.php, remove build_info.php**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`3e311d7`](https://github.com/MWBMPartners/phpWhoIs/commit/3e311d7826a705444e8a95070edbd97eb70cd7b5)
+
+### Changed files
+
+- `index.php`
+
+
 ## [7203e6c] - 2026-03-22
 
 **feat: show commit ID and date in footer, linked to GitHub commit**
