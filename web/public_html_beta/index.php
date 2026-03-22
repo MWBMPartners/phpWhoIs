@@ -186,6 +186,23 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             <button class="btn btn-outline-secondary btn-sm" id="copyBtn"><i class="bi bi-clipboard"></i> Copy</button>
             <button class="btn btn-outline-secondary btn-sm" id="downloadBtn"><i class="bi bi-download"></i> Download</button>
             <a href="#" target="_blank" class="btn btn-outline-secondary btn-sm" id="waybackBtn"><i class="bi bi-clock-history"></i> Wayback Machine</a>
+            <button class="btn btn-outline-secondary btn-sm" id="qrCodeBtn"><i class="bi bi-qr-code"></i> QR Code</button>
+        </div>
+
+        <!-- QR Code modal (Issue #50) -->
+        <div id="qrCodeModal" class="modal fade" tabindex="-1">
+            <div class="modal-dialog modal-sm modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Share Lookup</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body text-center">
+                        <img id="qrCodeImg" src="" alt="QR Code" style="max-width:100%;">
+                        <p class="small text-muted mt-2" id="qrCodeUrl"></p>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div id="bulkResults" class="accordion mt-3" style="display:none;"></div>
@@ -205,7 +222,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             }
 
             if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]) {
-                echo "&nbsp; v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
+                echo "&nbsp;v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
 
                 if (!empty($app["Application"]["Version"]["Development"]["Status"])) {
                     echo "&nbsp;" . htmlspecialchars($app["Application"]["Version"]["Development"]["Status"]);
@@ -563,6 +580,16 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             a.download = currentDomain + '-whois.txt';
             a.click();
             URL.revokeObjectURL(a.href);
+        });
+
+        // ── QR code (Issue #50) ──
+        document.getElementById('qrCodeBtn').addEventListener('click', function () {
+            var shareUrl = window.location.origin + window.location.pathname + '?domain=' + encodeURIComponent(currentDomain);
+            var qrApiUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(shareUrl);
+            document.getElementById('qrCodeImg').src = qrApiUrl;
+            document.getElementById('qrCodeUrl').textContent = shareUrl;
+            var modal = new bootstrap.Modal(document.getElementById('qrCodeModal'));
+            modal.show();
         });
 
         // ── Click-to-select WHOIS output (Issue #34) ──
