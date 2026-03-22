@@ -106,6 +106,19 @@ h1 a:focus {
     font-size: 0.7rem;
 }
 
+.footer-commit,
+.footer-commit:link,
+.footer-commit:visited,
+.footer-commit:active {
+    color: inherit;
+    text-decoration: none;
+}
+
+.footer-commit:hover {
+    text-decoration: underline;
+    opacity: 0.8;
+}
+
 /* ─── WHOIS result formatting ─── */
 pre {
     background-color: #f8f9fa;

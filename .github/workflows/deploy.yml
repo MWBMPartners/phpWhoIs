@@ -103,6 +103,23 @@ jobs:
             echo "Set Development Status to NULL in $VERFILE"
           fi
 
+      - name: Generate build info
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          SOURCE_DIR="${{ steps.target.outputs.source_dir }}"
+          COMMIT_SHA="${{ github.sha }}"
+          SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-7)
+          COMMIT_DATE=$(git log -1 --format="%cd" --date=format:"%Y-%m-%d %H:%M")
+          REPO_URL="https://github.com/${{ github.repository }}"
+          OUTFILE="${SOURCE_DIR}build_info.php"
+          printf '<?php\n\$buildInfo = [\n' > "$OUTFILE"
+          printf "    'commit_sha' => '%s',\n" "$COMMIT_SHA" >> "$OUTFILE"
+          printf "    'commit_short' => '%s',\n" "$SHORT_SHA" >> "$OUTFILE"
+          printf "    'commit_date' => '%s',\n" "$COMMIT_DATE" >> "$OUTFILE"
+          printf "    'commit_url' => '%s',\n" "${REPO_URL}/commit/${COMMIT_SHA}" >> "$OUTFILE"
+          printf '];\n' >> "$OUTFILE"
+          echo "Generated build_info.php - ${SHORT_SHA} @ ${COMMIT_DATE}"
+
       - name: Install lftp
         if: steps.changes.outputs.has_changes == 'true'
         run: sudo apt-get install -y lftp
