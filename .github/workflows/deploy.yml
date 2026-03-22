@@ -119,33 +119,43 @@ jobs:
 
       - name: Deploy via SFTP (SSH key)
         if: steps.changes.outputs.has_changes == 'true' && steps.auth.outputs.method == 'key'
+        env:
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_PORT: ${{ secrets.SFTP_PORT }}
+          SFTP_KEY: ${{ secrets.SFTP_KEY }}
+          SOURCE_DIR: ${{ steps.target.outputs.source_dir }}
+          REMOTE_PATH: ${{ steps.target.outputs.remote_path }}
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SFTP_KEY }}" > ~/.ssh/deploy_key
+          echo "$SFTP_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          lftp -c "
-            set sftp:connect-program 'ssh -o StrictHostKeyChecking=no -i $HOME/.ssh/deploy_key';
-            open sftp://${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PORT }};
-            mirror --reverse --verbose --ignore-time --no-empty-dirs \
-              --exclude .DS_Store --exclude .gitkeep --exclude .gitignore \
-              --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md \
-              ${{ steps.target.outputs.source_dir }} ${{ steps.target.outputs.remote_path }};
-            bye;
-          "
+          cat > /tmp/lftp_script.txt <<LFTP_EOF
+          set sftp:connect-program "ssh -o StrictHostKeyChecking=no -i $HOME/.ssh/deploy_key"
+          open sftp://${SFTP_USER}@${SFTP_HOST}:${SFTP_PORT}
+          mirror --reverse --verbose --ignore-time --no-empty-dirs --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md ${SOURCE_DIR} ${REMOTE_PATH}
+          bye
+          LFTP_EOF
+          lftp -f /tmp/lftp_script.txt
 
       - name: Deploy via SFTP (password)
         if: steps.changes.outputs.has_changes == 'true' && steps.auth.outputs.method == 'password'
+        env:
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_PORT: ${{ secrets.SFTP_PORT }}
+          SOURCE_DIR: ${{ steps.target.outputs.source_dir }}
+          REMOTE_PATH: ${{ steps.target.outputs.remote_path }}
         run: |
-          lftp -c "
-            set sftp:auto-confirm yes;
-            set ssl:verify-certificate no;
-            open -u ${{ secrets.SFTP_USER }},${{ secrets.SFTP_PASSWORD }} sftp://${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PORT }};
-            mirror --reverse --verbose --ignore-time --no-empty-dirs \
-              --exclude .DS_Store --exclude .gitkeep --exclude .gitignore \
-              --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md \
-              ${{ steps.target.outputs.source_dir }} ${{ steps.target.outputs.remote_path }};
-            bye;
-          "
+          cat > /tmp/lftp_script.txt <<LFTP_EOF
+          set sftp:auto-confirm yes
+          set ssl:verify-certificate no
+          open -u ${SFTP_USER},${SFTP_PASSWORD} sftp://${SFTP_HOST}:${SFTP_PORT}
+          mirror --reverse --verbose --ignore-time --no-empty-dirs --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md ${SOURCE_DIR} ${REMOTE_PATH}
+          bye
+          LFTP_EOF
+          lftp -f /tmp/lftp_script.txt
 
       - name: Deployment summary
         if: steps.changes.outputs.has_changes == 'true'
