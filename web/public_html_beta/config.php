@@ -44,6 +44,10 @@ $config = [
     // Get a free key from https://www.virustotal.com/gui/my-apikey
     // 'virustotal_api_key' => '',
 
+    // Have I Been Pwned API (Issue #65)
+    // Get a key from https://haveibeenpwned.com/API/Key
+    // 'hibp_api_key' => '',
+
     // Website screenshot API (Issue #55)
     // Uses the free site-shot.com API — no key required for basic usage.
     // Set to true to enable thumbnail screenshots on lookup results.

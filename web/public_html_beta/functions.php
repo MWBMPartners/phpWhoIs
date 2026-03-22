@@ -29,6 +29,104 @@ function appLog(string $message, string $level = 'ERROR'): void {
 
 
 // ═══════════════════════════════════════════════════════════════════
+//  Domain ownership verification (Issue #64)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Generate a DNS verification token for domain ownership.
+ * The token should be added as a TXT record at _mwwhois-verify.{domain}.
+ *
+ * @param  string $domain     The domain to verify
+ * @param  string $sessionId  Session or user identifier
+ * @return string             The verification token
+ */
+function generateVerificationToken(string $domain, string $sessionId): string {
+    return 'mwwhois-verify=' . hash('sha256', $domain . $sessionId . 'mwwhois-salt');
+}
+
+/**
+ * Check if a domain has the verification TXT record.
+ *
+ * @param  string $domain  The domain to verify
+ * @param  string $token   The expected token value
+ * @return bool            True if verified
+ */
+function verifyDomainOwnership(string $domain, string $token): bool {
+    $records = @dns_get_record('_mwwhois-verify.' . $domain, DNS_TXT);
+    if (!$records) return false;
+
+    foreach ($records as $record) {
+        if (isset($record['txt']) && trim($record['txt']) === $token) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  API key management (Issue #61)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Load API keys from storage.
+ * Keys file format: { "key_hash": { "tier": "free|premium", "rate_limit": 30, "created": "...", "label": "..." } }
+ */
+function loadApiKeys(): array {
+    if (!defined('CACHE_DIR')) return [];
+    $file = CACHE_DIR . DIRECTORY_SEPARATOR . 'api_keys.json';
+    if (!file_exists($file)) return [];
+    $keys = json_decode(file_get_contents($file), true);
+    return is_array($keys) ? $keys : [];
+}
+
+/**
+ * Validate an API key and return its config, or null if invalid.
+ */
+function validateApiKey(string $key): ?array {
+    $keys = loadApiKeys();
+    $hash = hash('sha256', $key);
+    return isset($keys[$hash]) ? $keys[$hash] : null;
+}
+
+/**
+ * Get rate limit for an API key tier.
+ */
+function getApiKeyRateLimit(?array $keyConfig): int {
+    if (!$keyConfig) return RATE_LIMIT_MAX; // Default: 30/min
+    return isset($keyConfig['rate_limit']) ? (int)$keyConfig['rate_limit'] : RATE_LIMIT_MAX;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Lookup statistics tracking (Issue #60)
+// ═══════════════════════════════════════════════════════════════════
+
+function trackLookup(string $type, string $domain = ''): void {
+    if (!defined('CACHE_DIR')) return;
+    $file = CACHE_DIR . DIRECTORY_SEPARATOR . 'lookup_stats.json';
+    $stats = file_exists($file) ? json_decode(file_get_contents($file), true) : [];
+    if (!$stats) $stats = ['total' => 0, 'cache_hits' => 0, 'rdap' => 0, 'whois' => 0, 'errors' => 0, 'popular_domains' => []];
+
+    $stats['total'] = ($stats['total'] ?? 0) + 1;
+    if ($type === 'cache_hit') $stats['cache_hits'] = ($stats['cache_hits'] ?? 0) + 1;
+    if ($type === 'rdap') $stats['rdap'] = ($stats['rdap'] ?? 0) + 1;
+    if ($type === 'whois') $stats['whois'] = ($stats['whois'] ?? 0) + 1;
+    if ($type === 'error') $stats['errors'] = ($stats['errors'] ?? 0) + 1;
+
+    if ($domain) {
+        if (!isset($stats['popular_domains'])) $stats['popular_domains'] = [];
+        $stats['popular_domains'][$domain] = ($stats['popular_domains'][$domain] ?? 0) + 1;
+        arsort($stats['popular_domains']);
+        $stats['popular_domains'] = array_slice($stats['popular_domains'], 0, 100, true);
+    }
+
+    @file_put_contents($file, json_encode($stats), LOCK_EX);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  Security helpers
 // ═══════════════════════════════════════════════════════════════════
 
@@ -1108,4 +1206,56 @@ function discoverSubdomains(string $domain): array {
     }
 
     return $results;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Have I Been Pwned — domain breach search (Issue #65)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Check a domain for known data breaches via HIBP API.
+ *
+ * @param  string $domain  The domain to check
+ * @param  string $apiKey  HIBP API key
+ * @return array|null      Array of breach info or null on failure
+ */
+function checkHibpDomain(string $domain, string $apiKey): ?array {
+    $url = 'https://haveibeenpwned.com/api/v3/breaches?domain=' . urlencode($domain);
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            'hibp-api-key: ' . $apiKey,
+            'User-Agent: mwWhoIs-DomainLookup',
+        ],
+        CURLOPT_TIMEOUT => 5,
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode === 404) {
+        return []; // No breaches found
+    }
+
+    if ($httpCode !== 200 || !$response) {
+        return null; // API error
+    }
+
+    $breaches = json_decode($response, true);
+    if (!is_array($breaches)) {
+        return null;
+    }
+
+    return array_map(function ($b) {
+        return [
+            'name'        => $b['Name'] ?? '',
+            'title'       => $b['Title'] ?? '',
+            'date'        => $b['BreachDate'] ?? '',
+            'pwn_count'   => $b['PwnCount'] ?? 0,
+            'data_classes' => $b['DataClasses'] ?? [],
+        ];
+    }, $breaches);
 }

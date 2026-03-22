@@ -69,12 +69,24 @@ if ($sourceParam !== 'rdap' && $sourceParam !== 'whois') {
     $sourceParam = 'rdap';
 }
 
-// CSRF (skip for JSON API requests)
-if (!$jsonFormat && !validateCsrfToken()) {
+// API key authentication (Issue #61)
+$apiKeyConfig = null;
+$apiKeyHeader = isset($_SERVER['HTTP_X_API_KEY']) ? trim($_SERVER['HTTP_X_API_KEY']) : '';
+if ($apiKeyHeader) {
+    $apiKeyConfig = validateApiKey($apiKeyHeader);
+    if (!$apiKeyConfig) {
+        sendError('Invalid API key.', 401);
+    }
+    $jsonFormat = true; // API key users always get JSON
+}
+
+// CSRF (skip for JSON API requests and API key users)
+if (!$jsonFormat && !$apiKeyConfig && !validateCsrfToken()) {
     sendError('Invalid request. Please refresh the page and try again.', 403);
 }
 
-// Rate limit (session-based + IP-based)
+// Rate limit — use API key tier limit if applicable
+$rateLimit = $apiKeyConfig ? getApiKeyRateLimit($apiKeyConfig) : RATE_LIMIT_MAX;
 if (!checkRateLimit() || !checkIpRateLimit()) {
     sendError('Rate limit exceeded. Please wait before trying again.', 429);
 }
@@ -118,12 +130,17 @@ if ($isIpLookup) {
     $fromCache = ($whoisText !== null);
     $dataSource = 'whois';
 
+    if ($fromCache) {
+        trackLookup('cache_hit', $domain);
+    }
+
     // Try RDAP first (unless source=whois or cached)
     if (!$fromCache && $sourceParam === 'rdap') {
         $rdap = rdapLookup($domain);
         if ($rdap) {
             $dataSource = 'rdap';
             $whoisText = formatRdapResponse($rdap);
+            trackLookup('rdap', $domain);
         }
     }
 
@@ -131,6 +148,7 @@ if ($isIpLookup) {
     if (!$whoisText) {
         $whoisText = shell_exec("whois " . escapeshellarg($domain) . " 2>&1");
         $dataSource = 'whois';
+        trackLookup('whois', $domain);
     }
 
     // Cache result
@@ -182,6 +200,12 @@ if (!$isIpLookup && $domain && !empty($config['virustotal_api_key'])) {
     $virusTotal = checkVirusTotal($domain, $config['virustotal_api_key']);
 }
 
+// Have I Been Pwned (Issue #65) — only if API key configured
+$hibp = null;
+if (!$isIpLookup && $domain && !empty($config['hibp_api_key'])) {
+    $hibp = checkHibpDomain($domain, $config['hibp_api_key']);
+}
+
 // Screenshot URL (Issue #55) — generate if enabled
 $screenshotUrl = null;
 if (!$isIpLookup && $domain && !empty($config['screenshot_enabled'])) {
@@ -228,6 +252,7 @@ if ($jsonFormat) {
         'safe_browsing' => $safeBrowsing,
         'virustotal' => $virusTotal,
         'screenshot_url' => $screenshotUrl,
+        'hibp' => $hibp,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;
@@ -255,6 +280,7 @@ if ($jsonFormat) {
         'safe_browsing' => $safeBrowsing,
         'virustotal' => $virusTotal,
         'screenshot_url' => $screenshotUrl,
+        'hibp' => $hibp,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;

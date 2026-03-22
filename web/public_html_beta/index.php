@@ -126,24 +126,39 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <header class="header-form" role="banner">
         <div class="position-relative text-center mb-2">
             <h1 class="mb-0"><a href="/"><img src="logo-notext.svg" alt="" style="height: 40px; vertical-align: middle;" aria-hidden="true"><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";}if(isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]){echo " <span style=\"font-size: 0.7em\">(".$app["Application"]["Version"]["Development"]["Status"].")</span>";} ?></a></h1>
-            <div class="dropdown position-absolute top-50 end-0 translate-middle-y">
-                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="themeToggle" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Change theme" title="Change theme">
-                    <i class="bi bi-sun-fill" id="themeIcon"></i>
-                </button>
-                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="themeToggle">
-                    <li><a class="dropdown-item" href="#" data-theme-value="auto"><i class="bi bi-circle-half me-2"></i>Auto</a></li>
-                    <li><a class="dropdown-item" href="#" data-theme-value="light"><i class="bi bi-sun-fill me-2"></i>Light</a></li>
-                    <li><a class="dropdown-item" href="#" data-theme-value="dark"><i class="bi bi-moon-fill me-2"></i>Dark</a></li>
-                    <li><a class="dropdown-item" href="#" data-theme-value="colourblind"><i class="bi bi-eye-fill me-2"></i>Colourblind</a></li>
-                </ul>
+            <div class="d-flex gap-1 position-absolute top-50 end-0 translate-middle-y">
+                <!-- Language selector (Issue #59) -->
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="langToggle" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Language" title="Language">
+                        <i class="bi bi-translate"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="langToggle">
+                        <li><a class="dropdown-item" href="#" data-lang="en">English</a></li>
+                        <li><a class="dropdown-item" href="#" data-lang="es">Espa&ntilde;ol</a></li>
+                        <li><a class="dropdown-item" href="#" data-lang="fr">Fran&ccedil;ais</a></li>
+                        <li><a class="dropdown-item" href="#" data-lang="de">Deutsch</a></li>
+                    </ul>
+                </div>
+                <!-- Theme selector -->
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="themeToggle" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Change theme" title="Change theme">
+                        <i class="bi bi-sun-fill" id="themeIcon"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="themeToggle">
+                        <li><a class="dropdown-item" href="#" data-theme-value="auto"><i class="bi bi-circle-half me-2"></i><span data-i18n="theme_auto">Auto</span></a></li>
+                        <li><a class="dropdown-item" href="#" data-theme-value="light"><i class="bi bi-sun-fill me-2"></i><span data-i18n="theme_light">Light</span></a></li>
+                        <li><a class="dropdown-item" href="#" data-theme-value="dark"><i class="bi bi-moon-fill me-2"></i><span data-i18n="theme_dark">Dark</span></a></li>
+                        <li><a class="dropdown-item" href="#" data-theme-value="colourblind"><i class="bi bi-eye-fill me-2"></i><span data-i18n="theme_colourblind">Colourblind</span></a></li>
+                    </ul>
+                </div>
             </div>
         </div>
 
         <!-- Lookup mode tabs -->
         <ul class="nav nav-tabs mb-3" id="lookupModeTabs" role="tablist">
-            <li class="nav-item" role="presentation"><a class="nav-link active" href="#" data-mode="single" role="tab" aria-selected="true" id="tab-single" aria-controls="whoisForm">Single Lookup</a></li>
-            <li class="nav-item" role="presentation"><a class="nav-link" href="#" data-mode="bulk" role="tab" aria-selected="false" id="tab-bulk" aria-controls="bulkWhoisForm">Bulk Lookup</a></li>
-            <li class="nav-item" role="presentation"><a class="nav-link" href="#" data-mode="compare" role="tab" aria-selected="false" id="tab-compare" aria-controls="compareForm">Compare</a></li>
+            <li class="nav-item" role="presentation"><a class="nav-link active" href="#" data-mode="single" role="tab" aria-selected="true" id="tab-single" aria-controls="whoisForm"><span data-i18n="single_lookup">Single Lookup</span></a></li>
+            <li class="nav-item" role="presentation"><a class="nav-link" href="#" data-mode="bulk" role="tab" aria-selected="false" id="tab-bulk" aria-controls="bulkWhoisForm"><span data-i18n="bulk_lookup">Bulk Lookup</span></a></li>
+            <li class="nav-item" role="presentation"><a class="nav-link" href="#" data-mode="compare" role="tab" aria-selected="false" id="tab-compare" aria-controls="compareForm"><span data-i18n="compare">Compare</span></a></li>
         </ul>
 
         <!-- Single domain form -->
@@ -198,12 +213,12 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         <!-- Empty state -->
         <div id="emptyState" class="text-center py-5">
             <i class="bi bi-search" style="font-size: 3rem; opacity: 0.15;"></i>
-            <p class="mt-3 text-muted">Enter a domain above to get started</p>
+            <p class="mt-3 text-muted" data-i18n="empty_state">Enter a domain above to get started</p>
         </div>
 
         <div id="loadingSpinner" class="text-center py-5" role="status" aria-live="polite" style="display:none;">
             <div class="spinner-border text-primary" aria-hidden="true"></div>
-            <p class="mt-2 text-muted">Looking up domain information...</p>
+            <p class="mt-2 text-muted" data-i18n="loading">Looking up domain information...</p>
         </div>
 
         <div id="availabilityBadge" class="mb-3" aria-live="polite" aria-atomic="true" style="display:none;"></div>
@@ -310,6 +325,52 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             return div.innerHTML;
         }
         var currentDomain = '';
+
+        // ── i18n (Issue #59) ──
+        var i18nStrings = {};
+        var currentLang = localStorage.getItem('lang') || navigator.language.split('-')[0] || 'en';
+
+        function loadLanguage(lang) {
+            fetch('lang/' + lang + '.json?v=' + Date.now())
+                .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+                .then(function (data) {
+                    i18nStrings = data;
+                    applyTranslations();
+                    document.querySelectorAll('[data-lang]').forEach(function (el) {
+                        el.classList.toggle('active', el.dataset.lang === lang);
+                    });
+                    document.documentElement.setAttribute('lang', lang);
+                })
+                .catch(function () {
+                    // Fallback to English if language not found
+                    if (lang !== 'en') loadLanguage('en');
+                });
+        }
+
+        function t(key) { return i18nStrings[key] || key; }
+
+        function applyTranslations() {
+            document.querySelectorAll('[data-i18n]').forEach(function (el) {
+                var key = el.dataset.i18n;
+                if (i18nStrings[key]) el.textContent = i18nStrings[key];
+            });
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(function (el) {
+                var key = el.dataset.i18nPlaceholder;
+                if (i18nStrings[key]) el.placeholder = i18nStrings[key];
+            });
+        }
+
+        document.querySelectorAll('[data-lang]').forEach(function (item) {
+            item.addEventListener('click', function (e) {
+                e.preventDefault();
+                currentLang = this.dataset.lang;
+                localStorage.setItem('lang', currentLang);
+                loadLanguage(currentLang);
+            });
+        });
+
+        // Load initial language
+        loadLanguage(currentLang);
 
         // ── Theme selector (Auto / Light / Dark / Colourblind) ──
         var themeIcon = document.getElementById('themeIcon');
@@ -737,6 +798,18 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 esHtml += '<tr><td class="fw-bold">' + dkimIcon + ' DKIM</td><td>' + (es.dkim.status || 'unknown') + '</td></tr>';
 
                 esHtml += '</table></div></div>';
+
+                // HIBP breach data (Issue #65)
+                if (data.hibp && data.hibp.length > 0) {
+                    esHtml += '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-exclamation me-1" aria-hidden="true"></i>Data Breaches</strong> <span class="badge bg-danger">' + data.hibp.length + '</span></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Breach</th><th>Date</th><th>Accounts</th><th>Compromised Data</th></tr></thead><tbody>';
+                    data.hibp.forEach(function (b) {
+                        esHtml += '<tr><td class="fw-bold">' + esc(b.title) + '</td><td>' + esc(b.date) + '</td><td>' + (b.pwn_count ? b.pwn_count.toLocaleString() : 'N/A') + '</td><td><small>' + esc(b.data_classes.join(', ')) + '</small></td></tr>';
+                    });
+                    esHtml += '</tbody></table></div></div>';
+                } else if (data.hibp !== null && data.hibp.length === 0) {
+                    esHtml += '<div class="alert alert-success mt-3 small"><i class="bi bi-shield-check me-1" aria-hidden="true"></i>No known data breaches found for this domain.</div>';
+                }
+
                 document.getElementById('emailSecurityPane').innerHTML = esHtml;
             }
 
