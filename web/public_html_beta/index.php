@@ -79,7 +79,13 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     if (isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]) {
         $pageTitle .= ' (' . $app["Application"]["Version"]["Development"]["Status"] . ')';
     }
-    $pageDescription = 'Free domain WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.';
+    if (isset($app["Application"]["Description"]["Synopsis"]) && $app["Application"]["Description"]["Synopsis"]) {
+        $pageDescription = $app["Application"]["Description"]["Synopsis"];
+    }
+    else {
+        $pageDescription = 'Free domain WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.';
+    }
+    
     $pageUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
 ?>
     <title><?php echo htmlspecialchars($pageTitle); ?></title>
@@ -231,6 +237,8 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             </div>
             <div class="footer-right">
                 <?php
+                    echo $pageTitle;
+                    
                     if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]){
                         echo "v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
 
@@ -247,7 +255,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                                 echo ' ' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Date"]);
                             }
 
-                            echo ')';
+                            echo nl2br(')\n');
                         }
                     }
                 ?>

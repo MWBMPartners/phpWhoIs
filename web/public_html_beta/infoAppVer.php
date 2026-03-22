@@ -3,6 +3,8 @@
 		$app["Application"]["ID"] = "Ltd.MWBMPartners.Whois";
 		$app["Application"]["Name"] = "WHOIS Lookup";
 		$app["Application"]["Website"]["URL"] = NULL;
+		$app["Application"]["Description"]["Synopsis"] = "Free domain WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.";
+		$app["Application"]["Description"]["Keywords"] = "Free domain WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.";
 
 		//Version
 			$app["Application"]["Version"]["Version"] = "1.14.1";
