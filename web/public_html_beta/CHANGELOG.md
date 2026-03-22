@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [6039757] - 2026-03-22
+
+**feat: batch export bulk results as CSV or JSON (#49)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`6039757`](https://github.com/MWBMPartners/phpWhoIs/commit/603975770aec20dfcad12b4c1b86a733d7ccf000)
+
+### Changed files
+
+- `index.php`
+
+
 ## [be59d2b] - 2026-03-22
 
 **feat: reverse DNS lookup — enter IP address, get PTR hostname (#45)**
