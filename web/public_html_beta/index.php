@@ -218,34 +218,34 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
 
     <!-- Footer -->
     <div class="footer">
-        <?php
-            if (isset($pageTitle) && $pageTitle) {
-                echo $pageTitle;
+        <div class="footer-row">
+            <div class="footer-left">
+<?php
+    if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]) {
+        echo "v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
+
+        if (!empty($app["Application"]["Version"]["Development"]["Status"])) {
+            echo " " . htmlspecialchars($app["Application"]["Version"]["Development"]["Status"]);
+        }
+
+        if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Short"])) {
+            echo ' (<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" class="footer-commit">';
+            echo htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Short"]);
+            echo '</a>';
+
+            if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Date"])) {
+                echo ' ' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Date"]);
             }
 
-            if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]) {
-                echo "&nbsp;v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
-
-                if (!empty($app["Application"]["Version"]["Development"]["Status"])) {
-                    echo "&nbsp;" . htmlspecialchars($app["Application"]["Version"]["Development"]["Status"]);
-                }
-
-                if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Short"])) {
-                    echo '&nbsp;(<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" class="footer-commit">';
-                    echo htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Short"]);
-                    echo '</a>';
-
-                    if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Date"])) {
-                        echo '&nbsp;' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Date"]);
-                    }
-
-                    echo ')';
-                }
-            }
-
-            echo nl2br("\n");
-        ?>
-        Copyright &copy; <?php echo htmlspecialchars("$copyrightYear $copyrightOwner"); ?>. All Rights Reserved
+            echo ')';
+        }
+    }
+?>
+            </div>
+            <div class="footer-right">
+                &copy; <?php echo htmlspecialchars("$copyrightYear $copyrightOwner"); ?>. All Rights Reserved
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>

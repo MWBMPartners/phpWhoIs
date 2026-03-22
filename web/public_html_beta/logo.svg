@@ -42,8 +42,8 @@
     <line x1="60" y1="200" x2="340" y2="200" stroke="#fff" stroke-width="1.5" opacity="0.25"/>
 
     <!-- Domain text on globe -->
-    <text x="200" y="190" text-anchor="middle" fill="#fff" font-family="'Segoe UI', system-ui, sans-serif" font-size="32" font-weight="700" opacity="0.9">.COM</text>
-    <text x="200" y="225" text-anchor="middle" fill="#fff" font-family="'Segoe UI', system-ui, sans-serif" font-size="18" font-weight="400" opacity="0.6">WHOIS</text>
+    <!--<text x="200" y="190" text-anchor="middle" fill="#fff" font-family="'Segoe UI', system-ui, sans-serif" font-size="32" font-weight="700" opacity="0.9">.COM</text>-->
+    <text x="200" y="225" text-anchor="middle" fill="#fff" font-family="'Segoe UI', system-ui, sans-serif" font-size="64" font-weight="400" opacity="0.8">WHOIS</text>
   </g>
 
   <!-- Magnifying glass ring -->
