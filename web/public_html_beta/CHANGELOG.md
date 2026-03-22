@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [e121deb] - 2026-03-22
+
+**fix: complete dark mode rewrite with hardcoded colours, fix title link styling**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`e121deb`](https://github.com/MWBMPartners/phpWhoIs/commit/e121deb8367cef1de7310e135bd9478dfdf99dee)
+
+### Changed files
+
+- `index.php`
+- `style.css`
+
+
 ## [ee2a0d9] - 2026-03-22
 
 **fix: correct PHP syntax error in footer version display**
