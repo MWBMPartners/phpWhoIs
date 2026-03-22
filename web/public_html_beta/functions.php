@@ -526,6 +526,73 @@ function checkEmailSecurity(string $domain): array {
 
 
 // ═══════════════════════════════════════════════════════════════════
+//  SSL/TLS certificate info (Issue #19)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Fetch SSL certificate info for a domain.
+ */
+function getSslInfo(string $domain): ?array {
+    $ctx = stream_context_create([
+        'ssl' => [
+            'capture_peer_cert' => true,
+            'verify_peer' => false,
+            'verify_peer_name' => false,
+        ],
+    ]);
+
+    $client = @stream_socket_client(
+        "ssl://{$domain}:443",
+        $errno,
+        $errstr,
+        5,
+        STREAM_CLIENT_CONNECT,
+        $ctx
+    );
+
+    if (!$client) {
+        return null;
+    }
+
+    $params = stream_context_get_params($client);
+    fclose($client);
+
+    if (!isset($params['options']['ssl']['peer_certificate'])) {
+        return null;
+    }
+
+    $cert = openssl_x509_parse($params['options']['ssl']['peer_certificate']);
+    if (!$cert) {
+        return null;
+    }
+
+    $result = [
+        'subject' => isset($cert['subject']['CN']) ? $cert['subject']['CN'] : '',
+        'issuer' => isset($cert['issuer']['O']) ? $cert['issuer']['O'] : (isset($cert['issuer']['CN']) ? $cert['issuer']['CN'] : ''),
+        'valid_from' => date('Y-m-d H:i:s', $cert['validFrom_time_t']),
+        'valid_to' => date('Y-m-d H:i:s', $cert['validTo_time_t']),
+        'serial' => isset($cert['serialNumberHex']) ? $cert['serialNumberHex'] : '',
+    ];
+
+    // Days until expiry
+    $expiryTime = $cert['validTo_time_t'];
+    $daysLeft = (int)ceil(($expiryTime - time()) / 86400);
+    $result['expires_in'] = $daysLeft . ' days';
+    $result['expired'] = ($daysLeft <= 0);
+
+    // SAN (Subject Alternative Names)
+    if (isset($cert['extensions']['subjectAltName'])) {
+        $sans = array_map('trim', explode(',', $cert['extensions']['subjectAltName']));
+        $result['san'] = array_map(function($s) {
+            return str_replace('DNS:', '', $s);
+        }, $sans);
+    }
+
+    return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  WHOIS field parsing
 // ═══════════════════════════════════════════════════════════════════
 

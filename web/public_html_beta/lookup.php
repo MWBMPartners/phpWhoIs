@@ -158,6 +158,12 @@ if (!$isIpLookup && $domain) {
     $emailSecurity = checkEmailSecurity($domain);
 }
 
+// SSL/TLS certificate info (Issue #19) — only for domain lookups
+$sslInfo = null;
+if (!$isIpLookup && $domain) {
+    $sslInfo = getSslInfo($domain);
+}
+
 if ($jsonFormat) {
     header('Access-Control-Allow-Origin: *');
     header('Access-Control-Allow-Methods: POST');
@@ -172,6 +178,7 @@ if ($jsonFormat) {
         'raw'          => $whoisText,
         'cached'       => $fromCache,
         'email_security' => $emailSecurity,
+        'ssl' => $sslInfo,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;
@@ -192,6 +199,7 @@ if ($jsonFormat) {
         'dns'          => $dns,
         'cached'       => $fromCache,
         'email_security' => $emailSecurity,
+        'ssl' => $sslInfo,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;

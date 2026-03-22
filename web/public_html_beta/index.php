@@ -175,11 +175,13 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             <li class="nav-item"><a class="nav-link active" href="#" data-tab="whois">WHOIS</a></li>
             <li class="nav-item"><a class="nav-link" href="#" data-tab="dns">DNS Records</a></li>
             <li class="nav-item"><a class="nav-link" href="#" data-tab="email">Email Security</a></li>
+            <li class="nav-item"><a class="nav-link" href="#" data-tab="ssl">SSL/TLS</a></li>
         </ul>
 
         <div id="whoisResultPane"><div id="result"></div></div>
         <div id="dnsResultPane" style="display:none;"></div>
         <div id="emailSecurityPane" style="display:none;"></div>
+        <div id="sslPane" style="display:none;"></div>
 
         <div id="actionButtons" class="mt-2 d-flex gap-2 flex-wrap" style="display:none !important;">
             <button class="btn btn-secondary btn-sm" id="toggleViewBtn">Show Raw Whois</button>
@@ -521,6 +523,24 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 document.getElementById('emailSecurityPane').innerHTML = esHtml;
             }
 
+            // SSL/TLS info (Issue #19)
+            if (data.ssl) {
+                document.getElementById('resultTabs').style.display = '';
+                var ssl = data.ssl;
+                var sslHtml = '<div class="card"><div class="card-header"><strong>SSL/TLS Certificate</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+                var expiredClass = ssl.expired ? ' class="table-danger"' : '';
+                sslHtml += '<tr><td class="fw-bold">Subject</td><td>' + (ssl.subject || '') + '</td></tr>';
+                sslHtml += '<tr><td class="fw-bold">Issuer</td><td>' + (ssl.issuer || '') + '</td></tr>';
+                sslHtml += '<tr><td class="fw-bold">Valid From</td><td>' + (ssl.valid_from || '') + '</td></tr>';
+                sslHtml += '<tr><td class="fw-bold">Valid To</td><td>' + (ssl.valid_to || '') + '</td></tr>';
+                sslHtml += '<tr' + expiredClass + '><td class="fw-bold">Expires In</td><td>' + (ssl.expires_in || '') + (ssl.expired ? ' <span class="badge bg-danger">EXPIRED</span>' : '') + '</td></tr>';
+                if (ssl.san && ssl.san.length) {
+                    sslHtml += '<tr><td class="fw-bold">Alt Names</td><td>' + ssl.san.join(', ') + '</td></tr>';
+                }
+                sslHtml += '</table></div></div>';
+                document.getElementById('sslPane').innerHTML = sslHtml;
+            }
+
             // Wayback Machine link (Issue #54)
             var waybackBtn = document.getElementById('waybackBtn');
             if (waybackBtn) {
@@ -543,6 +563,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 document.getElementById('whoisResultPane').style.display = t === 'whois' ? '' : 'none';
                 document.getElementById('dnsResultPane').style.display = t === 'dns' ? '' : 'none';
                 document.getElementById('emailSecurityPane').style.display = t === 'email' ? '' : 'none';
+                document.getElementById('sslPane').style.display = t === 'ssl' ? '' : 'none';
             });
         });
 
@@ -616,7 +637,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         }
 
         function hideResults() {
-            ['availabilityBadge', 'dataSourceBadge', 'parsedFields', 'resultTabs', 'dnsResultPane', 'emailSecurityPane', 'bulkResults', 'bulkExportButtons'].forEach(function (id) {
+            ['availabilityBadge', 'dataSourceBadge', 'parsedFields', 'resultTabs', 'dnsResultPane', 'emailSecurityPane', 'sslPane', 'bulkResults', 'bulkExportButtons'].forEach(function (id) {
                 document.getElementById(id).style.display = 'none';
             });
             document.getElementById('whoisResultPane').style.display = '';
