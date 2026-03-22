@@ -9,6 +9,9 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Only run if SFTP credentials are configured
+    if: ${{ vars.SFTP_ENABLED == 'true' }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,8 +32,17 @@ jobs:
       - name: Install lftp
         run: sudo apt-get install -y lftp
 
+      - name: Check auth method
+        id: auth
+        run: |
+          if [[ -n "${{ secrets.SFTP_KEY }}" ]]; then
+            echo "method=key" >> $GITHUB_OUTPUT
+          else
+            echo "method=password" >> $GITHUB_OUTPUT
+          fi
+
       - name: Deploy via SFTP (SSH key)
-        if: ${{ secrets.SFTP_KEY != '' }}
+        if: steps.auth.outputs.method == 'key'
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SFTP_KEY }}" > ~/.ssh/deploy_key
@@ -42,7 +54,7 @@ jobs:
             sftp://${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PORT }}
 
       - name: Deploy via SFTP (password)
-        if: ${{ secrets.SFTP_KEY == '' }}
+        if: steps.auth.outputs.method == 'password'
         run: |
           lftp -u "${{ secrets.SFTP_USER }},${{ secrets.SFTP_PASSWORD }}" \
             -e "set sftp:auto-confirm yes; set ssl:verify-certificate no; \
