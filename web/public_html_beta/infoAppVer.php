@@ -39,8 +39,13 @@
 			$app["Application"]["Copyright"]["RightsStatement"] = "All Rights Reserved";
 	
 		//License	
-			$app["Application"]["License"]["Type"] = "Freeware";
-			$app["Application"]["License"]["Cost"] = "Free";
-			$app["Application"]["License"]["Agreement"]["URL"] = NULL;
-			$app["Application"]["License"]["ToSURL"] = NULL;
+			$app["Application"]["License"]["Developer"]["Type"] = NULL;
+			$app["Application"]["License"]["Developer"]["Cost"] = NULL;
+			$app["Application"]["License"]["Developer"]["Agreement"]["URL"] = NULL;
+			$app["Application"]["License"]["Developer"]["ToSURL"] = NULL;
+
+			$app["Application"]["License"]["User"]["Type"] = "Freeware";
+			$app["Application"]["License"]["User"]["Cost"] = "Free";
+			$app["Application"]["License"]["User"]["Agreement"]["URL"] = NULL;
+			$app["Application"]["License"]["User"]["ToSURL"] = NULL;
 ?>
