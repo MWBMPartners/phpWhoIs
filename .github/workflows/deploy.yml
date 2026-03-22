@@ -41,28 +41,23 @@ jobs:
           # Force full deploy if commit message contains [deploy all]
           if echo "$COMMIT_MSG" | grep -q "\[deploy all\]"; then
             echo "Full deploy requested via [deploy all]"
-            CHANGED=$(find "$SOURCE_DIR" -type f | grep -vE "$EXCLUDES" || true)
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "full_deploy=true" >> $GITHUB_OUTPUT
           else
-            # Check last 5 commits for changes (covers multi-commit pushes and bot commits)
+            # Check last 5 commits for changes
             CHANGED=$(git diff --name-only HEAD~5 HEAD -- "$SOURCE_DIR" 2>/dev/null \
               | grep -vE "$EXCLUDES" | sort -u || true)
-          fi
 
-          if [[ -z "$CHANGED" ]]; then
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-            echo "No deployable files changed in $SOURCE_DIR"
-          else
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-            # Store changed files (relative to source_dir) for upload
-            FILE_LIST=""
-            while IFS= read -r file; do
-              # Strip source_dir prefix to get relative path
-              REL_PATH="${file#$SOURCE_DIR}"
-              FILE_LIST="${FILE_LIST}${REL_PATH}\n"
-            done <<< "$CHANGED"
-            echo -e "$FILE_LIST" > /tmp/changed_files.txt
-            echo "Changed files to deploy:"
-            cat /tmp/changed_files.txt
+            if [[ -z "$CHANGED" ]]; then
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+              echo "full_deploy=false" >> $GITHUB_OUTPUT
+              echo "No deployable files changed in $SOURCE_DIR"
+            else
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+              echo "full_deploy=false" >> $GITHUB_OUTPUT
+              echo "Changed files:"
+              echo "$CHANGED"
+            fi
           fi
 
       - name: Install minification tools
@@ -122,53 +117,42 @@ jobs:
             echo "method=password" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build lftp upload script
-        if: steps.changes.outputs.has_changes == 'true'
-        run: |
-          SOURCE_DIR="${{ steps.target.outputs.source_dir }}"
-          REMOTE_PATH="${{ steps.target.outputs.remote_path }}"
-
-          # Build lftp commands to upload only changed files
-          echo "# Auto-generated upload script" > /tmp/lftp_commands.txt
-          while IFS= read -r rel_file; do
-            [[ -z "$rel_file" ]] && continue
-            LOCAL_FILE="${SOURCE_DIR}${rel_file}"
-            if [[ -f "$LOCAL_FILE" ]]; then
-              echo "put \"$LOCAL_FILE\" -o \"${REMOTE_PATH}${rel_file}\"" >> /tmp/lftp_commands.txt
-              echo "  Upload: $rel_file"
-            else
-              echo "rm -f \"${REMOTE_PATH}${rel_file}\"" >> /tmp/lftp_commands.txt
-              echo "  Delete: $rel_file (removed from repo)"
-            fi
-          done < /tmp/changed_files.txt
-          echo "bye" >> /tmp/lftp_commands.txt
-
       - name: Deploy via SFTP (SSH key)
         if: steps.changes.outputs.has_changes == 'true' && steps.auth.outputs.method == 'key'
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SFTP_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          lftp -e "set sftp:connect-program 'ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key'" \
-            sftp://${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PORT }} \
-            < /tmp/lftp_commands.txt
+          lftp -c "
+            set sftp:connect-program 'ssh -o StrictHostKeyChecking=no -i $HOME/.ssh/deploy_key';
+            open sftp://${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PORT }};
+            mirror --reverse --verbose --ignore-time --no-empty-dirs \
+              --exclude .DS_Store --exclude .gitkeep --exclude .gitignore \
+              --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md \
+              ${{ steps.target.outputs.source_dir }} ${{ steps.target.outputs.remote_path }};
+            bye;
+          "
 
       - name: Deploy via SFTP (password)
         if: steps.changes.outputs.has_changes == 'true' && steps.auth.outputs.method == 'password'
         run: |
-          lftp -u "${{ secrets.SFTP_USER }},${{ secrets.SFTP_PASSWORD }}" \
-            -e "set sftp:auto-confirm yes; set ssl:verify-certificate no" \
-            sftp://${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PORT }} \
-            < /tmp/lftp_commands.txt
+          lftp -c "
+            set sftp:auto-confirm yes;
+            set ssl:verify-certificate no;
+            open -u ${{ secrets.SFTP_USER }},${{ secrets.SFTP_PASSWORD }} sftp://${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PORT }};
+            mirror --reverse --verbose --ignore-time --no-empty-dirs \
+              --exclude .DS_Store --exclude .gitkeep --exclude .gitignore \
+              --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md \
+              ${{ steps.target.outputs.source_dir }} ${{ steps.target.outputs.remote_path }};
+            bye;
+          "
 
       - name: Deployment summary
         if: steps.changes.outputs.has_changes == 'true'
         run: |
-          FILE_COUNT=$(grep -c "^put\|^rm" /tmp/lftp_commands.txt || echo "0")
           echo "### Deployed to ${{ steps.target.outputs.channel }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Files transferred:** $FILE_COUNT" >> $GITHUB_STEP_SUMMARY
           echo "- **Remote path:** ${{ steps.target.outputs.remote_path }}" >> $GITHUB_STEP_SUMMARY
 
       - name: Skip summary
