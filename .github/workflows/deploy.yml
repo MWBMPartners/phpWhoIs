@@ -35,7 +35,7 @@ jobs:
         id: changes
         run: |
           SOURCE_DIR="${{ steps.target.outputs.source_dir }}"
-          EXCLUDES="CHANGELOG.md|README.md|\.DS_Store|\.gitkeep|\.gitignore"
+          EXCLUDES="CHANGELOG.md|README.md|DEV_NOTES.md|\.DS_Store|\.gitkeep|\.gitignore"
 
           # Get files changed in this commit within the source directory
           CHANGED=$(git diff --name-only HEAD~1 HEAD -- "$SOURCE_DIR" 2>/dev/null \
