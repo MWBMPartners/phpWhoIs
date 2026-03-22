@@ -112,6 +112,11 @@ jobs:
             git commit -m "docs: auto-update changelog for ${{ steps.target.outputs.dir }} [skip ci]"
 
             # Pull any commits made by other workflows before pushing
-            git pull --rebase origin ${{ github.ref_name }}
-            git push
+            # Retry up to 3 times in case of race conditions
+            for i in 1 2 3; do
+              git fetch origin ${{ github.ref_name }}
+              git rebase origin/${{ github.ref_name }} && git push origin ${{ github.ref_name }} && break
+              echo "Push attempt $i failed, retrying..."
+              sleep 2
+            done
           fi
