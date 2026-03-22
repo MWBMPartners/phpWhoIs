@@ -152,6 +152,12 @@ if ($isIpLookup) {
     $dns = getDnsRecords($domain);
 }
 
+// Email security check (Issue #56) — only for domain lookups
+$emailSecurity = [];
+if (!$isIpLookup && $domain) {
+    $emailSecurity = checkEmailSecurity($domain);
+}
+
 if ($jsonFormat) {
     header('Access-Control-Allow-Origin: *');
     header('Access-Control-Allow-Methods: POST');
@@ -165,6 +171,7 @@ if ($jsonFormat) {
         'dns'          => $dns,
         'raw'          => $whoisText,
         'cached'       => $fromCache,
+        'email_security' => $emailSecurity,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;
@@ -184,6 +191,7 @@ if ($jsonFormat) {
         'parsed'       => $parsed,
         'dns'          => $dns,
         'cached'       => $fromCache,
+        'email_security' => $emailSecurity,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;

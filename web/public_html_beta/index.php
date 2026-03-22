@@ -174,10 +174,12 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         <ul class="nav nav-pills mb-3" id="resultTabs" style="display:none;">
             <li class="nav-item"><a class="nav-link active" href="#" data-tab="whois">WHOIS</a></li>
             <li class="nav-item"><a class="nav-link" href="#" data-tab="dns">DNS Records</a></li>
+            <li class="nav-item"><a class="nav-link" href="#" data-tab="email">Email Security</a></li>
         </ul>
 
         <div id="whoisResultPane"><div id="result"></div></div>
         <div id="dnsResultPane" style="display:none;"></div>
+        <div id="emailSecurityPane" style="display:none;"></div>
 
         <div id="actionButtons" class="mt-2 d-flex gap-2 flex-wrap" style="display:none !important;">
             <button class="btn btn-secondary btn-sm" id="toggleViewBtn">Show Raw Whois</button>
@@ -474,6 +476,34 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 document.getElementById('dnsResultPane').innerHTML = dnsHtml;
             }
 
+            // Email security (Issue #56)
+            if (data.email_security && Object.keys(data.email_security).length) {
+                document.getElementById('resultTabs').style.display = '';
+                var es = data.email_security;
+                var esHtml = '<div class="card"><div class="card-header"><strong>Email Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+
+                // SPF
+                var spfIcon = es.spf.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+                esHtml += '<tr><td class="fw-bold">' + spfIcon + ' SPF</td><td>' + (es.spf.status || 'missing') + '</td></tr>';
+                if (es.spf.record) {
+                    esHtml += '<tr><td></td><td><code class="small">' + es.spf.record + '</code></td></tr>';
+                }
+
+                // DMARC
+                var dmarcIcon = es.dmarc.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+                esHtml += '<tr><td class="fw-bold">' + dmarcIcon + ' DMARC</td><td>' + (es.dmarc.status || 'missing') + '</td></tr>';
+                if (es.dmarc.record) {
+                    esHtml += '<tr><td></td><td><code class="small">' + es.dmarc.record + '</code></td></tr>';
+                }
+
+                // DKIM
+                var dkimIcon = es.dkim.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-exclamation-triangle-fill text-warning"></i>';
+                esHtml += '<tr><td class="fw-bold">' + dkimIcon + ' DKIM</td><td>' + (es.dkim.status || 'unknown') + '</td></tr>';
+
+                esHtml += '</table></div></div>';
+                document.getElementById('emailSecurityPane').innerHTML = esHtml;
+            }
+
             // Wayback Machine link (Issue #54)
             var waybackBtn = document.getElementById('waybackBtn');
             if (waybackBtn) {
@@ -495,6 +525,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 var t = this.dataset.tab;
                 document.getElementById('whoisResultPane').style.display = t === 'whois' ? '' : 'none';
                 document.getElementById('dnsResultPane').style.display = t === 'dns' ? '' : 'none';
+                document.getElementById('emailSecurityPane').style.display = t === 'email' ? '' : 'none';
             });
         });
 
@@ -558,7 +589,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         }
 
         function hideResults() {
-            ['availabilityBadge', 'dataSourceBadge', 'parsedFields', 'resultTabs', 'dnsResultPane', 'bulkResults'].forEach(function (id) {
+            ['availabilityBadge', 'dataSourceBadge', 'parsedFields', 'resultTabs', 'dnsResultPane', 'emailSecurityPane', 'bulkResults', 'bulkExportButtons'].forEach(function (id) {
                 document.getElementById(id).style.display = 'none';
             });
             document.getElementById('whoisResultPane').style.display = '';

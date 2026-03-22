@@ -452,6 +452,80 @@ function getDnsRecords(string $domain): array {
 
 
 // ═══════════════════════════════════════════════════════════════════
+//  Email security check — DMARC/SPF/DKIM (Issue #56)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Check email security posture by examining DNS TXT records.
+ */
+function checkEmailSecurity(string $domain): array {
+    $result = [
+        'spf' => ['found' => false, 'record' => null, 'status' => 'missing'],
+        'dmarc' => ['found' => false, 'record' => null, 'status' => 'missing'],
+        'dkim' => ['found' => false, 'status' => 'unknown'],
+    ];
+
+    // SPF — look in TXT records for the domain
+    $txtRecords = @dns_get_record($domain, DNS_TXT);
+    if ($txtRecords) {
+        foreach ($txtRecords as $rec) {
+            if (isset($rec['txt']) && stripos($rec['txt'], 'v=spf1') === 0) {
+                $result['spf']['found'] = true;
+                $result['spf']['record'] = $rec['txt'];
+                $result['spf']['status'] = 'configured';
+                break;
+            }
+        }
+    }
+
+    // DMARC — look in TXT records for _dmarc.domain
+    $dmarcRecords = @dns_get_record('_dmarc.' . $domain, DNS_TXT);
+    if ($dmarcRecords) {
+        foreach ($dmarcRecords as $rec) {
+            if (isset($rec['txt']) && stripos($rec['txt'], 'v=DMARC1') === 0) {
+                $result['dmarc']['found'] = true;
+                $result['dmarc']['record'] = $rec['txt'];
+
+                // Check policy
+                if (stripos($rec['txt'], 'p=reject') !== false) {
+                    $result['dmarc']['status'] = 'strict (reject)';
+                } elseif (stripos($rec['txt'], 'p=quarantine') !== false) {
+                    $result['dmarc']['status'] = 'moderate (quarantine)';
+                } elseif (stripos($rec['txt'], 'p=none') !== false) {
+                    $result['dmarc']['status'] = 'monitor only (none)';
+                } else {
+                    $result['dmarc']['status'] = 'configured';
+                }
+                break;
+            }
+        }
+    }
+
+    // DKIM — check common selectors
+    $dkimSelectors = ['default', 'google', 'selector1', 'selector2', 'k1', 'k2', 'mail', 'dkim'];
+    foreach ($dkimSelectors as $selector) {
+        $dkimRecords = @dns_get_record($selector . '._domainkey.' . $domain, DNS_TXT);
+        if ($dkimRecords) {
+            foreach ($dkimRecords as $rec) {
+                if (isset($rec['txt']) && stripos($rec['txt'], 'v=DKIM1') !== false) {
+                    $result['dkim']['found'] = true;
+                    $result['dkim']['selector'] = $selector;
+                    $result['dkim']['status'] = 'configured (selector: ' . $selector . ')';
+                    break 2;
+                }
+            }
+        }
+    }
+
+    if (!$result['dkim']['found']) {
+        $result['dkim']['status'] = 'not found (checked common selectors)';
+    }
+
+    return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  WHOIS field parsing
 // ═══════════════════════════════════════════════════════════════════
 
