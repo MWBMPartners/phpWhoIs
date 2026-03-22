@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [e0198e0] - 2026-03-22
+
+**Update deployment workflow and app version handling; set production status to NULL and manage development status based on environment**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`e0198e0`](https://github.com/MWBMPartners/phpWhoIs/commit/e0198e020008c5a00cd038a4c3b1edd1e14b6809)
+
+### Changed files
+
+- `index.php`
+- `infoAppVer.php`
+
+
 ## [1.0.0-beta.1] - 2026-03-21
 
 ### Added
