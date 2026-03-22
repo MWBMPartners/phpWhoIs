@@ -5,58 +5,162 @@
       <stop offset="100%" style="stop-color:#1971c2;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="handleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#495057;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#343a40;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#868e96" />
+      <stop offset="100%" style="stop-color:#343a40" />
     </linearGradient>
-    <linearGradient id="lensGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#e7f5ff;stop-opacity:0.3" />
-      <stop offset="100%" style="stop-color:#a5d8ff;stop-opacity:0.1" />
+    <linearGradient id="handleHL" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#adb5bd" />
+      <stop offset="50%" style="stop-color:#868e96" />
+      <stop offset="100%" style="stop-color:#495057" />
     </linearGradient>
+
+    <!-- Glass: radial gradient for realistic lens tint -->
+    <radialGradient id="glassBase" cx="45%" cy="45%" r="55%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.12" />
+      <stop offset="50%" style="stop-color:#dbe4ff;stop-opacity:0.05" />
+      <stop offset="100%" style="stop-color:#1971c2;stop-opacity:0.03" />
+    </radialGradient>
+
+    <!-- Glass: edge darkening (like real curved glass) -->
+    <radialGradient id="glassEdge" cx="50%" cy="50%" r="50%">
+      <stop offset="75%" style="stop-color:transparent" />
+      <stop offset="92%" style="stop-color:rgba(0,0,0,0.04)" />
+      <stop offset="100%" style="stop-color:rgba(0,0,0,0.08)" />
+    </radialGradient>
+
+    <!-- Reflection: main curved highlight -->
+    <linearGradient id="reflGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fff;stop-opacity:0" />
+      <stop offset="25%" style="stop-color:#fff;stop-opacity:0.4" />
+      <stop offset="75%" style="stop-color:#fff;stop-opacity:0.4" />
+      <stop offset="100%" style="stop-color:#fff;stop-opacity:0" />
+    </linearGradient>
+
     <style>
-      @keyframes pulse {
-        0%, 100% { opacity: 0.3; }
-        50% { opacity: 0.6; }
+      /* Magnifying glass searching motion */
+      @keyframes search {
+        0%   { transform: translate(0, 0) rotate(0deg); }
+        15%  { transform: translate(12px, -8px) rotate(0.8deg); }
+        35%  { transform: translate(18px, 6px) rotate(-0.3deg); }
+        55%  { transform: translate(2px, 14px) rotate(-0.6deg); }
+        75%  { transform: translate(-10px, 4px) rotate(0.4deg); }
+        90%  { transform: translate(-6px, -6px) rotate(0.2deg); }
+        100% { transform: translate(0, 0) rotate(0deg); }
       }
-      @keyframes float {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-4px); }
+
+      /* Reflection shimmer - light moving across glass */
+      @keyframes shimmer {
+        0%, 100% { opacity: 0.2; transform: translate(0, 0); }
+        50% { opacity: 0.45; transform: translate(3px, -3px); }
       }
-      .lens-shine { animation: pulse 3s ease-in-out infinite; }
-      .globe-group { animation: float 4s ease-in-out infinite; }
+
+      /* Secondary reflection drift */
+      @keyframes shimmer2 {
+        0%, 100% { opacity: 0.06; }
+        40% { opacity: 0.14; }
+        70% { opacity: 0.04; }
+      }
+
+      /* Specular highlight twinkle */
+      @keyframes twinkle {
+        0%, 100% { opacity: 0.25; r: 3; }
+        50% { opacity: 0.5; r: 4; }
+      }
+
+      /* Edge glow */
+      @keyframes edgePulse {
+        0%, 100% { opacity: 0.6; }
+        50% { opacity: 1; }
+      }
+
+      .mag-group {
+        animation: search 4.5s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+        transform-origin: 230px 230px;
+      }
+      .refl-main { animation: shimmer 3.5s ease-in-out infinite; }
+      .refl-sec { animation: shimmer2 4s ease-in-out infinite; }
+      .spec-dot { animation: twinkle 2.5s ease-in-out infinite; }
+      .edge-hl { animation: edgePulse 3s ease-in-out infinite; }
     </style>
   </defs>
 
-  <!-- Globe (domain/internet) -->
-  <g class="globe-group">
-    <!-- Globe circle -->
-    <circle cx="200" cy="200" r="140" fill="url(#globeGrad)" opacity="0.9"/>
+  <!-- ═══ Static globe (does not move) ═══ -->
+  <circle cx="200" cy="200" r="140" fill="url(#globeGrad)" opacity="0.9"/>
+  <!-- Meridians -->
+  <ellipse cx="200" cy="200" rx="140" ry="140" fill="none" stroke="#fff" stroke-width="2" opacity="0.3"/>
+  <ellipse cx="200" cy="200" rx="70" ry="140" fill="none" stroke="#fff" stroke-width="1.5" opacity="0.25"/>
+  <ellipse cx="200" cy="200" rx="35" ry="140" fill="none" stroke="#fff" stroke-width="1" opacity="0.2"/>
+  <!-- Parallels -->
+  <ellipse cx="200" cy="200" rx="140" ry="50" fill="none" stroke="#fff" stroke-width="1.5" opacity="0.25"/>
+  <ellipse cx="200" cy="200" rx="140" ry="100" fill="none" stroke="#fff" stroke-width="1" opacity="0.2"/>
+  <line x1="60" y1="200" x2="340" y2="200" stroke="#fff" stroke-width="1.5" opacity="0.25"/>
+  <!-- Text -->
+  <text x="200" y="225" text-anchor="middle" fill="#fff" font-family="'Segoe UI', system-ui, sans-serif" font-size="64" font-weight="400" opacity="0.8">WHOIS</text>
 
-    <!-- Globe grid lines - meridians -->
-    <ellipse cx="200" cy="200" rx="140" ry="140" fill="none" stroke="#fff" stroke-width="2" opacity="0.3"/>
-    <ellipse cx="200" cy="200" rx="70" ry="140" fill="none" stroke="#fff" stroke-width="1.5" opacity="0.25"/>
-    <ellipse cx="200" cy="200" rx="35" ry="140" fill="none" stroke="#fff" stroke-width="1" opacity="0.2"/>
+  <!-- ═══ Magnifying glass (moves to search) ═══ -->
+  <g class="mag-group">
 
-    <!-- Globe grid lines - parallels -->
-    <ellipse cx="200" cy="200" rx="140" ry="50" fill="none" stroke="#fff" stroke-width="1.5" opacity="0.25"/>
-    <ellipse cx="200" cy="200" rx="140" ry="100" fill="none" stroke="#fff" stroke-width="1" opacity="0.2"/>
-    <line x1="60" y1="200" x2="340" y2="200" stroke="#fff" stroke-width="1.5" opacity="0.25"/>
+    <!-- Ring outer shadow -->
+    <circle cx="230" cy="230" r="155" fill="none" stroke="rgba(0,0,0,0.08)" stroke-width="20"/>
 
-    <!-- Domain text on globe -->
-    <!--<text x="200" y="190" text-anchor="middle" fill="#fff" font-family="'Segoe UI', system-ui, sans-serif" font-size="32" font-weight="700" opacity="0.9">.COM</text>-->
-    <text x="200" y="225" text-anchor="middle" fill="#fff" font-family="'Segoe UI', system-ui, sans-serif" font-size="64" font-weight="400" opacity="0.8">WHOIS</text>
+    <!-- Ring main frame -->
+    <circle cx="230" cy="230" r="155" fill="none" stroke="url(#handleGrad)" stroke-width="14"/>
+
+    <!-- Ring inner metallic edge -->
+    <circle cx="230" cy="230" r="148" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+
+    <!-- Ring outer metallic highlight -->
+    <circle cx="230" cy="230" r="162" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="0.7"/>
+
+    <!-- ─── Glass lens layers ─── -->
+
+    <!-- Base glass tint -->
+    <circle cx="230" cy="230" r="148" fill="url(#glassBase)"/>
+
+    <!-- Edge darkening (curved glass effect) -->
+    <circle cx="230" cy="230" r="148" fill="url(#glassEdge)"/>
+
+    <!-- Primary reflection: curved arc top-left (like overhead light on glass) -->
+    <path d="M 140 160 Q 165 125, 210 118" fill="none" stroke="url(#reflGrad)" stroke-width="7" stroke-linecap="round" class="refl-main" opacity="0.3"/>
+
+    <!-- Secondary thinner reflection arc -->
+    <path d="M 152 175 Q 172 148, 205 140" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" class="refl-main" opacity="0.15"/>
+
+    <!-- Broad soft highlight (elliptical, rotated - like window reflection) -->
+    <ellipse cx="185" cy="180" rx="45" ry="14" fill="#fff" opacity="0.06" transform="rotate(-40 185 180)" class="refl-sec"/>
+
+    <!-- Small secondary highlight lower -->
+    <ellipse cx="195" cy="190" rx="25" ry="8" fill="#fff" opacity="0.04" transform="rotate(-40 195 190)" class="refl-sec"/>
+
+    <!-- Specular dot (bright point of light) -->
+    <circle cx="168" cy="160" r="3" fill="#fff" class="spec-dot"/>
+
+    <!-- Tiny secondary specular -->
+    <circle cx="180" cy="168" r="1.5" fill="#fff" opacity="0.2" class="spec-dot"/>
+
+    <!-- Bottom-right counter-reflection (subtle, from ambient light) -->
+    <path d="M 290 305 Q 305 310, 310 295" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.04"/>
+
+    <!-- Inner edge highlight ring (light catching the glass rim) -->
+    <circle cx="230" cy="230" r="146" fill="none" stroke="#fff" stroke-width="0.5" opacity="0.08" class="edge-hl"/>
+
+    <!-- ─── Handle ─── -->
+
+    <!-- Handle shadow -->
+    <line x1="345" y1="345" x2="460" y2="460" stroke="rgba(0,0,0,0.15)" stroke-width="38" stroke-linecap="round"/>
+
+    <!-- Handle main body -->
+    <line x1="345" y1="345" x2="458" y2="458" stroke="url(#handleGrad)" stroke-width="30" stroke-linecap="round"/>
+
+    <!-- Handle metallic centre highlight -->
+    <line x1="348" y1="342" x2="450" y2="450" stroke="url(#handleHL)" stroke-width="12" stroke-linecap="round" opacity="0.45"/>
+
+    <!-- Handle top-edge shine -->
+    <line x1="350" y1="340" x2="446" y2="446" stroke="#dee2e6" stroke-width="4" stroke-linecap="round" opacity="0.25"/>
+
+    <!-- Grip texture lines -->
+    <line x1="390" y1="382" x2="393" y2="385" stroke="rgba(0,0,0,0.08)" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="403" y1="395" x2="406" y2="398" stroke="rgba(0,0,0,0.08)" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="416" y1="408" x2="419" y2="411" stroke="rgba(0,0,0,0.08)" stroke-width="1.5" stroke-linecap="round"/>
   </g>
-
-  <!-- Magnifying glass ring -->
-  <circle cx="230" cy="230" r="155" fill="none" stroke="#dee2e6" stroke-width="18" opacity="0.15"/>
-  <circle cx="230" cy="230" r="155" fill="none" stroke="url(#handleGrad)" stroke-width="14"/>
-
-  <!-- Lens shine -->
-  <circle cx="230" cy="230" r="148" fill="url(#lensGrad)" class="lens-shine"/>
-
-  <!-- Magnifying glass handle -->
-  <line x1="345" y1="345" x2="460" y2="460" stroke="url(#handleGrad)" stroke-width="36" stroke-linecap="round"/>
-  <line x1="345" y1="345" x2="460" y2="460" stroke="#6c757d" stroke-width="28" stroke-linecap="round"/>
-
-  <!-- Handle highlight -->
-  <line x1="350" y1="340" x2="445" y2="445" stroke="#adb5bd" stroke-width="6" stroke-linecap="round" opacity="0.4"/>
 </svg>
