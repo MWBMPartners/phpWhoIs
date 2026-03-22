@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [2704392] - 2026-03-22
+
+**Add theme toggle functionality and colourblind mode support**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`2704392`](https://github.com/MWBMPartners/phpWhoIs/commit/270439230b5f4ab8204293e709d6712e221ba4e2)
+
+### Changed files
+
+- `index.php`
+- `logo-notext.svg`
+- `style.css`
+
+
 ## [e2e973f] - 2026-03-22
 
 **fix: domain validation regex rejects trailing hyphens (fixes test)**
