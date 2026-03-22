@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [87c673b] - 2026-03-22
+
+**refactor: update license structure in infoAppVer.php for clarity**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`87c673b`](https://github.com/MWBMPartners/phpWhoIs/commit/87c673be465e3715e27430058aee9ba28b206cb3)
+
+### Changed files
+
+- `index.php`
+- `infoAppVer.php`
+
+
 ## [26b5267] - 2026-03-22
 
 **refactor: rename Build to Repo for commit info in app version array**
