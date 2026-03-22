@@ -517,9 +517,25 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         }
 
         function updateURL(d) {
-            history.pushState(null, '', window.location.pathname + '?domain=' + encodeURIComponent(d));
+            history.pushState({ domain: d }, '', window.location.pathname + '?domain=' + encodeURIComponent(d));
             document.title = d + ' — ' + defaultTitle;
         }
+
+        // ── Browser back/forward navigation (Issue #36) ──
+        window.addEventListener('popstate', function (e) {
+            var params = new URLSearchParams(window.location.search);
+            var domain = params.get('domain');
+            if (domain) {
+                document.getElementById('domain').value = domain;
+                triggerLookup(domain);
+            } else {
+                // Returned to initial state — reset
+                document.title = defaultTitle;
+                hideResults();
+                document.getElementById('emptyState').style.display = '';
+                document.getElementById('domain').value = '';
+            }
+        });
     });
     </script>
 </body>
