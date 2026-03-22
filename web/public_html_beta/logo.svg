@@ -28,11 +28,14 @@
       <stop offset="100%" style="stop-color:rgba(0,0,0,0.08)" />
     </radialGradient>
 
-    <!-- Reflection: main curved highlight -->
+    <!-- Reflection: main curved highlight (gradual fade at edges) -->
     <linearGradient id="reflGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#fff;stop-opacity:0" />
-      <stop offset="25%" style="stop-color:#fff;stop-opacity:0.4" />
-      <stop offset="75%" style="stop-color:#fff;stop-opacity:0.4" />
+      <stop offset="15%" style="stop-color:#fff;stop-opacity:0.05" />
+      <stop offset="35%" style="stop-color:#fff;stop-opacity:0.25" />
+      <stop offset="50%" style="stop-color:#fff;stop-opacity:0.3" />
+      <stop offset="65%" style="stop-color:#fff;stop-opacity:0.25" />
+      <stop offset="85%" style="stop-color:#fff;stop-opacity:0.05" />
       <stop offset="100%" style="stop-color:#fff;stop-opacity:0" />
     </linearGradient>
 
@@ -73,8 +76,8 @@
 
       /* Specular highlight twinkle */
       @keyframes twinkle {
-        0%, 100% { opacity: 0.25; r: 3; }
-        50% { opacity: 0.5; r: 4; }
+        0%, 100% { opacity: 0.8; }
+        50% { opacity: 1; }
       }
 
       /* Edge glow */
@@ -188,25 +191,23 @@
     <circle cx="230" cy="230" r="148" fill="url(#glassEdge)"/>
 
     <!-- Primary reflection: curved arc top-left (like overhead light on glass) -->
-    <path d="M 140 160 Q 165 125, 210 118" fill="none" stroke="url(#reflGrad)" stroke-width="7" stroke-linecap="round" class="refl-main" opacity="0.3"/>
+    <path d="M 135 165 Q 163 122, 215 114" fill="none" stroke="url(#reflGrad)" stroke-width="12" stroke-linecap="round" class="refl-main" opacity="0.3"/>
 
-    <!-- Secondary thinner reflection arc -->
-    <path d="M 152 175 Q 172 148, 205 140" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" class="refl-main" opacity="0.15"/>
+    <!-- Secondary softer reflection arc -->
+    <path d="M 148 178 Q 170 145, 208 136" fill="none" stroke="url(#reflGrad)" stroke-width="5" stroke-linecap="round" class="refl-main" opacity="0.15"/>
 
     <!-- Broad soft highlight (elliptical, rotated - like window reflection) -->
-    <ellipse cx="185" cy="180" rx="45" ry="14" fill="#fff" opacity="0.06" transform="rotate(-40 185 180)" class="refl-sec"/>
+    <ellipse cx="182" cy="178" rx="52" ry="18" fill="#fff" opacity="0.06" transform="rotate(-40 182 178)" class="refl-sec"/>
 
     <!-- Small secondary highlight lower -->
-    <ellipse cx="195" cy="190" rx="25" ry="8" fill="#fff" opacity="0.04" transform="rotate(-40 195 190)" class="refl-sec"/>
+    <ellipse cx="195" cy="190" rx="30" ry="10" fill="#fff" opacity="0.04" transform="rotate(-40 195 190)" class="refl-sec"/>
 
-    <!-- Specular dot (bright point of light) -->
-    <circle cx="168" cy="160" r="3" fill="#fff" class="spec-dot"/>
-
-    <!-- Tiny secondary specular -->
-    <circle cx="180" cy="168" r="1.5" fill="#fff" opacity="0.2" class="spec-dot"/>
+    <!-- Specular dot (soft glow, no animation) -->
+    <circle cx="168" cy="160" r="6" fill="#fff" opacity="0.04"/>
+    <circle cx="168" cy="160" r="2.5" fill="#fff" opacity="0.08"/>
 
     <!-- Bottom-right counter-reflection (subtle, from ambient light) -->
-    <path d="M 290 305 Q 305 310, 310 295" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.04"/>
+    <path d="M 285 300 Q 305 308, 312 290" fill="none" stroke="url(#reflGrad)" stroke-width="4" stroke-linecap="round" opacity="0.04"/>
 
     <!-- Inner edge highlight ring (light catching the glass rim) -->
     <circle cx="230" cy="230" r="146" fill="none" stroke="#fff" stroke-width="0.5" opacity="0.08" class="edge-hl"/>
