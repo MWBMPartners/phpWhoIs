@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [b334bb2] - 2026-03-22
+
+**feat: add SVG logo and favicon (#66, #31)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`b334bb2`](https://github.com/MWBMPartners/phpWhoIs/commit/b334bb2a18deef4ae116910d02d90af75f8fe51b)
+
+### Changed files
+
+- `favicon.svg`
+- `index.php`
+- `logo.svg`
+
+
 ## [52c2531] - 2026-03-22
 
 **feat: add error logging, /health endpoint, block log access (#43)**
