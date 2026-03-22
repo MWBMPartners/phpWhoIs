@@ -103,7 +103,7 @@ jobs:
             echo "Set Development Status to NULL in $VERFILE"
           fi
 
-      - name: Generate build info
+      - name: Inject build info into infoAppVer.php
         if: steps.changes.outputs.has_changes == 'true'
         run: |
           SOURCE_DIR="${{ steps.target.outputs.source_dir }}"
@@ -111,14 +111,17 @@ jobs:
           SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-7)
           COMMIT_DATE=$(git log -1 --format="%cd" --date=format:"%Y-%m-%d %H:%M")
           REPO_URL="https://github.com/${{ github.repository }}"
-          OUTFILE="${SOURCE_DIR}build_info.php"
-          printf '<?php\n\$buildInfo = [\n' > "$OUTFILE"
-          printf "    'commit_sha' => '%s',\n" "$COMMIT_SHA" >> "$OUTFILE"
-          printf "    'commit_short' => '%s',\n" "$SHORT_SHA" >> "$OUTFILE"
-          printf "    'commit_date' => '%s',\n" "$COMMIT_DATE" >> "$OUTFILE"
-          printf "    'commit_url' => '%s',\n" "${REPO_URL}/commit/${COMMIT_SHA}" >> "$OUTFILE"
-          printf '];\n' >> "$OUTFILE"
-          echo "Generated build_info.php - ${SHORT_SHA} @ ${COMMIT_DATE}"
+          VERFILE="${SOURCE_DIR}infoAppVer.php"
+          if [[ -f "$VERFILE" ]]; then
+            sed -i 's/?>//' "$VERFILE"
+            printf '\n\t\t//Build (injected by deploy action)\n' >> "$VERFILE"
+            printf '\t\t\t$app["Application"]["Version"]["Build"]["Commit"]["SHA"] = "%s";\n' "$COMMIT_SHA" >> "$VERFILE"
+            printf '\t\t\t$app["Application"]["Version"]["Build"]["Commit"]["Short"] = "%s";\n' "$SHORT_SHA" >> "$VERFILE"
+            printf '\t\t\t$app["Application"]["Version"]["Build"]["Commit"]["Date"] = "%s";\n' "$COMMIT_DATE" >> "$VERFILE"
+            printf '\t\t\t$app["Application"]["Version"]["Build"]["Commit"]["URL"] = "%s";\n' "${REPO_URL}/commit/${COMMIT_SHA}" >> "$VERFILE"
+            printf '?>' >> "$VERFILE"
+            echo "Injected build info into infoAppVer.php - ${SHORT_SHA} @ ${COMMIT_DATE}"
+          fi
 
       - name: Install lftp
         if: steps.changes.outputs.has_changes == 'true'
