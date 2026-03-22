@@ -60,15 +60,15 @@ function checkRateLimit(): bool {
  * Harder to bypass than session-based limiting.
  */
 function checkIpRateLimit(): bool {
+    // Use REMOTE_ADDR as primary (cannot be spoofed)
+    // Only use X-Forwarded-For if behind a trusted proxy
     $ip = '';
-    if (isset($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-        $ip = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0];
-    } elseif (isset($_SERVER['REMOTE_ADDR'])) {
+    if (isset($_SERVER['REMOTE_ADDR'])) {
         $ip = $_SERVER['REMOTE_ADDR'];
     }
 
     $ip = trim($ip);
-    if ($ip === '') {
+    if ($ip === '' || !filter_var($ip, FILTER_VALIDATE_IP)) {
         return true;
     }
 

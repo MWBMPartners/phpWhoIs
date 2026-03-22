@@ -20,15 +20,18 @@ if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'config.php')) {
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'config.php';
 }
 
-// ─── Debug mode ───
+// ─── Debug mode (requires matching debug key from config) ───
 $modeDev = false;
 $modeDebug = false;
 
 if (isset($_GET['dev'])) {
-    $modeDev = true;
+    $debugKey = isset($config['debug_key']) ? $config['debug_key'] : null;
+    if ($debugKey && isset($_GET['key']) && hash_equals($debugKey, $_GET['key'])) {
+        $modeDev = true;
 
-    if (isset($_GET['debug'])) {
-        $modeDebug = true;
+        if (isset($_GET['debug'])) {
+            $modeDebug = true;
+        }
     }
 }
 
@@ -98,8 +101,12 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <!-- CSRF token for JS -->
     <meta name="csrf-token" content="<?php echo htmlspecialchars($csrfToken); ?>">
 
+    <!-- Favicons: SVG > PNG > ICO > GIF (priority order) -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="icon" type="image/png" sizes="512x512" href="favicon.png">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="icon" type="image/gif" href="favicon.gif">
+    <link rel="apple-touch-icon" href="favicon.png">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
@@ -109,7 +116,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <!-- Header -->
     <div class="header-form">
         <div class="position-relative text-center mb-2">
-            <h1 class="mb-0"><a href="/"><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";}if(isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]){echo " (".$app["Application"]["Version"]["Development"]["Status"].")";} ?></a></h1>
+            <h1 class="mb-0"><a href="/"><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";}if(isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]){echo " <span style=\"font-size: 0.7em\">(".$app["Application"]["Version"]["Development"]["Status"].")</span>";} ?></a></h1>
             <button class="btn btn-sm btn-outline-secondary position-absolute top-50 end-0 translate-middle-y" id="darkModeToggle" title="Toggle dark mode">
                 <i class="bi bi-moon-fill" id="darkModeIcon"></i>
             </button>
@@ -200,7 +207,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body text-center">
-                        <img id="qrCodeImg" src="" alt="QR Code" style="max-width:100%;">
+                        <img id="qrCodeImg" src="QR Code" alt="QR Code" style="max-width:100%;">
                         <p class="small text-muted mt-2" id="qrCodeUrl"></p>
                     </div>
                 </div>
@@ -220,29 +227,30 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <div class="footer">
         <div class="footer-row">
             <div class="footer-left">
-<?php
-    if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]) {
-        echo "v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
-
-        if (!empty($app["Application"]["Version"]["Development"]["Status"])) {
-            echo " " . htmlspecialchars($app["Application"]["Version"]["Development"]["Status"]);
-        }
-
-        if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Short"])) {
-            echo ' (<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" class="footer-commit">';
-            echo htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Short"]);
-            echo '</a>';
-
-            if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Date"])) {
-                echo ' ' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Date"]);
-            }
-
-            echo ')';
-        }
-    }
-?>
+                Privacy Policy | Terms of Use
             </div>
             <div class="footer-right">
+                <?php
+                    if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]){
+                        echo "v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
+
+                        if (!empty($app["Application"]["Version"]["Development"]["Status"])){
+                            echo " " . htmlspecialchars($app["Application"]["Version"]["Development"]["Status"]);
+                        }
+
+                        if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Short"])){
+                            echo ' (<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" class="footer-commit">';
+                            echo htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Short"]);
+                            echo '</a>';
+
+                            if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Date"])){
+                                echo ' ' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Date"]);
+                            }
+
+                            echo ')';
+                        }
+                    }
+                ?>
                 &copy; <?php echo htmlspecialchars("$copyrightYear $copyrightOwner"); ?>. All Rights Reserved
             </div>
         </div>
@@ -256,6 +264,13 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         var formattedResult = '';
         var rawWhoisText = '';
         var isRawView = false;
+
+        // HTML escape helper to prevent XSS
+        function esc(str) {
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
         var currentDomain = '';
 
         // ── Dark mode ──
@@ -299,7 +314,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             if (!h.length) { c.style.display = 'none'; return; }
             c.style.display = '';
             l.innerHTML = h.map(function (x) {
-                return '<button class="btn btn-sm btn-outline-primary history-item" data-domain="' + x.domain + '">' + x.domain + '</button>';
+                return '<button class="btn btn-sm btn-outline-primary history-item" data-domain="' + esc(x.domain) + '">' + esc(x.domain) + '</button>';
             }).join('');
             l.querySelectorAll('.history-item').forEach(function (btn) {
                 btn.addEventListener('click', function () {
@@ -390,10 +405,10 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                             item.className = 'accordion-item';
                             item.innerHTML =
                                 '<h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-' + i + '">' +
-                                domain + ' <span class="badge ' + badgeClass + ' ms-2">' + badgeText + '</span>' + regBtn +
+                                esc(domain) + ' <span class="badge ' + badgeClass + ' ms-2">' + badgeText + '</span>' + regBtn +
                                 '</button></h2>' +
                                 '<div id="bulk-' + i + '" class="accordion-collapse collapse"><div class="accordion-body"><pre>' +
-                                (data.whois || data.error || 'No data') + '</pre></div></div>';
+                                esc(data.whois || data.error || 'No data') + '</pre></div></div>';
                             acc.appendChild(item);
                         })
                         .catch(function () {})
@@ -450,10 +465,10 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                     regButton = '<a href="' + regUrl + '"' + regTarget + ' class="btn btn-success btn-sm"><i class="bi bi-cart-plus me-1"></i>' + REG_CONFIG.button_text + '</a>';
                 }
                 avBadge.innerHTML = '<div class="alert alert-success d-flex align-items-center justify-content-between flex-wrap gap-2">' +
-                    '<div><i class="bi bi-check-circle-fill me-2"></i><strong>' + currentDomain + '</strong> appears to be available!</div>' +
+                    '<div><i class="bi bi-check-circle-fill me-2"></i><strong>' + esc(currentDomain) + '</strong> appears to be available!</div>' +
                     regButton + '</div>';
             } else {
-                avBadge.innerHTML = '<div class="alert alert-info d-flex align-items-center"><i class="bi bi-info-circle-fill me-2"></i><strong>' + currentDomain + '</strong>&nbsp;is registered.</div>';
+                avBadge.innerHTML = '<div class="alert alert-info d-flex align-items-center"><i class="bi bi-info-circle-fill me-2"></i><strong>' + esc(currentDomain) + '</strong>&nbsp;is registered.</div>';
             }
             avBadge.style.display = '';
 
@@ -661,7 +676,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         }
 
         function showError(msg) {
-            document.getElementById('result').innerHTML = '<div class="alert alert-danger fade-in"><i class="bi bi-exclamation-triangle-fill me-2"></i>' + msg + '</div>';
+            document.getElementById('result').innerHTML = '<div class="alert alert-danger fade-in"><i class="bi bi-exclamation-triangle-fill me-2"></i>' + esc(msg) + '</div>';
         }
 
         function updateURL(d) {
