@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [0e43157] - 2026-03-22
+
+**feat: add per-IP rate limiting alongside session-based (#22)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`0e43157`](https://github.com/MWBMPartners/phpWhoIs/commit/0e431572038b63e37f8acd90e5c5699ac1ec717c)
+
+### Changed files
+
+- `functions.php`
+- `lookup.php`
+
+
 ## [a8039b4] - 2026-03-22
 
 **feat: add PHPUnit tests, CI linting, extract functions.php (#44)**
