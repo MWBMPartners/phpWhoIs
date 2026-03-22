@@ -192,24 +192,25 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             if (isset($pageTitle) && $pageTitle) {
                 echo $pageTitle;
             }
-            
+
             if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]) {
-            echo "&nbsp; v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
+                echo "&nbsp; v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
 
-            if (!empty($app["Application"]["Version"]["Development"]["Status"])) {
-                echo "&nbsp;" . htmlspecialchars($app["Application"]["Version"]["Development"]["Status"]);
-            }
-
-            if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Short"])) {
-                echo '&nbsp;(<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" class="footer-commit">';
-                echo htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Short"]);
-                echo '</a>';
-
-                if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Date"])) {
-                    echo '&nbsp;' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Date"]);
+                if (!empty($app["Application"]["Version"]["Development"]["Status"])) {
+                    echo "&nbsp;" . htmlspecialchars($app["Application"]["Version"]["Development"]["Status"]);
                 }
 
-                echo ')';
+                if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Short"])) {
+                    echo '&nbsp;(<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" class="footer-commit">';
+                    echo htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Short"]);
+                    echo '</a>';
+
+                    if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Date"])) {
+                        echo '&nbsp;' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Date"]);
+                    }
+
+                    echo ')';
+                }
             }
 
             echo nl2br("\n");
