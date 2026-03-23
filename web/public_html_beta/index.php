@@ -168,8 +168,9 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 <input type="text" class="form-control" id="domain" name="domain"
                     title="Please enter a valid domain name, e.g., example.com"
                     placeholder="example.com" required autocomplete="off">
+                <div class="invalid-feedback" id="domainFeedback"></div>
             </div>
-            <button type="submit" class="btn btn-primary submit-btn">Lookup</button>
+            <button type="submit" class="btn btn-primary submit-btn" id="lookupBtn">Lookup</button>
         </form>
 
         <!-- Bulk domain form -->
@@ -483,11 +484,65 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         var urlDomain = new URLSearchParams(window.location.search).get('domain');
         if (urlDomain) { document.getElementById('domain').value = urlDomain; triggerLookup(urlDomain); }
 
+        // ── Client-side domain validation (Issue #78) ──
+        var domainInput = document.getElementById('domain');
+        var domainFeedback = document.getElementById('domainFeedback');
+        var lookupBtn = document.getElementById('lookupBtn');
+        var domainRegex = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+        var ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
+        var validationTimer = null;
+
+        function validateDomainInput(val) {
+            if (!val) { setValidation('', false); return; }
+            // Strip protocol/www for validation
+            val = val.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').trim();
+            if (domainRegex.test(val) || ipRegex.test(val)) {
+                setValidation('', true);
+            } else if (val.indexOf(' ') !== -1) {
+                setValidation('Domain names cannot contain spaces', false);
+            } else if (val.indexOf('.') === -1) {
+                setValidation('Enter a full domain (e.g., example.com)', false);
+            } else if (/[;|`$(){}\\<>'"!#]/.test(val)) {
+                setValidation('Domain contains invalid characters', false);
+            } else {
+                setValidation('Invalid domain format', false);
+            }
+        }
+
+        function setValidation(msg, valid) {
+            if (!msg) {
+                domainInput.classList.remove('is-invalid', 'is-valid');
+                domainFeedback.textContent = '';
+                lookupBtn.disabled = false;
+            } else if (valid) {
+                domainInput.classList.remove('is-invalid');
+                domainInput.classList.add('is-valid');
+                domainFeedback.textContent = '';
+                lookupBtn.disabled = false;
+            } else {
+                domainInput.classList.remove('is-valid');
+                domainInput.classList.add('is-invalid');
+                domainFeedback.textContent = msg;
+                lookupBtn.disabled = true;
+            }
+        }
+
+        domainInput.addEventListener('input', function () {
+            clearTimeout(validationTimer);
+            var val = this.value.trim();
+            validationTimer = setTimeout(function () { validateDomainInput(val); }, 300);
+        });
+
+        // Clear validation on focus
+        domainInput.addEventListener('focus', function () {
+            if (!this.value.trim()) setValidation('', false);
+        });
+
         // ── Single form submit ──
         document.getElementById('whoisForm').addEventListener('submit', function (e) {
             e.preventDefault();
             var d = document.getElementById('domain').value.trim();
-            if (d) { triggerLookup(d); updateURL(d); }
+            if (d) { setValidation('', false); triggerLookup(d); updateURL(d); }
         });
 
         // ── Bulk form submit ──
