@@ -129,7 +129,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     </noscript>
 
     <!-- Header -->
-    <header class="header-form" role="banner">
+    <header class="header-form">
         <div class="position-relative text-center mb-2">
             <h1 class="mb-0"><a href="/"><img src="assets/images/logo-notext.svg" alt="" style="height: 40px; vertical-align: middle;" aria-hidden="true"><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";}if(isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]){echo " <span style=\"font-size: 0.7em\">(".$app["Application"]["Version"]["Development"]["Status"].")</span>";} ?></a></h1>
             <div class="d-flex gap-1 position-absolute top-50 end-0 translate-middle-y">
@@ -168,7 +168,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         </ul>
 
         <!-- Single domain form -->
-        <form id="whoisForm" class="form-container">
+        <form id="whoisForm" class="form-container" role="tabpanel" aria-labelledby="tab-single">
             <div class="form-group flex-grow-1">
                 <label for="domain" class="visually-hidden">Domain or URL</label>
                 <input type="text" class="form-control" id="domain" name="domain"
@@ -181,7 +181,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         </form>
 
         <!-- Bulk domain form -->
-        <form id="bulkWhoisForm" class="form-container" style="display:none;">
+        <form id="bulkWhoisForm" class="form-container" role="tabpanel" aria-labelledby="tab-bulk" style="display:none;">
             <div class="form-group flex-grow-1">
                 <label for="bulkDomains" class="visually-hidden">Domains (one per line)</label>
                 <textarea class="form-control" id="bulkDomains" name="domains" rows="4"
@@ -191,7 +191,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         </form>
 
         <!-- Compare form (Issue #48) -->
-        <form id="compareForm" class="form-container" style="display:none;">
+        <form id="compareForm" class="form-container" role="tabpanel" aria-labelledby="tab-compare" style="display:none;">
             <div class="form-group flex-grow-1">
                 <label for="compareDomain1" class="visually-hidden">First domain</label>
                 <input type="text" class="form-control" id="compareDomain1" placeholder="domain1.com" required autocomplete="off">
@@ -217,7 +217,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     </header>
 
     <!-- Results section -->
-    <main class="result-container" id="resultContainer" role="main" aria-live="polite">
+    <main class="result-container" id="resultContainer" aria-live="polite">
         <!-- Empty state -->
         <div id="emptyState" class="text-center py-5">
             <i class="bi bi-search" style="font-size: 3rem; opacity: 0.15;"></i>
@@ -258,15 +258,15 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         </div>
 
         <!-- QR Code modal (Issue #50) -->
-        <div id="qrCodeModal" class="modal fade" tabindex="-1" aria-labelledby="qrCodeModalLabel" aria-hidden="true">
+        <div id="qrCodeModal" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="qrCodeModalLabel" aria-hidden="true">
             <div class="modal-dialog modal-sm modal-dialog-centered">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title" id="qrCodeModalLabel">Share Lookup</h5>
+                        <h2 class="modal-title fs-5" id="qrCodeModalLabel">Share Lookup</h2>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body text-center">
-                        <img id="qrCodeImg" src="" alt="QR Code" style="max-width:100%;">
+                        <img id="qrCodeImg" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="QR Code" style="max-width:100%;">
                         <p class="small text-muted mt-2" id="qrCodeUrl"></p>
                     </div>
                 </div>
@@ -278,8 +278,8 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 <span id="bulkProgressText">Looking up 0 of 0...</span>
                 <span id="bulkProgressPercent">0%</span>
             </div>
-            <div class="progress" style="height: 6px;" role="progressbar" aria-label="Bulk lookup progress">
-                <div class="progress-bar" id="bulkProgressBar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+            <div class="progress" style="height: 6px;" role="progressbar" aria-label="Bulk lookup progress" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                <div class="progress-bar" id="bulkProgressBar" style="width: 0%;"></div>
             </div>
         </div>
         <div id="bulkResults" class="accordion mt-3" style="display:none;"></div>
@@ -293,7 +293,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     </main>
 
     <!-- Footer -->
-    <footer class="footer" role="contentinfo">
+    <footer class="footer">
         <div class="footer-row">
             <div class="footer-left">
                 Privacy Policy | Terms of Use
@@ -314,7 +314,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                                 echo ' ' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Date"]);
                             }
 
-                            echo nl2br(")".PHP_EOL);
+                            echo ")<br>";
                         }
                     }
                 ?>
