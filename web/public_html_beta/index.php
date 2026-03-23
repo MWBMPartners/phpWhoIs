@@ -162,13 +162,14 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
 
         <!-- Lookup mode tabs -->
         <ul class="nav nav-tabs mb-3" id="lookupModeTabs" role="tablist">
-            <li class="nav-item" role="presentation"><a class="nav-link active" href="#" data-mode="single" role="tab" aria-selected="true" id="tab-single" aria-controls="whoisForm"><span data-i18n="single_lookup">Single Lookup</span></a></li>
-            <li class="nav-item" role="presentation"><a class="nav-link" href="#" data-mode="bulk" role="tab" aria-selected="false" id="tab-bulk" aria-controls="bulkWhoisForm"><span data-i18n="bulk_lookup">Bulk Lookup</span></a></li>
-            <li class="nav-item" role="presentation"><a class="nav-link" href="#" data-mode="compare" role="tab" aria-selected="false" id="tab-compare" aria-controls="compareForm"><span data-i18n="compare">Compare</span></a></li>
+            <li class="nav-item" role="presentation"><a class="nav-link active" href="#" data-mode="single" role="tab" aria-selected="true" id="tab-single" aria-controls="singlePanel"><span data-i18n="single_lookup">Single Lookup</span></a></li>
+            <li class="nav-item" role="presentation"><a class="nav-link" href="#" data-mode="bulk" role="tab" aria-selected="false" id="tab-bulk" aria-controls="bulkWhoisPanel"><span data-i18n="bulk_lookup">Bulk Lookup</span></a></li>
+            <li class="nav-item" role="presentation"><a class="nav-link" href="#" data-mode="compare" role="tab" aria-selected="false" id="tab-compare" aria-controls="comparePanel"><span data-i18n="compare">Compare</span></a></li>
         </ul>
 
         <!-- Single domain form -->
-        <form id="whoisForm" class="form-container" role="tabpanel" aria-labelledby="tab-single">
+        <div role="tabpanel" aria-labelledby="tab-single" id="singlePanel">
+        <form id="whoisForm" class="form-container">
             <div class="form-group flex-grow-1">
                 <label for="domain" class="visually-hidden">Domain or URL</label>
                 <input type="text" class="form-control" id="domain" name="domain"
@@ -179,9 +180,11 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             </div>
             <button type="submit" class="btn btn-primary submit-btn" id="lookupBtn">Lookup</button>
         </form>
+        </div>
 
         <!-- Bulk domain form -->
-        <form id="bulkWhoisForm" class="form-container" role="tabpanel" aria-labelledby="tab-bulk" style="display:none;">
+        <div role="tabpanel" aria-labelledby="tab-bulk" style="display:none;" id="bulkWhoisPanel">
+        <form id="bulkWhoisForm" class="form-container">
             <div class="form-group flex-grow-1">
                 <label for="bulkDomains" class="visually-hidden">Domains (one per line)</label>
                 <textarea class="form-control" id="bulkDomains" name="domains" rows="4"
@@ -189,9 +192,11 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             </div>
             <button type="submit" class="btn btn-primary submit-btn">Lookup All</button>
         </form>
+        </div>
 
         <!-- Compare form (Issue #48) -->
-        <form id="compareForm" class="form-container" role="tabpanel" aria-labelledby="tab-compare" style="display:none;">
+        <div role="tabpanel" aria-labelledby="tab-compare" style="display:none;" id="comparePanel">
+        <form id="compareForm" class="form-container">
             <div class="form-group flex-grow-1">
                 <label for="compareDomain1" class="visually-hidden">First domain</label>
                 <input type="text" class="form-control" id="compareDomain1" placeholder="domain1.com" required autocomplete="off">
@@ -203,6 +208,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             </div>
             <button type="submit" class="btn btn-primary submit-btn">Compare</button>
         </form>
+        </div>
 
         <!-- Recent lookups -->
         <div id="historyContainer" class="mt-2" style="display:none;">
@@ -439,9 +445,9 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 this.classList.add('active');
                 this.setAttribute('aria-selected', 'true');
                 var mode = this.dataset.mode;
-                document.getElementById('whoisForm').style.display = mode === 'single' ? '' : 'none';
-                document.getElementById('bulkWhoisForm').style.display = mode === 'bulk' ? '' : 'none';
-                document.getElementById('compareForm').style.display = mode === 'compare' ? '' : 'none';
+                document.getElementById('singlePanel').style.display = mode === 'single' ? '' : 'none';
+                document.getElementById('bulkWhoisPanel').style.display = mode === 'bulk' ? '' : 'none';
+                document.getElementById('comparePanel').style.display = mode === 'compare' ? '' : 'none';
             });
         });
 
@@ -1305,12 +1311,12 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
 
             // Ctrl+Enter — submit current visible form
             if (e.ctrlKey && e.key === 'Enter') {
-                var singleForm = document.getElementById('whoisForm');
-                var bulkForm = document.getElementById('bulkWhoisForm');
-                var compareForm = document.getElementById('compareForm');
-                if (singleForm.style.display !== 'none') singleForm.dispatchEvent(new Event('submit'));
-                else if (bulkForm.style.display !== 'none') bulkForm.dispatchEvent(new Event('submit'));
-                else if (compareForm.style.display !== 'none') compareForm.dispatchEvent(new Event('submit'));
+                var sp = document.getElementById('singlePanel');
+                var bp = document.getElementById('bulkWhoisPanel');
+                var cp = document.getElementById('comparePanel');
+                if (sp.style.display !== 'none') document.getElementById('whoisForm').dispatchEvent(new Event('submit'));
+                else if (bp.style.display !== 'none') document.getElementById('bulkWhoisForm').dispatchEvent(new Event('submit'));
+                else if (cp.style.display !== 'none') document.getElementById('compareForm').dispatchEvent(new Event('submit'));
                 return;
             }
 
