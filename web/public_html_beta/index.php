@@ -245,6 +245,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             <button class="btn btn-outline-secondary btn-sm" id="downloadBtn" aria-label="Download WHOIS data as text file"><i class="bi bi-download" aria-hidden="true"></i> Download</button>
             <a href="#" target="_blank" rel="noopener noreferrer" class="btn btn-outline-secondary btn-sm" id="waybackBtn" aria-label="View on Wayback Machine"><i class="bi bi-clock-history" aria-hidden="true"></i> Wayback Machine</a>
             <button class="btn btn-outline-secondary btn-sm" id="qrCodeBtn" aria-label="Generate QR code for sharing"><i class="bi bi-qr-code" aria-hidden="true"></i> QR Code</button>
+            <button class="btn btn-outline-secondary btn-sm" id="exportJsonSingleBtn" aria-label="Export lookup as JSON"><i class="bi bi-filetype-json" aria-hidden="true"></i> Export JSON</button>
         </div>
 
         <!-- QR Code modal (Issue #50) -->
@@ -321,6 +322,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         var AFFILIATE_REGISTRARS = <?php echo json_encode(isset($config['affiliate_registrars']) ? $config['affiliate_registrars'] : []); ?>;
         var formattedResult = '';
         var rawWhoisText = '';
+        var lastLookupData = null;
         var isRawView = false;
 
         // HTML escape helper to prevent XSS
@@ -589,6 +591,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                     showLoading(false);
                     if (data.error) { showError(data.error); return; }
                     rawWhoisText = data.whois || '';
+                    lastLookupData = data;
                     displayResults(data);
                     saveToHistory(domain, data);
                 })
@@ -975,6 +978,28 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             var a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob([rawWhoisText.replace(/<[^>]*>/g, '')], { type: 'text/plain' }));
             a.download = currentDomain + '-whois.txt';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        });
+
+        // ── Export single lookup as JSON (Issue #73) ──
+        document.getElementById('exportJsonSingleBtn').addEventListener('click', function () {
+            if (!lastLookupData) return;
+            var exportData = {
+                domain: currentDomain,
+                lookup_date: new Date().toISOString(),
+                availability: lastLookupData.availability,
+                data_source: lastLookupData.data_source,
+                parsed: lastLookupData.parsed,
+                dns: lastLookupData.dns,
+                ssl: lastLookupData.ssl,
+                email_security: lastLookupData.email_security,
+                geolocation: lastLookupData.geolocation,
+                subdomains: lastLookupData.subdomains
+            };
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' }));
+            a.download = currentDomain + '-whois.json';
             a.click();
             URL.revokeObjectURL(a.href);
         });
