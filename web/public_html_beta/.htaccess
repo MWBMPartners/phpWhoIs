@@ -9,9 +9,8 @@
     </IfModule>
 </FilesMatch>
 
-# Hide PHP version and file extensions
+# Hide default server identification
 <IfModule mod_headers.c>
-    Header unset X-Powered-By
     Header unset Server
 </IfModule>
 
