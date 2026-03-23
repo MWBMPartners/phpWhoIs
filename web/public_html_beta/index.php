@@ -124,6 +124,10 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <!-- Skip to content -->
     <a href="#resultContainer" class="visually-hidden-focusable skip-link">Skip to results</a>
 
+    <noscript>
+        <div class="alert alert-warning text-center m-3">This tool requires JavaScript to perform WHOIS lookups. Please enable JavaScript in your browser settings.</div>
+    </noscript>
+
     <!-- Header -->
     <header class="header-form" role="banner">
         <div class="position-relative text-center mb-2">
