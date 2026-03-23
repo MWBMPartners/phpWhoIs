@@ -54,6 +54,15 @@ h1 {
     letter-spacing: -0.01em;
 }
 
+@media (max-width: 576px) and (orientation: portrait) {
+    h1 {
+        text-align: left;
+    }
+    .header-form .position-relative.text-center {
+        text-align: left;
+    }
+}
+
 h1 a,
 h1 a:link,
 h1 a:hover,
