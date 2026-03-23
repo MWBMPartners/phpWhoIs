@@ -303,6 +303,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <footer class="footer">
         <div class="footer-row">
             <div class="footer-left">
+                <a href="docs.php" class="footer-link">API Documentation</a><br>
                 <a href="privacy.php" class="footer-link">Privacy Policy</a> | <a href="terms.php" class="footer-link">Terms of Service</a>
             </div>
             <div class="footer-right">
