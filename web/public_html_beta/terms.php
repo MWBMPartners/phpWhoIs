@@ -6,10 +6,12 @@
 if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php';
 }
+header_remove('X-Powered-By');
 
 $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
     ? $app["Application"]["Name"]
     : 'WHOIS Lookup';
+header('X-Powered-By: ' . $appName);
 $vendorName = isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"]["Vendor"]["Parent"]["Name"]
     ? $app["Application"]["Vendor"]["Parent"]["Name"]
     : 'MWBM Partners Ltd';
@@ -52,7 +54,7 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
     <h2 class="mt-4">3. API Usage</h2>
     <p>The JSON API is available for programmatic access. Use of the API is subject to:</p>
     <ul>
-        <li>Rate limits as described in the <a href="docs.php">API documentation</a>.</li>
+        <li>Rate limits as described in the <a href="docs">API documentation</a>.</li>
         <li>API keys, if issued, are personal and must not be shared or published.</li>
         <li>We reserve the right to revoke API keys or restrict access at any time for abuse or violation of these terms.</li>
     </ul>

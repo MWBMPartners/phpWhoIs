@@ -89,6 +89,7 @@ if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php';
 }
 $appName = isset($app["Application"]["Name"]) ? $app["Application"]["Name"] : 'mwWhoIs';
+if ($appName) { header('X-Powered-By: ' . $appName); }
 ?>
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">

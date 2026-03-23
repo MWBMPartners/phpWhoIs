@@ -44,6 +44,9 @@ if ($modeDebug) {
 if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php';
 }
+if (isset($app["Application"]["Name"]) && $app["Application"]["Name"]) {
+    header('X-Powered-By: ' . $app["Application"]["Name"]);
+}
 
 // ─── Copyright helper ───
 if (isset($app["Application"]["Copyright"]["Year"]["Start"])
@@ -303,8 +306,8 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <footer class="footer">
         <div class="footer-row">
             <div class="footer-left">
-                <a href="docs.php" class="footer-link">API Documentation</a><br>
-                <a href="privacy.php" class="footer-link">Privacy Policy</a> | <a href="terms.php" class="footer-link">Terms of Service</a>
+                <a href="docs" class="footer-link">API Documentation</a><br>
+                <a href="privacy" class="footer-link">Privacy Policy</a> | <a href="terms" class="footer-link">Terms of Service</a>
             </div>
             <div class="footer-right">
                 <?php
@@ -684,7 +687,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 fd.append('domain', domain);
                 fd.append('csrf_token', CSRF);
 
-                fetch('lookup.php?nocache=' + Date.now(), { method: 'POST', body: fd })
+                fetch('lookup?nocache=' + Date.now(), { method: 'POST', body: fd })
                     .then(function (r) { return r.json(); })
                     .then(function (data) { results[domain] = data; })
                     .catch(function () { results[domain] = { error: 'Lookup failed' }; })
@@ -782,7 +785,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             fd.append('domain', domain);
             fd.append('csrf_token', CSRF);
 
-            fetch('lookup.php?nocache=' + Date.now(), { method: 'POST', body: fd })
+            fetch('lookup?nocache=' + Date.now(), { method: 'POST', body: fd })
                 .then(function (r) { if (!r.ok) throw new Error('Server error: ' + r.status); return r.json(); })
                 .then(function (data) {
                     showLoading(false);
@@ -824,7 +827,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                     fd.append('domain', domain);
                     fd.append('csrf_token', CSRF);
 
-                    fetch('lookup.php?nocache=' + Date.now(), { method: 'POST', body: fd })
+                    fetch('lookup?nocache=' + Date.now(), { method: 'POST', body: fd })
                         .then(function (r) { return r.json(); })
                         .then(function (data) {
                             // Store for export (Issue #49)
@@ -1216,7 +1219,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             fd.append('domain', currentDomain);
             fd.append('csrf_token', CSRF);
 
-            fetch('lookup.php?nocache=' + Date.now() + '&source=whois', { method: 'POST', body: fd })
+            fetch('lookup?nocache=' + Date.now() + '&source=whois', { method: 'POST', body: fd })
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     btn.disabled = false;

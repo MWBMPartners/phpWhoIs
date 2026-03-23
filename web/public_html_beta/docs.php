@@ -7,6 +7,10 @@
 if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php';
 }
+header_remove('X-Powered-By');
+if (isset($app["Application"]["Name"]) && $app["Application"]["Name"]) {
+    header('X-Powered-By: ' . $app["Application"]["Name"]);
+}
 
 $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
     ? $app["Application"]["Name"]

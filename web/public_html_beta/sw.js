@@ -30,7 +30,7 @@ self.addEventListener('activate', function (e) {
 
 self.addEventListener('fetch', function (e) {
     // Network-first for API calls, cache-first for static assets
-    if (e.request.method !== 'GET' || e.request.url.indexOf('lookup.php') !== -1) {
+    if (e.request.method !== 'GET' || e.request.url.indexOf('/lookup') !== -1) {
         return; // Let network handle POST and API requests
     }
 

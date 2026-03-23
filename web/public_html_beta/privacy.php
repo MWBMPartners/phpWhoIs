@@ -6,10 +6,12 @@
 if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php';
 }
+header_remove('X-Powered-By');
 
 $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
     ? $app["Application"]["Name"]
     : 'WHOIS Lookup';
+header('X-Powered-By: ' . $appName);
 $vendorName = isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"]["Vendor"]["Parent"]["Name"]
     ? $app["Application"]["Vendor"]["Parent"]["Name"]
     : 'MWBM Partners Ltd';
@@ -99,7 +101,7 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
         <li>Disable anonymous usage statistics tracking (lookup counts, popular domains).</li>
         <li>Send a <code>Tk: N</code> (not tracking) response header to confirm compliance.</li>
     </ul>
-    <p><strong>Please note:</strong> Enabling DNT will result in some features being unavailable or returning reduced data. Core lookup functionality remains unaffected, but supplementary features that rely on third-party services will be skipped. For a full list of what is and isn't available when DNT is enabled, please see <a href="terms.php#dnt-limitations">Section 5 of our Terms of Service</a>.</p>
+    <p><strong>Please note:</strong> Enabling DNT will result in some features being unavailable or returning reduced data. Core lookup functionality remains unaffected, but supplementary features that rely on third-party services will be skipped. For a full list of what is and isn't available when DNT is enabled, please see <a href="terms#dnt-limitations">Section 5 of our Terms of Service</a>.</p>
 
     <h2 class="mt-4">6. Data Retention</h2>
     <ul>

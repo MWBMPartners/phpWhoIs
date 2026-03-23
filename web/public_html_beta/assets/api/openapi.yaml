@@ -31,7 +31,7 @@ servers:
     description: Current server
 
 paths:
-  /lookup.php:
+  /lookup:
     post:
       operationId: domainLookup
       summary: Perform a domain or IP lookup
@@ -204,7 +204,7 @@ paths:
               example:
                 error: "Rate limit exceeded. Please wait before trying again."
 
-  /health.php:
+  /health:
     get:
       operationId: healthCheck
       summary: Health check endpoint

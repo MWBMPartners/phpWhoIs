@@ -70,14 +70,14 @@ public_html_beta/
 ## API Usage
 
 ```
-POST lookup.php?format=json
+POST /lookup?format=json
 Body: domain=example.com
 
-POST lookup.php?format=json&source=whois
+POST /lookup?format=json&source=whois
 Body: domain=example.com
 
 # With API key
-POST lookup.php
+POST /lookup
 Header: X-API-Key: your-key-here
 Body: domain=example.com
 ```
