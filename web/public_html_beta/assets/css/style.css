@@ -536,6 +536,14 @@ pre {
 [data-theme="colourblind"] .footer {
     background-color: var(--cb-header-bg);
     border-top: 2px solid var(--cb-border);
+    color: #333;
+}
+
+[data-theme="colourblind"] .footer a,
+[data-theme="colourblind"] .footer-commit,
+[data-theme="colourblind"] .footer-commit:link,
+[data-theme="colourblind"] .footer-commit:visited {
+    color: #0055AA;
 }
 
 /* ── Primary button uses accent blue ── */
