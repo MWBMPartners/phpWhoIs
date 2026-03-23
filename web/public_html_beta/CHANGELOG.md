@@ -3,6 +3,24 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [cdec0d7] - 2026-03-23
+
+**fix: X-Powered-By header now includes version (Name/Version format)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`cdec0d7`](https://github.com/MWBMPartners/phpWhoIs/commit/cdec0d7ac9dbc22cea9a837c69f929f5ff562092)
+
+### Changed files
+
+- `admin.php`
+- `docs.php`
+- `health.php`
+- `index.php`
+- `privacy.php`
+- `terms.php`
+
+
 ## [696659c] - 2026-03-23
 
 **feat: update application ID and name**
