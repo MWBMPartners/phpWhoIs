@@ -29,6 +29,3 @@
     RewriteCond %{REQUEST_FILENAME}\.php -f
     RewriteRule ^(.+)$ $1.php [L]
 </IfModule>
-
-# Suppress PHP exposure in error pages
-php_flag expose_php Off
