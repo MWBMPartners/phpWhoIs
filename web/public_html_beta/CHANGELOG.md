@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [149fca1] - 2026-03-23
+
+**fix: resolve all W3C HTML validation errors and warnings (#81)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`149fca1`](https://github.com/MWBMPartners/phpWhoIs/commit/149fca14e048a904edbe5a819ca17e5c24ca16b5)
+
+### Changed files
+
+- `index.php`
+
+
 ## [770ce35] - 2026-03-23
 
 **docs: update README, OpenAPI version, and close completed issues**
