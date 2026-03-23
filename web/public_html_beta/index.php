@@ -1107,6 +1107,65 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 document.getElementById('domain').value = '';
             }
         });
+
+        // ── Keyboard shortcuts (Issue #76) ──
+        document.addEventListener('keydown', function (e) {
+            var tag = (e.target.tagName || '').toLowerCase();
+            var isInput = tag === 'input' || tag === 'textarea' || tag === 'select';
+
+            // "/" or Ctrl+K — focus domain input
+            if ((e.key === '/' || (e.ctrlKey && e.key === 'k')) && !isInput) {
+                e.preventDefault();
+                document.getElementById('domain').focus();
+                return;
+            }
+
+            // Ctrl+Enter — submit current visible form
+            if (e.ctrlKey && e.key === 'Enter') {
+                var singleForm = document.getElementById('whoisForm');
+                var bulkForm = document.getElementById('bulkWhoisForm');
+                var compareForm = document.getElementById('compareForm');
+                if (singleForm.style.display !== 'none') singleForm.dispatchEvent(new Event('submit'));
+                else if (bulkForm.style.display !== 'none') bulkForm.dispatchEvent(new Event('submit'));
+                else if (compareForm.style.display !== 'none') compareForm.dispatchEvent(new Event('submit'));
+                return;
+            }
+
+            // Ctrl+Shift+C — copy WHOIS result
+            if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+                var copyBtn = document.getElementById('copyBtn');
+                if (copyBtn && copyBtn.offsetParent !== null) {
+                    copyBtn.click();
+                    return;
+                }
+            }
+
+            // Number keys 1-5 — switch result tabs (only when not in input)
+            if (!isInput && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                var tabMap = { '1': 'whois', '2': 'dns', '3': 'email', '4': 'ssl', '5': 'subdomains' };
+                if (tabMap[e.key] && document.getElementById('resultTabs').style.display !== 'none') {
+                    var tabLink = document.querySelector('#resultTabs [data-tab="' + tabMap[e.key] + '"]');
+                    if (tabLink) { tabLink.click(); e.preventDefault(); }
+                    return;
+                }
+
+                // "?" — show shortcuts help
+                if (e.key === '?') {
+                    e.preventDefault();
+                    var helpHtml = '<div class="card"><div class="card-header"><strong>Keyboard Shortcuts</strong></div><div class="card-body"><table class="table table-sm mb-0">' +
+                        '<tr><td><kbd>/</kbd> or <kbd>Ctrl+K</kbd></td><td>Focus search input</td></tr>' +
+                        '<tr><td><kbd>Ctrl+Enter</kbd></td><td>Submit current form</td></tr>' +
+                        '<tr><td><kbd>Ctrl+Shift+C</kbd></td><td>Copy WHOIS result</td></tr>' +
+                        '<tr><td><kbd>1</kbd>-<kbd>5</kbd></td><td>Switch result tabs</td></tr>' +
+                        '<tr><td><kbd>?</kbd></td><td>Show this help</td></tr>' +
+                        '</table></div></div>';
+                    var helpEl = document.getElementById('result');
+                    if (helpEl.innerHTML.indexOf('Keyboard Shortcuts') === -1) {
+                        helpEl.innerHTML = helpHtml;
+                    }
+                }
+            }
+        });
     });
     </script>
 </body>
