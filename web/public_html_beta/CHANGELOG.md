@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [cfd758a] - 2026-03-23
+
+**fix: wrap forms in div tabpanels for W3C validity (#81)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`cfd758a`](https://github.com/MWBMPartners/phpWhoIs/commit/cfd758ad40466a0132d024b4c4d177d9ca5072f5)
+
+### Changed files
+
+- `index.php`
+
+
 ## [149fca1] - 2026-03-23
 
 **fix: resolve all W3C HTML validation errors and warnings (#81)**
