@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [a401a82] - 2026-03-23
+
+**feat: implement Do Not Track (DNT) support (#85)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`a401a82`](https://github.com/MWBMPartners/phpWhoIs/commit/a401a82aa88b773d97d11edbde1d9a8e42a1bfb1)
+
+### Changed files
+
+- `assets/api/openapi.yaml`
+- `index.php`
+- `lookup.php`
+- `privacy.php`
+
+
 ## [19f3500] - 2026-03-23
 
 **style: left-align title header on mobile portrait orientation**
