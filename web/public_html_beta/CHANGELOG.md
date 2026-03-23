@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [770ce35] - 2026-03-23
+
+**docs: update README, OpenAPI version, and close completed issues**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`770ce35`](https://github.com/MWBMPartners/phpWhoIs/commit/770ce358177b07a022508942aff0d4f0935c2adf)
+
+### Changed files
+
+- `assets/api/openapi.yaml`
+
+
 ## [9db2ddd] - 2026-03-23
 
 **Add application version info and session configuration**
