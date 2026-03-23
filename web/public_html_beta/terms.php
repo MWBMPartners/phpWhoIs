@@ -24,7 +24,7 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
     : '#';
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -32,11 +32,34 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
     <meta name="robots" content="noindex">
     <link rel="icon" type="image/svg+xml" href="assets/images/favicon.svg">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'style.css'); ?>">
 </head>
 <body>
-<div class="container py-4" style="max-width: 800px;">
-    <h1 class="mb-4">Terms of Service</h1>
+    <header class="header-form" style="padding: 15px 20px;">
+        <div class="d-flex align-items-center justify-content-between">
+            <h1 class="mb-0" style="font-size: 1.2rem;">
+                <a href="/"><img src="assets/images/logo-notext.svg" alt="" style="height: 32px; vertical-align: middle; margin-right: 8px;" aria-hidden="true"><?php echo htmlspecialchars($appName); ?></a>
+                <small class="text-muted" style="font-weight: 400; font-size: 0.8em;">— Terms of Service</small>
+            </h1>
+            <div class="d-flex gap-1">
+                <a href="/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Back</a>
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="themeToggle" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Change theme">
+                        <i class="bi bi-sun-fill" id="themeIcon"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="themeToggle" role="menu">
+                        <li><button class="dropdown-item" type="button" data-theme-value="auto" role="menuitem"><i class="bi bi-circle-half me-2"></i>Auto</button></li>
+                        <li><button class="dropdown-item" type="button" data-theme-value="light" role="menuitem"><i class="bi bi-sun-fill me-2"></i>Light</button></li>
+                        <li><button class="dropdown-item" type="button" data-theme-value="dark" role="menuitem"><i class="bi bi-moon-fill me-2"></i>Dark</button></li>
+                        <li><button class="dropdown-item" type="button" data-theme-value="colourblind" role="menuitem"><i class="bi bi-eye-fill me-2"></i>Colourblind</button></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </header>
+
+<div class="container py-4" style="max-width: 800px; padding-bottom: 80px;">
     <p class="text-muted">Last updated: <?php echo date('j F Y'); ?></p>
 
     <p>By using <strong><?php echo htmlspecialchars($appName); ?></strong> ("the Service"), operated by <a href="<?php echo htmlspecialchars($vendorUrl); ?>"><?php echo htmlspecialchars($vendorName); ?></a> ("we", "us"), you agree to the following terms.</p>
@@ -133,8 +156,43 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
     <h2 class="mt-4">14. Contact</h2>
     <p>For enquiries regarding these terms, please contact <a href="<?php echo htmlspecialchars($vendorUrl); ?>"><?php echo htmlspecialchars($vendorName); ?></a>.</p>
 
-    <hr class="mt-5">
-    <p class="text-muted small"><a href="/">&larr; Back to <?php echo htmlspecialchars($appName); ?></a></p>
-</div>
+    </div>
+
+    <footer class="footer">
+        <div class="footer-row">
+            <div class="footer-left">
+                <a href="docs" class="footer-link">API Documentation</a><br>
+                <a href="privacy" class="footer-link">Privacy Policy</a> | <a href="terms" class="footer-link">Terms of Service</a>
+            </div>
+            <div class="footer-right">
+                <?php echo htmlspecialchars($appName); ?>
+                <?php if (isset($app["Application"]["Version"]["Number"]) && $app["Application"]["Version"]["Number"]): ?>
+                    v<?php echo htmlspecialchars($app["Application"]["Version"]["Number"]); ?>
+                <?php endif; ?>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    var themeIcon = document.getElementById('themeIcon');
+    var theme = localStorage.getItem('theme') || 'auto';
+    var systemDarkMQ = window.matchMedia('(prefers-color-scheme: dark)');
+    applyTheme(theme);
+    systemDarkMQ.addEventListener('change', function () { if (theme === 'auto') applyTheme('auto'); });
+    document.querySelectorAll('[data-theme-value]').forEach(function (item) {
+        item.addEventListener('click', function (e) { e.preventDefault(); theme = this.dataset.themeValue; applyTheme(theme); localStorage.setItem('theme', theme); });
+    });
+    function applyTheme(t) {
+        var resolved = t;
+        if (t === 'auto') resolved = systemDarkMQ.matches ? 'dark' : 'light';
+        if (resolved === 'colourblind') { document.documentElement.setAttribute('data-bs-theme', 'light'); document.documentElement.setAttribute('data-theme', 'colourblind'); }
+        else if (resolved === 'dark') { document.documentElement.setAttribute('data-bs-theme', 'dark'); document.documentElement.removeAttribute('data-theme'); }
+        else { document.documentElement.setAttribute('data-bs-theme', 'light'); document.documentElement.removeAttribute('data-theme'); }
+        var icons = { auto: 'bi bi-circle-half', light: 'bi bi-sun-fill', dark: 'bi bi-moon-fill', colourblind: 'bi bi-eye-fill' };
+        themeIcon.className = icons[t] || 'bi bi-circle-half';
+        document.querySelectorAll('[data-theme-value]').forEach(function (item) { item.classList.toggle('active', item.dataset.themeValue === t); });
+    }
+    </script>
 </body>
 </html>
