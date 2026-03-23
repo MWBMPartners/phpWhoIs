@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [696659c] - 2026-03-23
+
+**feat: update application ID and name**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`696659c`](https://github.com/MWBMPartners/phpWhoIs/commit/696659c21a3c6d46c68358f450337c984e28e4fd)
+
+### Changed files
+
+- `includes/infoAppVer.php`
+
+
 ## [8e46730] - 2026-03-23
 
 **feat: add API Documentation link to footer**
