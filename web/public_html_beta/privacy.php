@@ -91,7 +91,17 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
     </ul>
     <p>This cookie is <code>HttpOnly</code>, <code>SameSite=Lax</code>, and <code>Secure</code> (when served over HTTPS). It does not track you across websites and is deleted when you close your browser. We do not use advertising or analytics cookies.</p>
 
-    <h2 class="mt-4">5. Data Retention</h2>
+    <h2 class="mt-4">5. Do Not Track (DNT)</h2>
+    <p>We respect the <strong>Do Not Track</strong> signal sent by your browser. When DNT is enabled (<code>DNT: 1</code>), the Service will:</p>
+    <ul>
+        <li>Skip all optional third-party requests (website screenshots, QR code generation via external APIs, IP geolocation lookups).</li>
+        <li>Skip third-party security checks (Google Safe Browsing, VirusTotal, Have I Been Pwned) — these send the queried domain to external services.</li>
+        <li>Disable anonymous usage statistics tracking (lookup counts, popular domains).</li>
+        <li>Send a <code>Tk: N</code> (not tracking) response header to confirm compliance.</li>
+    </ul>
+    <p>Core functionality (WHOIS/RDAP lookups, DNS records, SSL certificate checks, email security, subdomain discovery) remains fully available with DNT enabled, as these use direct protocol queries rather than third-party tracking services.</p>
+
+    <h2 class="mt-4">6. Data Retention</h2>
     <ul>
         <li><strong>Cached lookups</strong> — automatically expire after 15 minutes.</li>
         <li><strong>Rate limit records</strong> — automatically cleaned up within minutes of expiry.</li>
@@ -99,7 +109,7 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
         <li><strong>Browser data</strong> — persists until you clear it. We have no access to it.</li>
     </ul>
 
-    <h2 class="mt-4">6. Your Rights</h2>
+    <h2 class="mt-4">7. Your Rights</h2>
     <p>You have the right to:</p>
     <ul>
         <li>Clear your browser-stored data at any time.</li>
@@ -107,7 +117,7 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
         <li>Request information about any data we hold related to your IP address.</li>
     </ul>
 
-    <h2 class="mt-4">7. Security</h2>
+    <h2 class="mt-4">8. Security</h2>
     <p>We implement the following security measures:</p>
     <ul>
         <li>CSRF token protection on all form submissions</li>
@@ -118,10 +128,10 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
         <li>Session hardening (HttpOnly, SameSite, secure cookies, periodic regeneration)</li>
     </ul>
 
-    <h2 class="mt-4">8. Changes to This Policy</h2>
+    <h2 class="mt-4">9. Changes to This Policy</h2>
     <p>We may update this policy from time to time. The "Last updated" date at the top will reflect the most recent revision.</p>
 
-    <h2 class="mt-4">9. Contact</h2>
+    <h2 class="mt-4">10. Contact</h2>
     <p>For privacy-related enquiries, please contact <a href="<?php echo htmlspecialchars($vendorUrl); ?>"><?php echo htmlspecialchars($vendorName); ?></a>.</p>
 
     <hr class="mt-5">

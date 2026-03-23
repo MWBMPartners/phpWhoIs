@@ -34,6 +34,8 @@ PHP-based domain WHOIS/RDAP lookup tool with DNS records, availability detection
 - JSON API (`?format=json`) with API key support
 - Admin dashboard with usage stats
 - Domain monitoring via webhooks
+- Do Not Track (DNT) support — respects browser DNT signal
+- Privacy Policy and Terms of Service pages
 - CSRF protection, rate limiting, input validation
 - Auto-updating IANA TLD list + second-level suffixes
 - Accessibility: ARIA, reduced-motion, skip links, screen reader support
@@ -47,6 +49,8 @@ public_html_beta/
 ├── admin.php          # Admin dashboard
 ├── health.php         # Health check endpoint
 ├── docs.php           # Swagger API docs
+├── privacy.php        # Privacy Policy
+├── terms.php          # Terms of Service
 ├── monitor.php        # Domain monitoring cron script
 ├── manifest.json      # PWA manifest
 ├── sw.js              # Service worker

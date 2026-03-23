@@ -16,6 +16,10 @@ info:
     ## Caching
     - Results are cached for **15 minutes** (900 seconds).
     - Cached responses include `"cached": true`.
+
+    ## Do Not Track (DNT)
+    - When the `DNT: 1` header is sent, optional third-party lookups (geolocation, screenshots, Safe Browsing, VirusTotal, HIBP) are skipped and usage statistics are not recorded.
+    - The response includes `"dnt": true` and the server responds with `Tk: N`.
   version: "1.17"
   contact:
     name: MWBM Partners Ltd
@@ -241,6 +245,9 @@ components:
         cached:
           type: boolean
           description: True if the result was served from cache.
+        dnt:
+          type: boolean
+          description: True if the request included a DNT (Do Not Track) header. When true, optional third-party lookups (geolocation, screenshots, Safe Browsing, VirusTotal, HIBP) are skipped and usage statistics are not recorded.
         parsed:
           $ref: "#/components/schemas/ParsedFields"
         dns:

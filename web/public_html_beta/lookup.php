@@ -31,6 +31,10 @@ define('RATE_LIMIT_WINDOW', 60);
 define('MAX_DOMAIN_LENGTH', 253);
 define('MAX_POST_SIZE', 1024);
 
+// ─── Do Not Track (Issue #85) ───
+$dnt = (isset($_SERVER['HTTP_DNT']) && $_SERVER['HTTP_DNT'] === '1');
+header($dnt ? 'Tk: N' : 'Tk: ?');
+
 // ─── Load config & functions ───
 $config = [];
 if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php')) {
@@ -135,7 +139,7 @@ if ($isIpLookup) {
     $dataSource = 'whois';
 
     if ($fromCache) {
-        trackLookup('cache_hit', $domain);
+        if (!$dnt) trackLookup('cache_hit', $domain);
     }
 
     // Try RDAP first (unless source=whois or cached)
@@ -144,7 +148,7 @@ if ($isIpLookup) {
         if ($rdap) {
             $dataSource = 'rdap';
             $whoisText = formatRdapResponse($rdap);
-            trackLookup('rdap', $domain);
+            if (!$dnt) trackLookup('rdap', $domain);
         }
     }
 
@@ -152,7 +156,7 @@ if ($isIpLookup) {
     if (!$whoisText) {
         $whoisText = shell_exec("whois " . escapeshellarg($domain) . " 2>&1");
         $dataSource = 'whois';
-        trackLookup('whois', $domain);
+        if (!$dnt) trackLookup('whois', $domain);
     }
 
     // Cache result
@@ -192,27 +196,27 @@ if (!empty($parsed['Registrar'])) {
     $registrarReputation = checkRegistrarReputation($parsed['Registrar']);
 }
 
-// Google Safe Browsing (Issue #52) — only if API key configured
+// Google Safe Browsing (Issue #52) — only if API key configured; skip if DNT
 $safeBrowsing = null;
-if (!$isIpLookup && $domain && !empty($config['safe_browsing_api_key'])) {
+if (!$dnt && !$isIpLookup && $domain && !empty($config['safe_browsing_api_key'])) {
     $safeBrowsing = checkSafeBrowsing($domain, $config['safe_browsing_api_key']);
 }
 
-// VirusTotal (Issue #53) — only if API key configured
+// VirusTotal (Issue #53) — only if API key configured; skip if DNT
 $virusTotal = null;
-if (!$isIpLookup && $domain && !empty($config['virustotal_api_key'])) {
+if (!$dnt && !$isIpLookup && $domain && !empty($config['virustotal_api_key'])) {
     $virusTotal = checkVirusTotal($domain, $config['virustotal_api_key']);
 }
 
-// Have I Been Pwned (Issue #65) — only if API key configured
+// Have I Been Pwned (Issue #65) — only if API key configured; skip if DNT
 $hibp = null;
-if (!$isIpLookup && $domain && !empty($config['hibp_api_key'])) {
+if (!$dnt && !$isIpLookup && $domain && !empty($config['hibp_api_key'])) {
     $hibp = checkHibpDomain($domain, $config['hibp_api_key']);
 }
 
-// Screenshot URL (Issue #55) — generate if enabled
+// Screenshot URL (Issue #55) — generate if enabled; skip if DNT
 $screenshotUrl = null;
-if (!$isIpLookup && $domain && !empty($config['screenshot_enabled'])) {
+if (!$dnt && !$isIpLookup && $domain && !empty($config['screenshot_enabled'])) {
     $screenshotUrl = 'https://image.thum.io/get/width/600/' . urlencode('https://' . $domain);
 }
 
@@ -222,15 +226,17 @@ if (!$isIpLookup && $domain) {
     $subdomains = discoverSubdomains($domain);
 }
 
-// IP geolocation (Issue #18) — for first A record, or for IP lookups
+// IP geolocation (Issue #18) — for first A record, or for IP lookups; skip if DNT
 $geolocation = null;
-if ($isIpLookup) {
-    $geolocation = getIpGeolocation($domain);
-} elseif (!empty($dns)) {
-    foreach ($dns as $record) {
-        if ($record['type'] === 'A' && !empty($record['value'])) {
-            $geolocation = getIpGeolocation($record['value']);
-            break;
+if (!$dnt) {
+    if ($isIpLookup) {
+        $geolocation = getIpGeolocation($domain);
+    } elseif (!empty($dns)) {
+        foreach ($dns as $record) {
+            if ($record['type'] === 'A' && !empty($record['value'])) {
+                $geolocation = getIpGeolocation($record['value']);
+                break;
+            }
         }
     }
 }
@@ -257,6 +263,7 @@ if ($jsonFormat) {
         'virustotal' => $virusTotal,
         'screenshot_url' => $screenshotUrl,
         'hibp' => $hibp,
+        'dnt' => $dnt,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;
@@ -285,6 +292,7 @@ if ($jsonFormat) {
         'virustotal' => $virusTotal,
         'screenshot_url' => $screenshotUrl,
         'hibp' => $hibp,
+        'dnt' => $dnt,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;

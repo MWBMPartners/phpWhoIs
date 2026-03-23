@@ -1256,11 +1256,19 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         });
 
         // ── QR code (Issue #50) ──
+        var browserDnt = navigator.doNotTrack === '1' || window.doNotTrack === '1';
         document.getElementById('qrCodeBtn').addEventListener('click', function () {
             var shareUrl = window.location.origin + window.location.pathname + '?domain=' + encodeURIComponent(currentDomain);
-            var qrApiUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(shareUrl);
-            document.getElementById('qrCodeImg').src = qrApiUrl;
-            document.getElementById('qrCodeUrl').textContent = shareUrl;
+            if (browserDnt) {
+                // DNT: show URL only, skip external QR API
+                document.getElementById('qrCodeImg').style.display = 'none';
+                document.getElementById('qrCodeUrl').textContent = shareUrl;
+            } else {
+                var qrApiUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(shareUrl);
+                document.getElementById('qrCodeImg').style.display = '';
+                document.getElementById('qrCodeImg').src = qrApiUrl;
+                document.getElementById('qrCodeUrl').textContent = shareUrl;
+            }
             var modal = new bootstrap.Modal(document.getElementById('qrCodeModal'));
             modal.show();
         });
