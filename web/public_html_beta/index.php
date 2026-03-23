@@ -623,7 +623,17 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                                 esc(data.whois || data.error || 'No data') + '</pre></div></div>';
                             acc.appendChild(item);
                         })
-                        .catch(function () {})
+                        .catch(function (err) {
+                            var item = document.createElement('div');
+                            item.className = 'accordion-item';
+                            item.innerHTML =
+                                '<h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-' + i + '">' +
+                                esc(domain) + ' <span class="badge bg-danger ms-2">Error</span>' +
+                                '</button></h2>' +
+                                '<div id="bulk-' + i + '" class="accordion-collapse collapse"><div class="accordion-body"><div class="alert alert-danger mb-0"><i class="bi bi-exclamation-triangle-fill me-2"></i>' +
+                                esc(err.message || 'Lookup failed') + '</div></div></div>';
+                            acc.appendChild(item);
+                        })
                         .finally(function () {
                             if (++done === domains.length) {
                                 showLoading(false);
