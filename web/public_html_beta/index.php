@@ -121,7 +121,8 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <link rel="stylesheet" href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'style.css'); ?>">
 </head>
 <body>
-    <!-- Skip to content -->
+    <!-- Skip links -->
+    <a href="#domain" class="visually-hidden-focusable skip-link">Skip to search</a>
     <a href="#resultContainer" class="visually-hidden-focusable skip-link">Skip to results</a>
 
     <noscript>
@@ -138,11 +139,11 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                     <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="langToggle" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Language" title="Language">
                         <i class="bi bi-translate"></i>
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="langToggle">
-                        <li><a class="dropdown-item" href="#" data-lang="en">English</a></li>
-                        <li><a class="dropdown-item" href="#" data-lang="es">Espa&ntilde;ol</a></li>
-                        <li><a class="dropdown-item" href="#" data-lang="fr">Fran&ccedil;ais</a></li>
-                        <li><a class="dropdown-item" href="#" data-lang="de">Deutsch</a></li>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="langToggle" role="menu">
+                        <li><button class="dropdown-item" type="button" data-lang="en" role="menuitem">English</button></li>
+                        <li><button class="dropdown-item" type="button" data-lang="es" role="menuitem">Espa&ntilde;ol</button></li>
+                        <li><button class="dropdown-item" type="button" data-lang="fr" role="menuitem">Fran&ccedil;ais</button></li>
+                        <li><button class="dropdown-item" type="button" data-lang="de" role="menuitem">Deutsch</button></li>
                     </ul>
                 </div>
                 <!-- Theme selector -->
@@ -150,11 +151,11 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                     <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="themeToggle" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Change theme" title="Change theme">
                         <i class="bi bi-sun-fill" id="themeIcon"></i>
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="themeToggle">
-                        <li><a class="dropdown-item" href="#" data-theme-value="auto"><i class="bi bi-circle-half me-2"></i><span data-i18n="theme_auto">Auto</span></a></li>
-                        <li><a class="dropdown-item" href="#" data-theme-value="light"><i class="bi bi-sun-fill me-2"></i><span data-i18n="theme_light">Light</span></a></li>
-                        <li><a class="dropdown-item" href="#" data-theme-value="dark"><i class="bi bi-moon-fill me-2"></i><span data-i18n="theme_dark">Dark</span></a></li>
-                        <li><a class="dropdown-item" href="#" data-theme-value="colourblind"><i class="bi bi-eye-fill me-2"></i><span data-i18n="theme_colourblind">Colourblind</span></a></li>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="themeToggle" role="menu">
+                        <li><button class="dropdown-item" type="button" data-theme-value="auto" role="menuitem"><i class="bi bi-circle-half me-2"></i><span data-i18n="theme_auto">Auto</span></button></li>
+                        <li><button class="dropdown-item" type="button" data-theme-value="light" role="menuitem"><i class="bi bi-sun-fill me-2"></i><span data-i18n="theme_light">Light</span></button></li>
+                        <li><button class="dropdown-item" type="button" data-theme-value="dark" role="menuitem"><i class="bi bi-moon-fill me-2"></i><span data-i18n="theme_dark">Dark</span></button></li>
+                        <li><button class="dropdown-item" type="button" data-theme-value="colourblind" role="menuitem"><i class="bi bi-eye-fill me-2"></i><span data-i18n="theme_colourblind">Colourblind</span></button></li>
                     </ul>
                 </div>
             </div>
@@ -201,7 +202,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 <label for="compareDomain1" class="visually-hidden">First domain</label>
                 <input type="text" class="form-control" id="compareDomain1" placeholder="domain1.com" required autocomplete="off">
             </div>
-            <span class="align-self-center fw-bold">vs</span>
+            <span class="align-self-center fw-bold" aria-hidden="true">vs</span>
             <div class="form-group flex-grow-1">
                 <label for="compareDomain2" class="visually-hidden">Second domain</label>
                 <input type="text" class="form-control" id="compareDomain2" placeholder="domain2.com" required autocomplete="off">
@@ -437,19 +438,43 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             });
         }
 
-        // ── Lookup mode tabs ──
-        document.querySelectorAll('#lookupModeTabs .nav-link').forEach(function (tab) {
-            tab.addEventListener('click', function (e) {
-                e.preventDefault();
-                document.querySelectorAll('#lookupModeTabs .nav-link').forEach(function (t) { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
-                this.classList.add('active');
-                this.setAttribute('aria-selected', 'true');
-                var mode = this.dataset.mode;
-                document.getElementById('singlePanel').style.display = mode === 'single' ? '' : 'none';
-                document.getElementById('bulkWhoisPanel').style.display = mode === 'bulk' ? '' : 'none';
-                document.getElementById('comparePanel').style.display = mode === 'compare' ? '' : 'none';
+        // ── Lookup mode tabs (ARIA tab pattern with roving tabindex) ──
+        var lookupTabs = Array.from(document.querySelectorAll('#lookupModeTabs .nav-link'));
+        var panelMap = { single: 'singlePanel', bulk: 'bulkWhoisPanel', compare: 'comparePanel' };
+
+        function activateLookupTab(tab) {
+            lookupTabs.forEach(function (t) {
+                t.classList.remove('active');
+                t.setAttribute('aria-selected', 'false');
+                t.setAttribute('tabindex', '-1');
+            });
+            tab.classList.add('active');
+            tab.setAttribute('aria-selected', 'true');
+            tab.setAttribute('tabindex', '0');
+            var mode = tab.dataset.mode;
+            for (var m in panelMap) {
+                var panel = document.getElementById(panelMap[m]);
+                if (m === mode) { panel.removeAttribute('hidden'); panel.style.display = ''; }
+                else { panel.setAttribute('hidden', ''); panel.style.display = 'none'; }
+            }
+        }
+
+        lookupTabs.forEach(function (tab, idx) {
+            // Set initial tabindex
+            tab.setAttribute('tabindex', idx === 0 ? '0' : '-1');
+            tab.addEventListener('click', function (e) { e.preventDefault(); activateLookupTab(this); this.focus(); });
+            tab.addEventListener('keydown', function (e) {
+                var idx = lookupTabs.indexOf(this);
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); var next = lookupTabs[(idx + 1) % lookupTabs.length]; activateLookupTab(next); next.focus(); }
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); var prev = lookupTabs[(idx - 1 + lookupTabs.length) % lookupTabs.length]; activateLookupTab(prev); prev.focus(); }
+                if (e.key === 'Home') { e.preventDefault(); activateLookupTab(lookupTabs[0]); lookupTabs[0].focus(); }
+                if (e.key === 'End') { e.preventDefault(); activateLookupTab(lookupTabs[lookupTabs.length - 1]); lookupTabs[lookupTabs.length - 1].focus(); }
             });
         });
+
+        // Set initial hidden state on inactive panels
+        document.getElementById('bulkWhoisPanel').setAttribute('hidden', '');
+        document.getElementById('comparePanel').setAttribute('hidden', '');
 
         // ── History ──
         function getHistory() { try { return JSON.parse(localStorage.getItem('whoisHistory') || '[]'); } catch (e) { return []; } }
@@ -521,12 +546,12 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                     btn.innerHTML = '<i class="bi bi-eye-fill"></i>';
                     btn.classList.remove('btn-outline-secondary');
                     btn.classList.add('btn-info');
-                    btn.title = 'Unwatch domain';
+                    btn.setAttribute('aria-label', 'Unwatch domain');
                 } else {
                     btn.innerHTML = '<i class="bi bi-eye"></i>';
                     btn.classList.remove('btn-info');
                     btn.classList.add('btn-outline-secondary');
-                    btn.title = 'Watch for expiry';
+                    btn.setAttribute('aria-label', 'Watch for expiry');
                 }
             });
         }
@@ -905,7 +930,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                     '<div><i class="bi bi-check-circle-fill me-2"></i><strong>' + esc(currentDomain) + '</strong> appears to be available!</div>' +
                     '<div class="d-flex gap-1 flex-wrap">' + regButtons + '</div></div>';
             } else {
-                var watchBtn = ' <button class="btn btn-outline-secondary btn-sm ms-auto watchDomainBtn" data-domain="' + esc(currentDomain) + '" title="Watch for expiry"><i class="bi bi-eye"></i></button>';
+                var watchBtn = ' <button class="btn btn-outline-secondary btn-sm ms-auto watchDomainBtn" data-domain="' + esc(currentDomain) + '" aria-label="Watch for expiry"><i class="bi bi-eye"></i></button>';
                 avBadge.innerHTML = '<div class="alert alert-info d-flex align-items-center">' +
                     '<div><i class="bi bi-info-circle-fill me-2"></i><strong>' + esc(currentDomain) + '</strong>&nbsp;is registered.</div>' + watchBtn + '</div>';
             }
@@ -1144,7 +1169,8 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             navigator.clipboard.writeText(rawWhoisText.replace(/<[^>]*>/g, '')).then(function () {
                 var b = document.getElementById('copyBtn');
                 b.innerHTML = '<i class="bi bi-check"></i> Copied!';
-                setTimeout(function () { b.innerHTML = '<i class="bi bi-clipboard"></i> Copy'; }, 2000);
+                b.setAttribute('aria-label', 'Copied to clipboard');
+                setTimeout(function () { b.innerHTML = '<i class="bi bi-clipboard"></i> Copy'; b.setAttribute('aria-label', 'Copy WHOIS data to clipboard'); }, 2000);
             });
         });
         document.getElementById('downloadBtn').addEventListener('click', function () {
