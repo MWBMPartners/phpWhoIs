@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [c0b68e0] - 2026-03-23
+
+**fix: remove Header unset X-Powered-By from .htaccess**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`c0b68e0`](https://github.com/MWBMPartners/phpWhoIs/commit/c0b68e0b3738fb846e54356028d975ed6d7d53a2)
+
+### Changed files
+
+- `.htaccess`
+
+
 ## [a5e5d9b] - 2026-03-23
 
 **fix: conditionally apply expose_php for both mod_php and PHP-FPM**
