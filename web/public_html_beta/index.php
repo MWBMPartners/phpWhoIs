@@ -323,6 +323,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         var formattedResult = '';
         var rawWhoisText = '';
         var lastLookupData = null;
+        var lastCompareData = null;
         var isRawView = false;
 
         // HTML escape helper to prevent XSS
@@ -571,8 +572,43 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             }
 
             html += '</tbody></table></div>';
+            html += '<div class="mt-2 d-flex gap-2"><button class="btn btn-outline-secondary btn-sm" id="exportCompareJsonBtn"><i class="bi bi-filetype-json" aria-hidden="true"></i> Export JSON</button>' +
+                '<button class="btn btn-outline-secondary btn-sm" id="exportCompareCsvBtn"><i class="bi bi-filetype-csv" aria-hidden="true"></i> Export CSV</button></div>';
             cr.innerHTML = html;
             cr.style.display = '';
+
+            // Store for export
+            lastCompareData = { domain1: d1, domain2: d2, data1: data1, data2: data2 };
+
+            document.getElementById('exportCompareJsonBtn').addEventListener('click', function () {
+                var exp = { compare_date: new Date().toISOString(), domains: [
+                    { domain: d1, availability: data1.availability, parsed: data1.parsed, dns: data1.dns, ssl: data1.ssl },
+                    { domain: d2, availability: data2.availability, parsed: data2.parsed, dns: data2.dns, ssl: data2.ssl }
+                ]};
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([JSON.stringify(exp, null, 2)], { type: 'application/json' }));
+                a.download = d1 + '-vs-' + d2 + '.json';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            });
+
+            document.getElementById('exportCompareCsvBtn').addEventListener('click', function () {
+                var allKeys = {};
+                if (data1.parsed) for (var k in data1.parsed) allKeys[k] = true;
+                if (data2.parsed) for (var k in data2.parsed) allKeys[k] = true;
+                var csv = 'Field,"' + d1 + '","' + d2 + '"\n';
+                csv += '"Availability","' + (data1.availability || '') + '","' + (data2.availability || '') + '"\n';
+                for (var key in allKeys) {
+                    var v1 = data1.parsed && data1.parsed[key] ? (Array.isArray(data1.parsed[key]) ? data1.parsed[key].join('; ') : data1.parsed[key]) : '';
+                    var v2 = data2.parsed && data2.parsed[key] ? (Array.isArray(data2.parsed[key]) ? data2.parsed[key].join('; ') : data2.parsed[key]) : '';
+                    csv += '"' + key + '","' + v1 + '","' + v2 + '"\n';
+                }
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+                a.download = d1 + '-vs-' + d2 + '.csv';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            });
         }
 
         // ── Main lookup ──
