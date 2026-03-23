@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [107b6b9] - 2026-03-23
+
+**fix: hide export CSV/JSON buttons until bulk lookup completes (#69)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`107b6b9`](https://github.com/MWBMPartners/phpWhoIs/commit/107b6b92608e643a98060f736e2ec100fb23a161)
+
+### Changed files
+
+- `index.php`
+
+
 ## [5d16826] - 2026-03-22
 
 **feat: implement issues #58-#65 — i18n, monitoring, admin, API keys, HIBP, verification**
