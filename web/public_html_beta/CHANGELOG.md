@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [6865956] - 2026-03-23
+
+**feat: style docs, privacy & terms pages to match main site (#89)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`6865956`](https://github.com/MWBMPartners/phpWhoIs/commit/68659565797bc01e3949b419d67769dcea200089)
+
+### Changed files
+
+- `docs.php`
+- `privacy.php`
+- `terms.php`
+
+
 ## [c0b68e0] - 2026-03-23
 
 **fix: remove Header unset X-Powered-By from .htaccess**
