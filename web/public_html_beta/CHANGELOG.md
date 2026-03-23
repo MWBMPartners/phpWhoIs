@@ -3,6 +3,40 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [9db2ddd] - 2026-03-23
+
+**Add application version info and session configuration**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`9db2ddd`](https://github.com/MWBMPartners/phpWhoIs/commit/9db2ddd25c9776e21df8bea5cd24cb2e4a6fab6e)
+
+### Changed files
+
+- `.htaccess`
+- `DEV_NOTES.md`
+- `admin.php`
+- `assets/api/openapi.yaml`
+- `assets/css/style.css`
+- `assets/images/favicon.gif`
+- `assets/images/favicon.icns`
+- `assets/images/favicon.ico`
+- `assets/images/favicon.png`
+- `assets/images/favicon.svg`
+- `assets/images/logo-notext.svg`
+- `assets/images/logo.png`
+- `assets/images/logo.svg`
+- `docs.php`
+- `health.php`
+- `includes/config.php`
+- `includes/functions.php`
+- `includes/infoAppVer.php`
+- `includes/session_config.php`
+- `index.php`
+- `lookup.php`
+- `monitor.php`
+
+
 ## [107b6b9] - 2026-03-23
 
 **fix: hide export CSV/JSON buttons until bulk lookup completes (#69)**
