@@ -247,6 +247,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             <a href="#" target="_blank" rel="noopener noreferrer" class="btn btn-outline-secondary btn-sm" id="waybackBtn" aria-label="View on Wayback Machine"><i class="bi bi-clock-history" aria-hidden="true"></i> Wayback Machine</a>
             <button class="btn btn-outline-secondary btn-sm" id="qrCodeBtn" aria-label="Generate QR code for sharing"><i class="bi bi-qr-code" aria-hidden="true"></i> QR Code</button>
             <button class="btn btn-outline-secondary btn-sm" id="exportJsonSingleBtn" aria-label="Export lookup as JSON"><i class="bi bi-filetype-json" aria-hidden="true"></i> Export JSON</button>
+            <button class="btn btn-outline-info btn-sm" id="diffBtn" aria-label="Compare cached vs fresh WHOIS"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Refresh &amp; Diff</button>
         </div>
 
         <!-- QR Code modal (Issue #50) -->
@@ -1093,6 +1094,58 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             a.download = currentDomain + '-whois.json';
             a.click();
             URL.revokeObjectURL(a.href);
+        });
+
+        // ── WHOIS diff: cached vs fresh (Issue #21) ──
+        document.getElementById('diffBtn').addEventListener('click', function () {
+            if (!currentDomain || !rawWhoisText) return;
+            var cachedWhois = rawWhoisText.replace(/<[^>]*>/g, '');
+            var btn = this;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Fetching fresh...';
+
+            var fd = new FormData();
+            fd.append('domain', currentDomain);
+            fd.append('csrf_token', CSRF);
+
+            fetch('lookup.php?nocache=' + Date.now() + '&source=whois', { method: 'POST', body: fd })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Refresh &amp; Diff';
+                    if (data.error) { showError(data.error); return; }
+                    var freshWhois = (data.whois || '').replace(/<[^>]*>/g, '');
+
+                    // Build diff view
+                    var cachedLines = cachedWhois.split('\n');
+                    var freshLines = freshWhois.split('\n');
+                    var diffHtml = '<div class="card"><div class="card-header"><strong><i class="bi bi-arrow-left-right me-2"></i>WHOIS Diff</strong> <small class="text-muted">(cached vs fresh)</small></div><div class="card-body">';
+
+                    if (cachedWhois === freshWhois) {
+                        diffHtml += '<div class="alert alert-success mb-0"><i class="bi bi-check-circle me-2"></i>No changes detected — cached and fresh results are identical.</div>';
+                    } else {
+                        diffHtml += '<pre class="mb-0" style="font-size:0.8rem; max-height:400px; overflow-y:auto;">';
+                        var maxLen = Math.max(cachedLines.length, freshLines.length);
+                        for (var i = 0; i < maxLen; i++) {
+                            var cl = cachedLines[i] || '';
+                            var fl = freshLines[i] || '';
+                            if (cl === fl) {
+                                diffHtml += ' ' + esc(fl) + '\n';
+                            } else {
+                                if (cl) diffHtml += '<span style="background:#fdd;color:#900;">-' + esc(cl) + '</span>\n';
+                                if (fl) diffHtml += '<span style="background:#dfd;color:#060;">+' + esc(fl) + '</span>\n';
+                            }
+                        }
+                        diffHtml += '</pre>';
+                    }
+                    diffHtml += '</div></div>';
+                    document.getElementById('result').innerHTML = diffHtml;
+                })
+                .catch(function (err) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Refresh &amp; Diff';
+                    showError('Diff failed: ' + err.message);
+                });
         });
 
         // ── QR code (Issue #50) ──
