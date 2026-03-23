@@ -169,8 +169,9 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 <label for="domain" class="visually-hidden">Domain or URL</label>
                 <input type="text" class="form-control" id="domain" name="domain"
                     title="Please enter a valid domain name, e.g., example.com"
-                    placeholder="example.com" required autocomplete="off">
-                <div class="invalid-feedback" id="domainFeedback"></div>
+                    placeholder="example.com" required autocomplete="off"
+                    aria-describedby="domainFeedback">
+                <div class="invalid-feedback" id="domainFeedback" role="alert"></div>
             </div>
             <button type="submit" class="btn btn-primary submit-btn" id="lookupBtn">Lookup</button>
         </form>
@@ -212,7 +213,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     </header>
 
     <!-- Results section -->
-    <main class="result-container" id="resultContainer" role="main">
+    <main class="result-container" id="resultContainer" role="main" aria-live="polite">
         <!-- Empty state -->
         <div id="emptyState" class="text-center py-5">
             <i class="bi bi-search" style="font-size: 3rem; opacity: 0.15;"></i>
@@ -273,8 +274,8 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 <span id="bulkProgressText">Looking up 0 of 0...</span>
                 <span id="bulkProgressPercent">0%</span>
             </div>
-            <div class="progress" style="height: 6px;">
-                <div class="progress-bar" id="bulkProgressBar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+            <div class="progress" style="height: 6px;" role="progressbar" aria-label="Bulk lookup progress">
+                <div class="progress-bar" id="bulkProgressBar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
             </div>
         </div>
         <div id="bulkResults" class="accordion mt-3" style="display:none;"></div>
@@ -1194,7 +1195,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         }
 
         function showError(msg) {
-            document.getElementById('result').innerHTML = '<div class="alert alert-danger fade-in"><i class="bi bi-exclamation-triangle-fill me-2"></i>' + esc(msg) + '</div>';
+            document.getElementById('result').innerHTML = '<div class="alert alert-danger fade-in" role="alert"><i class="bi bi-exclamation-triangle-fill me-2"></i>' + esc(msg) + '</div>';
         }
 
         function updateURL(d) {
