@@ -29,3 +29,14 @@
     RewriteCond %{REQUEST_FILENAME}\.php -f
     RewriteRule ^(.+)$ $1.php [L]
 </IfModule>
+
+# Suppress PHP version exposure (mod_php only; PHP-FPM uses header_remove() in code)
+<IfModule mod_php.c>
+    php_flag expose_php Off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag expose_php Off
+</IfModule>
+<IfModule mod_php8.c>
+    php_flag expose_php Off
+</IfModule>
