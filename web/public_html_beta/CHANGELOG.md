@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [8e46730] - 2026-03-23
+
+**feat: add API Documentation link to footer**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`8e46730`](https://github.com/MWBMPartners/phpWhoIs/commit/8e467303498c2aa27af3d4e528a1282e1a691ef4)
+
+### Changed files
+
+- `index.php`
+
+
 ## [a401a82] - 2026-03-23
 
 **feat: implement Do Not Track (DNT) support (#85)**
