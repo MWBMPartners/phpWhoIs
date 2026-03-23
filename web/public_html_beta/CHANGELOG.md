@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [85bdba1] - 2026-03-23
+
+**fix: resolve all WCAG 2.1 AA accessibility compliance failures (#82)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`85bdba1`](https://github.com/MWBMPartners/phpWhoIs/commit/85bdba1d23c5c2e9daff1222c20cac5c0ead793f)
+
+### Changed files
+
+- `assets/css/style.css`
+- `index.php`
+
+
 ## [cfd758a] - 2026-03-23
 
 **fix: wrap forms in div tabpanels for W3C validity (#81)**
