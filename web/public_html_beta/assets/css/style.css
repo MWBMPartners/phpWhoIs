@@ -718,3 +718,86 @@ pre {
 [data-theme="colourblind"] *:focus-visible {
     outline-color: var(--cb-accent) !important;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   PRINT STYLESHEET
+   ═══════════════════════════════════════════════════════════════════ */
+
+@media print {
+    /* Hide non-essential UI */
+    .header-form,
+    .footer,
+    #actionButtons,
+    #loadingSpinner,
+    #emptyState,
+    #bulkProgress,
+    #bulkExportButtons,
+    .skip-link,
+    .btn,
+    .dropdown {
+        display: none !important;
+    }
+
+    /* Reset layout for print */
+    body {
+        background: #fff !important;
+        color: #000 !important;
+        font-size: 11pt;
+    }
+
+    .result-container {
+        position: static !important;
+        overflow: visible !important;
+        height: auto !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    /* Ensure cards and tables print cleanly */
+    .card {
+        border: 1px solid #ccc !important;
+        break-inside: avoid;
+    }
+
+    .card-header {
+        background: #f0f0f0 !important;
+    }
+
+    .table {
+        border-collapse: collapse;
+    }
+
+    .table th,
+    .table td {
+        border: 1px solid #ccc !important;
+        padding: 4px 8px;
+    }
+
+    /* Show all result tabs for print */
+    #whoisResultPane,
+    #dnsResultPane,
+    #emailSecurityPane,
+    #sslPane,
+    #subdomainsPane {
+        display: block !important;
+    }
+
+    #resultTabs {
+        display: none !important;
+    }
+
+    /* Alerts use border patterns not color */
+    .alert {
+        border-left-width: 5px !important;
+    }
+
+    /* Page URL footer */
+    @page {
+        margin: 1.5cm;
+    }
+
+    a[href]::after {
+        content: none;
+    }
+}
