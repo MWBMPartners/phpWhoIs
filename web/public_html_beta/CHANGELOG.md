@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [8ffe0ba] - 2026-03-23
+
+**fix: enable scrolling on subpages (docs, privacy, terms)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`8ffe0ba`](https://github.com/MWBMPartners/phpWhoIs/commit/8ffe0ba4067101f2f897bcb1cbb742abf1b13e9f)
+
+### Changed files
+
+- `assets/css/style.css`
+- `docs.php`
+- `privacy.php`
+- `terms.php`
+
+
 ## [6865956] - 2026-03-23
 
 **feat: style docs, privacy & terms pages to match main site (#89)**
