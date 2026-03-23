@@ -45,7 +45,11 @@ if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php';
 }
 if (isset($app["Application"]["Name"]) && $app["Application"]["Name"]) {
-    header('X-Powered-By: ' . $app["Application"]["Name"]);
+    $poweredBy = $app["Application"]["Name"];
+    if (isset($app["Application"]["Version"]["Number"]) && $app["Application"]["Version"]["Number"]) {
+        $poweredBy .= '/' . $app["Application"]["Version"]["Number"];
+    }
+    header('X-Powered-By: ' . $poweredBy);
 }
 
 // ─── Copyright helper ───

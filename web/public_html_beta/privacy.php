@@ -11,7 +11,11 @@ header_remove('X-Powered-By');
 $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
     ? $app["Application"]["Name"]
     : 'WHOIS Lookup';
-header('X-Powered-By: ' . $appName);
+$poweredBy = $appName;
+if (isset($app["Application"]["Version"]["Number"]) && $app["Application"]["Version"]["Number"]) {
+    $poweredBy .= '/' . $app["Application"]["Version"]["Number"];
+}
+header('X-Powered-By: ' . $poweredBy);
 $vendorName = isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"]["Vendor"]["Parent"]["Name"]
     ? $app["Application"]["Vendor"]["Parent"]["Name"]
     : 'MWBM Partners Ltd';
