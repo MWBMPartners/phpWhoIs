@@ -66,17 +66,43 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
         <li>Cached results may be up to 15 minutes old.</li>
     </ul>
 
-    <h2 class="mt-4">5. Intellectual Property</h2>
+    <h2 class="mt-4" id="dnt-limitations">5. Do Not Track (DNT) &amp; Reduced Functionality</h2>
+    <p>The Service respects the <strong>Do Not Track</strong> (DNT) signal sent by your browser. You may enable DNT in your browser settings at any time. However, enabling DNT will result in certain features being unavailable or returning reduced data, as the Service will skip all optional third-party requests to honour your privacy preference.</p>
+    <p><strong>The following features are unavailable when DNT is enabled:</strong></p>
+    <ul>
+        <li><strong>IP Geolocation</strong> — Server location data (city, country, ISP, AS number) will not be displayed, as this requires a request to an external geolocation service.</li>
+        <li><strong>Website Screenshots</strong> — Preview images of looked-up domains will not be generated, as this uses an external screenshot service.</li>
+        <li><strong>Google Safe Browsing</strong> — Malware and phishing warnings will not be shown, as this requires sending the domain to Google's API.</li>
+        <li><strong>VirusTotal Reputation</strong> — Domain reputation scores and antivirus verdicts will not be available.</li>
+        <li><strong>Have I Been Pwned (HIBP)</strong> — Data breach information for the domain will not be retrieved.</li>
+        <li><strong>QR Code Sharing</strong> — QR codes will not be generated, as this uses an external QR code API. The share URL will still be displayed as text.</li>
+        <li><strong>Usage Statistics</strong> — Your lookups will not be counted in aggregate usage statistics (this has no user-facing impact).</li>
+    </ul>
+    <p><strong>The following features remain fully available with DNT enabled:</strong></p>
+    <ul>
+        <li>WHOIS and RDAP domain lookups</li>
+        <li>DNS record queries (A, AAAA, MX, NS, TXT, CNAME)</li>
+        <li>SSL/TLS certificate information</li>
+        <li>Email security checks (SPF, DMARC, DKIM)</li>
+        <li>Subdomain discovery</li>
+        <li>Domain availability detection</li>
+        <li>Bulk lookups and domain comparison</li>
+        <li>All export features (JSON, CSV, copy, download)</li>
+        <li>Registrar reputation checks (uses local data only)</li>
+    </ul>
+    <p>We believe this is a fair balance between respecting your privacy and providing a useful service. If you require the full feature set, you may disable DNT in your browser settings.</p>
+
+    <h2 class="mt-4">6. Intellectual Property</h2>
     <p>The Service, its design, code, and branding are the intellectual property of <?php echo htmlspecialchars($vendorName); ?>. You may not copy, modify, distribute, or create derivative works of the Service without prior written permission.</p>
     <p>WHOIS and DNS data returned by the Service is subject to the terms and policies of the respective registries and registrars that provide it.</p>
 
-    <h2 class="mt-4">6. Third-Party Services</h2>
+    <h2 class="mt-4">7. Third-Party Services</h2>
     <p>The Service integrates with third-party APIs and data sources (RDAP, ip-api.com, Google Safe Browsing, VirusTotal, Have I Been Pwned, Thum.io, QR Server). Your use of features powered by these services is also subject to their respective terms of service. We are not responsible for their availability, accuracy, or data handling practices.</p>
 
-    <h2 class="mt-4">7. Domain Registration</h2>
+    <h2 class="mt-4">8. Domain Registration</h2>
     <p>The Service may display links to register available domains through third-party registrars. We do not guarantee domain availability, pricing, or the quality of service provided by any linked registrar. Domain registration transactions are between you and the registrar.</p>
 
-    <h2 class="mt-4">8. Limitation of Liability</h2>
+    <h2 class="mt-4">9. Limitation of Liability</h2>
     <p>The Service is provided <strong>"as is"</strong> and <strong>"as available"</strong> without warranties of any kind, whether express or implied, including but not limited to warranties of merchantability, fitness for a particular purpose, or non-infringement.</p>
     <p>To the fullest extent permitted by law, we shall not be liable for any direct, indirect, incidental, special, consequential, or punitive damages arising from your use of, or inability to use, the Service, including but not limited to:</p>
     <ul>
@@ -86,19 +112,19 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
         <li>Actions of third-party services integrated with the Service.</li>
     </ul>
 
-    <h2 class="mt-4">9. Service Availability</h2>
+    <h2 class="mt-4">10. Service Availability</h2>
     <p>We do not guarantee uninterrupted or error-free operation of the Service. We reserve the right to modify, suspend, or discontinue the Service (or any part of it) at any time, with or without notice.</p>
 
-    <h2 class="mt-4">10. Termination</h2>
+    <h2 class="mt-4">11. Termination</h2>
     <p>We may restrict or terminate your access to the Service at any time if we believe you have violated these terms, without prior notice or liability.</p>
 
-    <h2 class="mt-4">11. Changes to These Terms</h2>
+    <h2 class="mt-4">12. Changes to These Terms</h2>
     <p>We may update these terms from time to time. Continued use of the Service after changes constitutes acceptance of the revised terms. The "Last updated" date at the top will reflect the most recent revision.</p>
 
-    <h2 class="mt-4">12. Governing Law</h2>
+    <h2 class="mt-4">13. Governing Law</h2>
     <p>These terms are governed by and construed in accordance with the laws of England and Wales. Any disputes shall be subject to the exclusive jurisdiction of the courts of England and Wales.</p>
 
-    <h2 class="mt-4">13. Contact</h2>
+    <h2 class="mt-4">14. Contact</h2>
     <p>For enquiries regarding these terms, please contact <a href="<?php echo htmlspecialchars($vendorUrl); ?>"><?php echo htmlspecialchars($vendorName); ?></a>.</p>
 
     <hr class="mt-5">

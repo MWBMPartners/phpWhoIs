@@ -303,7 +303,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <footer class="footer">
         <div class="footer-row">
             <div class="footer-left">
-                <a href="privacy.php">Privacy Policy</a> | <a href="terms.php">Terms of Service</a>
+                <a href="privacy.php" class="footer-link">Privacy Policy</a> | <a href="terms.php" class="footer-link">Terms of Service</a>
             </div>
             <div class="footer-right">
                 <?php
@@ -313,7 +313,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                         echo " v" . htmlspecialchars($app["Application"]["Version"]["Number"]);
 
                         if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["SHA"]["Short"])){
-                            echo ' (<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" rel="noopener noreferrer" class="footer-commit">';
+                            echo ' <span style="font-size: 0.8em">(<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" rel="noopener noreferrer" class="footer-commit">';
                             echo htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["SHA"]["Short"]);
                             echo '</a>';
 
@@ -321,7 +321,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                                 echo ' ' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Date"]);
                             }
 
-                            echo ")<br>";
+                            echo ")</span><br>";
                         }
                     }
                 ?>
