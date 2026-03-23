@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [d681681] - 2026-03-23
+
+**fix: remove php_flag from .htaccess — causes 500 on PHP-FPM servers**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`d681681`](https://github.com/MWBMPartners/phpWhoIs/commit/d68168132c5141d14a8d4d8266a563d1e4fe1d14)
+
+### Changed files
+
+- `.htaccess`
+
+
 ## [cdec0d7] - 2026-03-23
 
 **fix: X-Powered-By header now includes version (Name/Version format)**
