@@ -493,6 +493,11 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             var text = document.getElementById('bulkDomains').value.trim();
             if (!text) return;
             var domains = text.split(/[\n,]+/).map(function (d) { return d.trim(); }).filter(Boolean);
+            var BULK_MAX = 50;
+            if (domains.length > BULK_MAX) {
+                showError('Maximum ' + BULK_MAX + ' domains per bulk lookup. You entered ' + domains.length + '.');
+                return;
+            }
             if (domains.length) triggerBulkLookup(domains);
         });
 
