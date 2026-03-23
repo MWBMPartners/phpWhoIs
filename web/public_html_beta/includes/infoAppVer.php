@@ -1,9 +1,9 @@
 <?php
 	//Application
-		$app["Application"]["ID"] = "Ltd.MWBMPartners.Whois";
-		$app["Application"]["Name"] = "WHOIS Lookup";
+		$app["Application"]["ID"] = "Ltd.MWBMPartners.DomainCheckr";
+		$app["Application"]["Name"] = "DomainCheckr";
 		$app["Application"]["Website"]["URL"] = NULL;
-		$app["Application"]["Description"]["Synopsis"] = "Free domain WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.";
+		$app["Application"]["Description"]["Synopsis"] = "Free domain name checker and s WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.";
 		$app["Application"]["Description"]["Keywords"] = "Domain name, Domain name registration, Whois, RDAP, DNS Records, Domain availability, Registrar information, Expiry date, Name servers, Contact information, IP address lookup, Bulk domain lookup, Domain history, Domain ownership, Domain status, Free whois lookup, Online whois tool";
 
 		//Version
