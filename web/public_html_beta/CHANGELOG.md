@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [19f3500] - 2026-03-23
+
+**style: left-align title header on mobile portrait orientation**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`19f3500`](https://github.com/MWBMPartners/phpWhoIs/commit/19f35004da5d72a85bd165ec1f78aa3b30615497)
+
+### Changed files
+
+- `assets/css/style.css`
+
+
 ## [85bdba1] - 2026-03-23
 
 **fix: resolve all WCAG 2.1 AA accessibility compliance failures (#82)**
