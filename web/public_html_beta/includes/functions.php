@@ -14,7 +14,7 @@
  * Creates the logs directory if it doesn't exist.
  */
 function appLog(string $message, string $level = 'ERROR'): void {
-    $logDir = dirname(__FILE__) . DIRECTORY_SEPARATOR . 'logs';
+    $logDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'logs';
     if (!is_dir($logDir)) {
         @mkdir($logDir, 0755, true);
     }

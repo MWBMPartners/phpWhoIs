@@ -6,7 +6,7 @@
  */
 
 // ─── Shared session config (must match index.php) ───
-require_once __DIR__ . DIRECTORY_SEPARATOR . 'session_config.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'session_config.php';
 
 // ─── Security headers ───
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
@@ -31,8 +31,12 @@ define('RATE_LIMIT_WINDOW', 60);
 define('MAX_DOMAIN_LENGTH', 253);
 define('MAX_POST_SIZE', 1024);
 
-// ─── Load functions ───
-require_once __DIR__ . DIRECTORY_SEPARATOR . 'functions.php';
+// ─── Load config & functions ───
+$config = [];
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php';
+}
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
 
 
 // ═══════════════════════════════════════════════════════════════════

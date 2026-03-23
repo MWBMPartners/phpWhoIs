@@ -10,8 +10,8 @@ header('Cache-Control: no-store');
 
 // Load app version info
 $app = [];
-if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
-    require_once __DIR__ . DIRECTORY_SEPARATOR . 'infoAppVer.php';
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php';
 }
 
 // Check dependencies
@@ -86,8 +86,8 @@ foreach ($checks as $check) {
 
 // Version info
 $version = 'unknown';
-if (isset($app['Application']['Version']['Version'])) {
-    $version = $app['Application']['Version']['Version'];
+if (isset($app['Application']['Version']['Number'])) {
+    $version = $app['Application']['Version']['Number'];
 }
 $devStatus = null;
 if (isset($app['Application']['Version']['Development']['Status'])) {

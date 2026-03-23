@@ -6,11 +6,11 @@
  * Requires debug key authentication via config.php debug_key.
  */
 
-require_once __DIR__ . DIRECTORY_SEPARATOR . 'session_config.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'session_config.php';
 
 $config = [];
-if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'config.php')) {
-    require_once __DIR__ . DIRECTORY_SEPARATOR . 'config.php';
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php';
 }
 
 // ─── Auth check (reuse debug key) ───
@@ -21,7 +21,7 @@ if (!$debugKey || !isset($_GET['key']) || !hash_equals($debugKey, $_GET['key']))
     exit;
 }
 
-require_once __DIR__ . DIRECTORY_SEPARATOR . 'functions.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
 
 if (!defined('CACHE_DIR')) {
     define('CACHE_DIR', sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'mwwhois_cache');
@@ -46,7 +46,7 @@ $stats['rate_limits'] = [
 ];
 
 // Log stats
-$logFile = __DIR__ . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'error.log';
+$logFile = __DIR__ . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'error.log'; // logs/ stays in web root
 $stats['errors'] = [
     'log_exists' => file_exists($logFile),
     'log_size' => file_exists($logFile) ? filesize($logFile) : 0,
@@ -85,8 +85,8 @@ if (isset($_GET['format']) && $_GET['format'] === 'json') {
 }
 
 // App version info
-if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
-    require_once __DIR__ . DIRECTORY_SEPARATOR . 'infoAppVer.php';
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php';
 }
 $appName = isset($app["Application"]["Name"]) ? $app["Application"]["Name"] : 'mwWhoIs';
 ?>
@@ -96,7 +96,7 @@ $appName = isset($app["Application"]["Name"]) ? $app["Application"]["Name"] : 'm
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo htmlspecialchars($appName); ?> — Admin Dashboard</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="icon" type="image/svg+xml" href="assets/images/favicon.svg">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
 </head>

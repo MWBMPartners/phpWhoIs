@@ -9,8 +9,9 @@
     </IfModule>
 </FilesMatch>
 
-# Block access to logs directory
+# Block access to logs and includes directories
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteRule ^logs/ - [F,L]
+    RewriteRule ^includes/ - [F,L]
 </IfModule>

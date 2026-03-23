@@ -5,7 +5,7 @@
  */
 
 // ─── Session & CSRF ───
-require_once __DIR__ . DIRECTORY_SEPARATOR . 'session_config.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'session_config.php';
 $csrfToken = $_SESSION['csrf_token'];
 
 // ─── Security headers ───
@@ -16,8 +16,8 @@ header("Referrer-Policy: strict-origin-when-cross-origin");
 
 // ─── Config ───
 $config = [];
-if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'config.php')) {
-    require_once __DIR__ . DIRECTORY_SEPARATOR . 'config.php';
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php';
 }
 
 // ─── Debug mode (requires matching debug key from config) ───
@@ -41,8 +41,8 @@ if ($modeDebug) {
 }
 
 // ─── App version info ───
-if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
-    require_once __DIR__ . DIRECTORY_SEPARATOR . 'infoAppVer.php';
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php';
 }
 
 // ─── Copyright helper ───
@@ -108,15 +108,15 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <meta name="csrf-token" content="<?php echo htmlspecialchars($csrfToken); ?>">
 
     <!-- Favicons: SVG > PNG > ICO > GIF (priority order) -->
-    <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="icon" type="image/png" sizes="512x512" href="favicon.png">
-    <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <link rel="icon" type="image/gif" href="favicon.gif">
-    <link rel="apple-touch-icon" href="favicon.png">
+    <link rel="icon" type="image/svg+xml" href="assets/images/favicon.svg">
+    <link rel="icon" type="image/png" sizes="512x512" href="assets/images/favicon.png">
+    <link rel="icon" type="image/x-icon" href="assets/images/favicon.ico">
+    <link rel="icon" type="image/gif" href="assets/images/favicon.gif">
+    <link rel="apple-touch-icon" href="assets/images/favicon.png">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'style.css'); ?>">
+    <link rel="stylesheet" href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'style.css'); ?>">
 </head>
 <body>
     <!-- Skip to content -->
@@ -125,7 +125,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <!-- Header -->
     <header class="header-form" role="banner">
         <div class="position-relative text-center mb-2">
-            <h1 class="mb-0"><a href="/"><img src="logo-notext.svg" alt="" style="height: 40px; vertical-align: middle;" aria-hidden="true"><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";}if(isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]){echo " <span style=\"font-size: 0.7em\">(".$app["Application"]["Version"]["Development"]["Status"].")</span>";} ?></a></h1>
+            <h1 class="mb-0"><a href="/"><img src="assets/images/logo-notext.svg" alt="" style="height: 40px; vertical-align: middle;" aria-hidden="true"><?php if(isset($app["Application"]["Name"]) && $app["Application"]["Name"]){ echo $app["Application"]["Name"];}else{ echo "Whois Lookup";}if(isset($app["Application"]["Version"]["Development"]["Status"]) && $app["Application"]["Version"]["Development"]["Status"]){echo " <span style=\"font-size: 0.7em\">(".$app["Application"]["Version"]["Development"]["Status"].")</span>";} ?></a></h1>
             <div class="d-flex gap-1 position-absolute top-50 end-0 translate-middle-y">
                 <!-- Language selector (Issue #59) -->
                 <div class="dropdown">
@@ -283,12 +283,12 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 <?php
                     echo $pageTitle;
                     
-                    if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]){
-                        echo " v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
+                    if (isset($app["Application"]["Version"]["Number"]) && $app["Application"]["Version"]["Number"]){
+                        echo " v" . htmlspecialchars($app["Application"]["Version"]["Number"]);
 
-                        if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Short"])){
+                        if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["SHA"]["Short"])){
                             echo ' (<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" rel="noopener noreferrer" class="footer-commit">';
-                            echo htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Short"]);
+                            echo htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["SHA"]["Short"]);
                             echo '</a>';
 
                             if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Date"])){

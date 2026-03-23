@@ -4,8 +4,8 @@
  */
 
 // ─── App version info ───
-if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
-    require_once __DIR__ . DIRECTORY_SEPARATOR . 'infoAppVer.php';
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php';
 }
 
 $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
@@ -18,7 +18,7 @@ $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo htmlspecialchars($appName); ?> — API Documentation</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="icon" type="image/svg+xml" href="assets/images/favicon.svg">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
     <style>
         html { box-sizing: border-box; overflow-y: scroll; }
@@ -32,7 +32,7 @@ $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
     <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
     <script>
         SwaggerUIBundle({
-            url: 'openapi.yaml',
+            url: 'assets/api/openapi.yaml',
             dom_id: '#swagger-ui',
             deepLinking: true,
             presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],

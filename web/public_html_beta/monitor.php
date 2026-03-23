@@ -18,7 +18,7 @@ define('CACHE_TTL', 900);
 define('RATE_LIMIT_MAX', 30);
 define('RATE_LIMIT_WINDOW', 60);
 
-require_once __DIR__ . DIRECTORY_SEPARATOR . 'functions.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
 
 $watchFile = CACHE_DIR . DIRECTORY_SEPARATOR . 'watched_domains.json';
 if (!file_exists($watchFile)) {
