@@ -1,0 +1,468 @@
+openapi: 3.0.3
+info:
+  title: mwWhoIs API
+  description: |
+    Domain WHOIS/RDAP lookup API providing domain registration, availability,
+    DNS records, email security, SSL/TLS certificate, and IP geolocation data.
+
+    ## Authentication
+    - **Web (default):** Requires a CSRF token from the session (`csrf_token` POST field).
+    - **JSON API (`?format=json`):** No CSRF required. CORS enabled (`Access-Control-Allow-Origin: *`).
+
+    ## Rate Limiting
+    - **30 requests per 60-second window** per session and per IP address.
+    - Exceeding the limit returns HTTP 429.
+
+    ## Caching
+    - Results are cached for **15 minutes** (900 seconds).
+    - Cached responses include `"cached": true`.
+  version: "1.15"
+  contact:
+    name: MWBM Partners Ltd
+  license:
+    name: Proprietary
+
+servers:
+  - url: /
+    description: Current server
+
+paths:
+  /lookup.php:
+    post:
+      operationId: domainLookup
+      summary: Perform a domain or IP lookup
+      description: |
+        Looks up WHOIS/RDAP data, DNS records, email security (SPF/DMARC/DKIM),
+        SSL/TLS certificate info, and IP geolocation for a domain or IP address.
+      parameters:
+        - name: format
+          in: query
+          description: Output format. Use `json` for raw JSON with CORS support and no CSRF requirement.
+          schema:
+            type: string
+            enum: [json]
+        - name: source
+          in: query
+          description: Preferred data source. Overridden by POST `source` field if provided.
+          schema:
+            type: string
+            enum: [rdap, whois]
+            default: rdap
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [domain]
+              properties:
+                domain:
+                  type: string
+                  description: Domain name or IPv4/IPv6 address to look up. Max 253 characters.
+                  example: example.com
+                  maxLength: 253
+                csrf_token:
+                  type: string
+                  description: CSRF token from session. Required unless `?format=json`.
+                  pattern: "^[a-f0-9]{64}$"
+                source:
+                  type: string
+                  description: Preferred data source.
+                  enum: [rdap, whois]
+                  default: rdap
+          multipart/form-data:
+            schema:
+              type: object
+              required: [domain]
+              properties:
+                domain:
+                  type: string
+                  maxLength: 253
+                csrf_token:
+                  type: string
+                source:
+                  type: string
+                  enum: [rdap, whois]
+      responses:
+        "200":
+          description: Successful lookup
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LookupResponse"
+              examples:
+                registered:
+                  summary: Registered domain
+                  value:
+                    domain: example.com
+                    is_ip: false
+                    availability: registered
+                    data_source: rdap
+                    whois: "Domain Name: EXAMPLE.COM\nRegistrar: Example Registrar..."
+                    cached: false
+                    parsed:
+                      Domain Name: EXAMPLE.COM
+                      Registrar: Example Registrar Inc.
+                      Creation Date: "1995-08-14"
+                      Expiry Date: "2025-08-13"
+                      Domain Age: "29 years, 7 months"
+                      Expires In: "142 days"
+                      Name Servers:
+                        - ns1.example.com
+                        - ns2.example.com
+                    dns:
+                      - type: A
+                        value: 93.184.216.34
+                      - type: MX
+                        value: mail.example.com
+                        priority: 10
+                    email_security:
+                      spf:
+                        found: true
+                        record: "v=spf1 -all"
+                        status: configured
+                      dmarc:
+                        found: true
+                        record: "v=DMARC1; p=reject"
+                        status: "strict (reject)"
+                      dkim:
+                        found: false
+                        status: "not found (checked common selectors)"
+                    ssl:
+                      subject: "*.example.com"
+                      issuer: DigiCert Inc
+                      valid_from: "2024-01-30T00:00:00Z"
+                      valid_to: "2025-03-01T23:59:59Z"
+                      serial: "0A1B2C3D4E5F"
+                      expires_in: "142 days"
+                      expired: false
+                      san:
+                        - "*.example.com"
+                        - example.com
+                    geolocation: null
+                available:
+                  summary: Available domain
+                  value:
+                    domain: not-registered-example123.com
+                    is_ip: false
+                    availability: available
+                    data_source: whois
+                    whois: "No match for \"NOT-REGISTERED-EXAMPLE123.COM\"."
+                    cached: false
+                    parsed: {}
+                    dns: []
+                    email_security:
+                      spf:
+                        found: false
+                        record: null
+                        status: missing
+                      dmarc:
+                        found: false
+                        record: null
+                        status: missing
+                      dkim:
+                        found: false
+                        status: unknown
+                    ssl: null
+                    geolocation: null
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Invalid domain name."
+        "403":
+          description: CSRF validation failed (non-JSON requests only)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Invalid request. Please refresh the page and try again."
+        "405":
+          description: Method not allowed (only POST is accepted)
+        "413":
+          description: Request body exceeds 1,024 bytes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Request too large."
+        "429":
+          description: Rate limit exceeded (30 requests per 60 seconds)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Rate limit exceeded. Please wait before trying again."
+
+  /health.php:
+    get:
+      operationId: healthCheck
+      summary: Health check endpoint
+      description: Returns system health status including PHP, cURL, whois binary, sessions, cache, and TLD data.
+      responses:
+        "200":
+          description: Health check result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+components:
+  schemas:
+    LookupResponse:
+      type: object
+      properties:
+        domain:
+          type: string
+          description: Normalised domain name or IP address.
+        is_ip:
+          type: boolean
+          description: True if the input was an IP address.
+        availability:
+          type: string
+          enum: [registered, available, unknown, "n/a"]
+          description: Domain availability status. "n/a" for IP lookups.
+        data_source:
+          type: string
+          enum: [rdap, whois]
+          description: Data source used for the lookup.
+        whois:
+          type: string
+          description: Raw WHOIS/RDAP response text (HTML-escaped in default mode, raw in JSON mode).
+        raw:
+          type: string
+          description: Raw WHOIS response text (JSON mode only).
+        cached:
+          type: boolean
+          description: True if the result was served from cache.
+        parsed:
+          $ref: "#/components/schemas/ParsedFields"
+        dns:
+          type: array
+          items:
+            $ref: "#/components/schemas/DnsRecord"
+        reverse_dns:
+          type: string
+          description: Reverse DNS hostname (IP lookups only).
+        email_security:
+          $ref: "#/components/schemas/EmailSecurity"
+        ssl:
+          $ref: "#/components/schemas/SslInfo"
+        geolocation:
+          $ref: "#/components/schemas/Geolocation"
+
+    ParsedFields:
+      type: object
+      description: Parsed WHOIS fields. Empty object if unavailable.
+      properties:
+        Domain Name:
+          type: string
+        Registrar:
+          type: string
+        Creation Date:
+          type: string
+        Expiry Date:
+          type: string
+        Updated Date:
+          type: string
+        Registrant Org:
+          type: string
+        Registrant Country:
+          type: string
+        Status:
+          type: array
+          items:
+            type: string
+        Name Servers:
+          type: array
+          items:
+            type: string
+        Domain Age:
+          type: string
+          description: "Human-readable age, e.g. '2 years, 3 months'."
+        Expires In:
+          type: string
+          description: "Days until expiry, e.g. '123 days'."
+
+    DnsRecord:
+      type: object
+      required: [type, value]
+      properties:
+        type:
+          type: string
+          enum: [A, AAAA, MX, NS, TXT, CNAME]
+        value:
+          type: string
+        priority:
+          type: integer
+          description: MX record priority (MX records only).
+
+    EmailSecurity:
+      type: object
+      description: Email security check results (domain lookups only).
+      properties:
+        spf:
+          type: object
+          properties:
+            found:
+              type: boolean
+            record:
+              type: string
+              nullable: true
+            status:
+              type: string
+              enum: [missing, configured]
+        dmarc:
+          type: object
+          properties:
+            found:
+              type: boolean
+            record:
+              type: string
+              nullable: true
+            status:
+              type: string
+              enum: [missing, configured, "strict (reject)", "moderate (quarantine)", "monitor only (none)"]
+        dkim:
+          type: object
+          properties:
+            found:
+              type: boolean
+            selector:
+              type: string
+            status:
+              type: string
+
+    SslInfo:
+      type: object
+      nullable: true
+      description: SSL/TLS certificate info. Null if unavailable.
+      properties:
+        subject:
+          type: string
+        issuer:
+          type: string
+        valid_from:
+          type: string
+          format: date-time
+        valid_to:
+          type: string
+          format: date-time
+        serial:
+          type: string
+        expires_in:
+          type: string
+          description: "Human-readable, e.g. '123 days'."
+        expired:
+          type: boolean
+        san:
+          type: array
+          items:
+            type: string
+
+    Geolocation:
+      type: object
+      nullable: true
+      description: IP geolocation info. Null if unavailable.
+      properties:
+        country:
+          type: string
+        country_code:
+          type: string
+          description: ISO 3166-1 alpha-2 code.
+        region:
+          type: string
+        city:
+          type: string
+        isp:
+          type: string
+        org:
+          type: string
+        as:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, warning, error]
+        version:
+          type: string
+        dev_status:
+          type: string
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+        checks:
+          type: object
+          properties:
+            php:
+              type: object
+              properties:
+                status:
+                  type: string
+                version:
+                  type: string
+            curl:
+              type: object
+              properties:
+                status:
+                  type: string
+                detail:
+                  type: string
+            whois:
+              type: object
+              properties:
+                status:
+                  type: string
+                detail:
+                  type: string
+            sessions:
+              type: object
+              properties:
+                status:
+                  type: string
+                detail:
+                  type: string
+            cache:
+              type: object
+              properties:
+                status:
+                  type: string
+                detail:
+                  type: string
+                cached_entries:
+                  type: integer
+            tld_data:
+              type: object
+              properties:
+                status:
+                  type: string
+                tlds_file:
+                  type: string
+                suffixes_file:
+                  type: string
+            error_log:
+              type: object
+              properties:
+                status:
+                  type: string
+                path:
+                  type: string
+                exists:
+                  type: boolean

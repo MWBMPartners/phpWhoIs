@@ -1,3 +1,29 @@
+/* ─── Skip to content link ─── */
+.skip-link:focus {
+    position: fixed;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    padding: 8px 16px;
+    background-color: #0d6efd;
+    color: #fff;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    text-decoration: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* ─── Focus indicators (WCAG 2.4.7) ─── */
+*:focus-visible {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+}
+
+[data-bs-theme="dark"] *:focus-visible {
+    outline-color: #6ea8fe;
+}
+
 /* ─── General body styling ─── */
 body {
     margin: 0;
@@ -6,17 +32,17 @@ body {
     flex-direction: column;
     height: 100vh;
     width: 100vw;
+    overflow: hidden;
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
-/* ─── Sticky header with form ─── */
+/* ─── Fixed header ─── */
 .header-form {
     background-color: #f8f9fa;
     padding: 20px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     z-index: 100;
-    position: sticky;
-    top: 0;
+    flex-shrink: 0;
 }
 
 /* ─── Title ─── */
@@ -78,13 +104,14 @@ h1 a:focus {
     }
 }
 
-/* ─── Scrollable results container ─── */
+/* ─── Scrollable results container (only this area scrolls) ─── */
 .result-container {
-    flex-grow: 1;
+    flex: 1;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 20px;
+    padding-bottom: 60px;
     background-color: #ffffff;
-    margin-bottom: 50px;
 }
 
 /* ─── Empty state ─── */
@@ -97,13 +124,39 @@ h1 a:focus {
 .footer {
     background-color: #343a40;
     color: rgba(255, 255, 255, 0.85);
-    text-align: right;
-    padding: 10px;
+    padding: 10px 20px;
     position: fixed;
     bottom: 0;
     width: 100%;
     z-index: 100;
     font-size: 0.7rem;
+    vertical-align: bottom;
+}
+
+.footer-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.footer-left {
+    text-align: left;
+}
+
+.footer-right {
+    text-align: right;
+}
+
+@media (max-width: 576px) {
+    .footer-row {
+        flex-direction: column;
+        text-align: center;
+    }
+    .footer-left,
+    .footer-right {
+        text-align: center;
+    }
 }
 
 .footer-commit,
@@ -454,4 +507,109 @@ pre {
 
 [data-bs-theme="dark"] #result.whois-selected {
     background-color: rgba(13, 110, 253, 0.1);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   COLOURBLIND-SAFE THEME — Wong/Tol palette, pattern differentiators
+   Avoids red/green reliance; uses blue, orange, purple, amber.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Alerts ── */
+[data-theme="colourblind"] .alert-success {
+    background-color: #d4e8f7;
+    border-color: #0077BB;
+    border-left: 5px solid #0077BB;
+    color: #004a75;
+}
+
+[data-theme="colourblind"] .alert-info {
+    background-color: #e8dfe8;
+    border-color: #882255;
+    border-left: 5px dashed #882255;
+    color: #5a1639;
+}
+
+[data-theme="colourblind"] .alert-danger {
+    background-color: #fce4d4;
+    border-color: #EE7733;
+    border-left: 5px double #EE7733;
+    color: #8a3f10;
+}
+
+[data-theme="colourblind"] .alert-warning {
+    background-color: #f5f0d0;
+    border-color: #CCBB44;
+    border-left: 5px dotted #CCBB44;
+    color: #6b6010;
+}
+
+/* ── Badges ── */
+[data-theme="colourblind"] .badge.bg-success {
+    background-color: #0077BB !important;
+    color: #fff;
+}
+
+[data-theme="colourblind"] .badge.bg-info {
+    background-color: #882255 !important;
+    color: #fff;
+}
+
+[data-theme="colourblind"] .badge.bg-danger {
+    background-color: #EE7733 !important;
+    color: #fff;
+}
+
+[data-theme="colourblind"] .badge.bg-warning {
+    background-color: #CCBB44 !important;
+    color: #000;
+}
+
+/* ── Text utilities ── */
+[data-theme="colourblind"] .text-success {
+    color: #0077BB !important;
+}
+
+[data-theme="colourblind"] .text-danger {
+    color: #EE7733 !important;
+}
+
+[data-theme="colourblind"] .text-warning {
+    color: #997700 !important;
+}
+
+/* ── Table row highlights ── */
+[data-theme="colourblind"] .table-danger {
+    background-color: rgba(238, 119, 51, 0.15) !important;
+    color: #8a3f10;
+}
+
+[data-theme="colourblind"] .table-warning {
+    background-color: rgba(204, 187, 68, 0.15) !important;
+    color: #6b6010;
+}
+
+/* ── Buttons ── */
+[data-theme="colourblind"] .btn-success,
+[data-theme="colourblind"] .alert-success a.btn-success {
+    background-color: #0077BB;
+    border-color: #0077BB;
+    color: #fff;
+}
+
+[data-theme="colourblind"] .btn-success:hover {
+    background-color: #005f96;
+    border-color: #005f96;
+}
+
+[data-theme="colourblind"] .btn-danger {
+    background-color: #EE7733;
+    border-color: #EE7733;
+    color: #fff;
+}
+
+[data-theme="colourblind"] .btn-warning {
+    background-color: #CCBB44;
+    border-color: #CCBB44;
+    color: #000;
 }

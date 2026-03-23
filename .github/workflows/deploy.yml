@@ -97,7 +97,7 @@ jobs:
       - name: Set production dev status to NULL
         if: steps.changes.outputs.has_changes == 'true' && github.ref_name == 'main'
         run: |
-          VERFILE="${{ steps.target.outputs.source_dir }}infoAppVer.php"
+          VERFILE="${{ steps.target.outputs.source_dir }}includes/infoAppVer.php"
           if [[ -f "$VERFILE" ]]; then
             sed -i 's/\["Development"\]\["Status"\] = ".*"/["Development"]["Status"] = NULL/' "$VERFILE"
             echo "Set Development Status to NULL in $VERFILE"
@@ -111,10 +111,10 @@ jobs:
           SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-7)
           COMMIT_DATE=$(git log -1 --format="%cd" --date=format:"%Y-%m-%d %H:%M")
           REPO_URL="https://github.com/${{ github.repository }}"
-          VERFILE="${SOURCE_DIR}infoAppVer.php"
+          VERFILE="${SOURCE_DIR}includes/infoAppVer.php"
           if [[ -f "$VERFILE" ]]; then
-            sed -i "s|\[\"Commit\"\]\[\"SHA\"\] = NULL|\[\"Commit\"\]\[\"SHA\"\] = \"${COMMIT_SHA}\"|" "$VERFILE"
-            sed -i "s|\[\"Commit\"\]\[\"Short\"\] = NULL|\[\"Commit\"\]\[\"Short\"\] = \"${SHORT_SHA}\"|" "$VERFILE"
+            sed -i "s|\[\"Commit\"\]\[\"SHA\"\]\[\"Full\"\] = NULL|\[\"Commit\"\]\[\"SHA\"\]\[\"Full\"\] = \"${COMMIT_SHA}\"|" "$VERFILE"
+            sed -i "s|\[\"Commit\"\]\[\"SHA\"\]\[\"Short\"\] = NULL|\[\"Commit\"\]\[\"SHA\"\]\[\"Short\"\] = \"${SHORT_SHA}\"|" "$VERFILE"
             sed -i "s|\[\"Commit\"\]\[\"Date\"\] = NULL|\[\"Commit\"\]\[\"Date\"\] = \"${COMMIT_DATE}\"|" "$VERFILE"
             sed -i "s|\[\"Commit\"\]\[\"URL\"\] = NULL|\[\"Commit\"\]\[\"URL\"\] = \"${REPO_URL}/commit/${COMMIT_SHA}\"|" "$VERFILE"
             echo "Injected build info into infoAppVer.php - ${SHORT_SHA} @ ${COMMIT_DATE}"
@@ -150,7 +150,7 @@ jobs:
           cat > /tmp/lftp_script.txt <<LFTP_EOF
           set sftp:connect-program "ssh -o StrictHostKeyChecking=no -i $HOME/.ssh/deploy_key"
           open sftp://${SFTP_USER}@${SFTP_HOST}:${SFTP_PORT}
-          mirror --reverse --verbose --only-newer --no-empty-dirs --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md ${SOURCE_DIR} ${REMOTE_PATH}
+          mirror --reverse --delete --verbose --only-newer --no-empty-dirs --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md --exclude tlds.txt --exclude second_level_suffixes.txt --exclude tld_metadata.json --exclude logs/ ${SOURCE_DIR} ${REMOTE_PATH}
           bye
           LFTP_EOF
           lftp -f /tmp/lftp_script.txt
@@ -165,7 +165,7 @@ jobs:
           SOURCE_DIR: ${{ steps.target.outputs.source_dir }}
           REMOTE_PATH: ${{ steps.target.outputs.remote_path }}
         run: |
-          lftp -u "${SFTP_USER},${SFTP_PASS}" -e "set sftp:auto-confirm yes; set ssl:verify-certificate no; mirror --reverse --verbose --only-newer --no-empty-dirs --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md ${SOURCE_DIR} ${REMOTE_PATH}; bye" "sftp://${SFTP_HOST}:${SFTP_PORT}"
+          lftp -u "${SFTP_USER},${SFTP_PASS}" -e "set sftp:auto-confirm yes; set ssl:verify-certificate no; mirror --reverse --delete --verbose --only-newer --no-empty-dirs --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md --exclude tlds.txt --exclude second_level_suffixes.txt --exclude tld_metadata.json --exclude logs/ ${SOURCE_DIR} ${REMOTE_PATH}; bye" "sftp://${SFTP_HOST}:${SFTP_PORT}"
 
       - name: Deployment summary
         if: steps.changes.outputs.has_changes == 'true'

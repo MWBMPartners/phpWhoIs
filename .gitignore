@@ -19,6 +19,11 @@ npm-debug.log*
 dist/
 build/
 
+# PHP / Composer
+vendor/
+composer.lock
+.phpunit.cache/
+
 # Auto-generated TLD data (fetched at runtime)
 tlds.txt
 tld_metadata.json

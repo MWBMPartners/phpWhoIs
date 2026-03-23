@@ -6,7 +6,7 @@
  */
 
 // ─── Shared session config (must match index.php) ───
-require_once __DIR__ . DIRECTORY_SEPARATOR . 'session_config.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'session_config.php';
 
 // ─── Security headers ───
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
@@ -31,545 +31,12 @@ define('RATE_LIMIT_WINDOW', 60);
 define('MAX_DOMAIN_LENGTH', 253);
 define('MAX_POST_SIZE', 1024);
 
-
-// ═══════════════════════════════════════════════════════════════════
-//  Security helpers
-// ═══════════════════════════════════════════════════════════════════
-
-function validateCsrfToken(): bool {
-    if (empty($_POST['csrf_token']) || empty($_SESSION['csrf_token'])) {
-        return false;
-    }
-    return hash_equals($_SESSION['csrf_token'], $_POST['csrf_token']);
+// ─── Load config & functions ───
+$config = [];
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php';
 }
-
-function checkRateLimit(): bool {
-    $now = time();
-
-    if (!isset($_SESSION['rate_limit']) || ($now - $_SESSION['rate_limit']['start']) > RATE_LIMIT_WINDOW) {
-        $_SESSION['rate_limit'] = ['count' => 0, 'start' => $now];
-    }
-
-    $_SESSION['rate_limit']['count']++;
-
-    return $_SESSION['rate_limit']['count'] <= RATE_LIMIT_MAX;
-}
-
-/**
- * Validate that input does not exceed maximum allowed size.
- * Prevents memory exhaustion from oversized POST data.
- */
-function validateInputSize(): bool {
-    $contentLength = 0;
-    if (isset($_SERVER['CONTENT_LENGTH'])) {
-        $contentLength = (int)$_SERVER['CONTENT_LENGTH'];
-    }
-
-    if ($contentLength > MAX_POST_SIZE) {
-        return false;
-    }
-
-    return true;
-}
-
-
-// ═══════════════════════════════════════════════════════════════════
-//  Result caching
-// ═══════════════════════════════════════════════════════════════════
-
-function getCached(string $domain): ?string {
-    $file = CACHE_DIR . DIRECTORY_SEPARATOR . md5($domain) . '.json';
-
-    if (!file_exists($file)) {
-        return null;
-    }
-
-    $data = json_decode(file_get_contents($file), true);
-
-    if (!$data || (time() - $data['ts']) >= CACHE_TTL) {
-        return null;
-    }
-
-    return $data['result'];
-}
-
-function setCache(string $domain, string $result): void {
-    if (!is_dir(CACHE_DIR)) {
-        @mkdir(CACHE_DIR, 0755, true);
-    }
-
-    $cacheFile = CACHE_DIR . DIRECTORY_SEPARATOR . md5($domain) . '.json';
-    file_put_contents($cacheFile, json_encode(['ts' => time(), 'result' => $result]));
-}
-
-
-// ═══════════════════════════════════════════════════════════════════
-//  TLD & Second-Level Suffix Lists (auto-updating)
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * Updates both lists daily:
- *  1. IANA root zone TLDs (~25KB from data.iana.org)
- *  2. Second-level suffixes extracted from Mozilla PSL ICANN section (~5KB)
- */
-function updateTldDataIfNeeded(): void {
-    if (file_exists(TLD_META_PATH)) {
-        $meta = json_decode(file_get_contents(TLD_META_PATH), true);
-        if (isset($meta['checked_at']) && (time() - $meta['checked_at']) < 86400) {
-            return;
-        }
-    }
-
-    $ctx = stream_context_create(['http' => ['timeout' => 5]]);
-
-    // 1. Fetch IANA TLD list
-    $tldResponse = @file_get_contents(IANA_TLD_URL, false, $ctx);
-    if ($tldResponse !== false) {
-        file_put_contents(IANA_TLD_PATH, $tldResponse);
-    }
-
-    // 2. Fetch Mozilla PSL → extract ICANN second-level suffixes only
-    $pslResponse = @file_get_contents(PSL_ICANN_URL, false, $ctx);
-    if ($pslResponse !== false) {
-        $suffixes = extractSecondLevelSuffixes($pslResponse);
-        file_put_contents(SL_SUFFIXES_PATH, implode("\n", $suffixes));
-    }
-
-    file_put_contents(TLD_META_PATH, json_encode(['checked_at' => time()]));
-}
-
-/**
- * Parses the Mozilla PSL and extracts only multi-part ICANN suffixes
- * (e.g. co.uk, com.au) — ignores single TLDs and private domains.
- */
-function extractSecondLevelSuffixes(string $pslContent): array {
-    $suffixes = [];
-    $inIcann = false;
-
-    foreach (explode("\n", $pslContent) as $line) {
-        $line = trim($line);
-
-        if ($line === '// ===BEGIN ICANN DOMAINS===') {
-            $inIcann = true;
-            continue;
-        }
-
-        if ($line === '// ===END ICANN DOMAINS===') {
-            break;
-        }
-
-        if (!$inIcann || $line === '' || strpos($line, '//') === 0) {
-            continue;
-        }
-
-        // Only keep multi-part entries (contain a dot) — skip wildcard/negation entries
-        if (strpos($line, '.') !== false && strpos($line, '*') !== 0 && strpos($line, '!') !== 0) {
-            $suffixes[] = strtolower($line);
-        }
-    }
-
-    return array_unique($suffixes);
-}
-
-function loadSecondLevelSuffixes(): array {
-    if (!file_exists(SL_SUFFIXES_PATH)) {
-        return [];
-    }
-
-    $lines = file(SL_SUFFIXES_PATH, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    $trimmed = array_map('trim', $lines);
-
-    return array_filter($trimmed, function($line) {
-        return $line !== '';
-    });
-}
-
-function extractRegistrableDomain(string $domain): string {
-    $parts = explode('.', strtolower($domain));
-
-    if (count($parts) <= 2) {
-        return implode('.', $parts);
-    }
-
-    $suffixes = loadSecondLevelSuffixes();
-
-    // Check longest match first (3-part, then 2-part suffixes)
-    for ($len = min(3, count($parts) - 1); $len >= 2; $len--) {
-        $candidate = implode('.', array_slice($parts, -$len));
-        if (in_array($candidate, $suffixes)) {
-            return implode('.', array_slice($parts, -($len + 1)));
-        }
-    }
-
-    // Default: last two parts
-    return implode('.', array_slice($parts, -2));
-}
-
-
-// ═══════════════════════════════════════════════════════════════════
-//  Domain input handling
-// ═══════════════════════════════════════════════════════════════════
-
-function sanitizeDomainInput(string $input): string {
-    $input = trim($input);
-
-    // Reject excessively long input
-    if (strlen($input) > MAX_DOMAIN_LENGTH) {
-        return '';
-    }
-
-    // Strip null bytes (injection vector)
-    $input = str_replace("\0", '', $input);
-
-    $input = filter_var($input, FILTER_SANITIZE_URL);
-
-    $host = parse_url($input, PHP_URL_HOST);
-    if (!$host) {
-        $host = $input;
-    }
-
-    $host = preg_replace('/^www\./i', '', $host);
-
-    return extractRegistrableDomain(strtolower($host));
-}
-
-function isValidDomain(string $domain): bool {
-    // Length check
-    if (strlen($domain) === 0 || strlen($domain) > MAX_DOMAIN_LENGTH) {
-        return false;
-    }
-
-    // Must not contain shell-dangerous characters
-    if (preg_match('/[;&|`$(){}\\\\<>\'"!#]/', $domain)) {
-        return false;
-    }
-
-    // Standard domain format validation
-    return (bool) preg_match('/^(?!-)(?:[a-zA-Z0-9-]{1,63}\.)+[a-zA-Z]{2,}$/', $domain);
-}
-
-
-// ═══════════════════════════════════════════════════════════════════
-//  Availability detection
-// ═══════════════════════════════════════════════════════════════════
-
-function detectAvailability(string $text): string {
-    // Positive registration indicators take priority
-    if (preg_match('/Registrar:\s*\S+/i', $text) ||
-        preg_match('/Creat(?:ion|ed) Date:\s*\S+/i', $text) ||
-        preg_match('/Registry Domain ID:\s*\S+/i', $text)) {
-        return 'registered';
-    }
-
-    // Explicit "not found" patterns (anchored to start of line to avoid boilerplate matches)
-    $patterns = [
-        '/^No match for /mi',
-        '/^NOT FOUND\b/mi',
-        '/^No Data Found/mi',
-        '/^No entries found/mi',
-        '/^Domain not found/mi',
-        '/^The queried object does not exist/mi',
-        '/^This query returned 0 objects/mi',
-        '/^Object does not exist/mi',
-        '/^Status:\s*free\b/mi',
-        '/^%% No entries found/mi',
-    ];
-
-    foreach ($patterns as $p) {
-        if (preg_match($p, $text)) {
-            return 'available';
-        }
-    }
-
-    return 'registered';
-}
-
-
-// ═══════════════════════════════════════════════════════════════════
-//  DNS records
-// ═══════════════════════════════════════════════════════════════════
-
-function getDnsRecords(string $domain): array {
-    $records = [];
-    $typeMap = [
-        DNS_A => 'A',
-        DNS_AAAA => 'AAAA',
-        DNS_MX => 'MX',
-        DNS_NS => 'NS',
-        DNS_TXT => 'TXT',
-        DNS_CNAME => 'CNAME',
-    ];
-
-    foreach ($typeMap as $const => $name) {
-        $result = @dns_get_record($domain, $const);
-
-        if (!$result) {
-            continue;
-        }
-
-        foreach ($result as $rec) {
-            $entry = ['type' => $name, 'value' => ''];
-
-            switch ($const) {
-                case DNS_A:
-                    if (isset($rec['ip'])) {
-                        $entry['value'] = $rec['ip'];
-                    }
-                    break;
-                case DNS_AAAA:
-                    if (isset($rec['ipv6'])) {
-                        $entry['value'] = $rec['ipv6'];
-                    }
-                    break;
-                case DNS_MX:
-                    if (isset($rec['target'])) {
-                        $entry['value'] = $rec['target'];
-                    }
-                    if (isset($rec['pri'])) {
-                        $entry['priority'] = $rec['pri'];
-                    }
-                    break;
-                case DNS_NS:
-                case DNS_CNAME:
-                    if (isset($rec['target'])) {
-                        $entry['value'] = $rec['target'];
-                    }
-                    break;
-                case DNS_TXT:
-                    if (isset($rec['txt'])) {
-                        $entry['value'] = $rec['txt'];
-                    }
-                    break;
-            }
-
-            $records[] = $entry;
-        }
-    }
-
-    return $records;
-}
-
-
-// ═══════════════════════════════════════════════════════════════════
-//  WHOIS field parsing
-// ═══════════════════════════════════════════════════════════════════
-
-function parseWhoisFields(string $text): array {
-    $fields = [];
-
-    $single = [
-        'Domain Name'        => '/Domain Name:\s*(.+)/i',
-        'Registrar'          => '/Registrar:\s*(.+)/i',
-        'Creation Date'      => '/Creat(?:ion|ed) Date:\s*(.+)/i',
-        'Expiry Date'        => '/Expir(?:y|ation) Date:\s*(.+)/i',
-        'Updated Date'       => '/Updated Date:\s*(.+)/i',
-        'Registrant Org'     => '/Registrant Organi[sz]ation:\s*(.+)/i',
-        'Registrant Country' => '/Registrant Country:\s*(.+)/i',
-    ];
-
-    foreach ($single as $label => $regex) {
-        if (preg_match($regex, $text, $m)) {
-            $fields[$label] = trim($m[1]);
-        }
-    }
-
-    // Multi-value fields
-    if (preg_match_all('/Domain Status:\s*(.+)/i', $text, $m)) {
-        $fields['Status'] = array_map('trim', $m[1]);
-    }
-
-    if (preg_match_all('/Name Server:\s*(.+)/i', $text, $m)) {
-        $fields['Name Servers'] = array_map('trim', $m[1]);
-    }
-
-    // Domain age (Issue #20)
-    if (isset($fields['Creation Date'])) {
-        $creationTime = strtotime($fields['Creation Date']);
-        if ($creationTime) {
-            $now = new DateTime();
-            $created = new DateTime('@' . $creationTime);
-            $diff = $created->diff($now);
-
-            $ageParts = [];
-            if ($diff->y > 0) {
-                $ageParts[] = $diff->y . ' year' . ($diff->y !== 1 ? 's' : '');
-            }
-            if ($diff->m > 0) {
-                $ageParts[] = $diff->m . ' month' . ($diff->m !== 1 ? 's' : '');
-            }
-            if (empty($ageParts) && $diff->d > 0) {
-                $ageParts[] = $diff->d . ' day' . ($diff->d !== 1 ? 's' : '');
-            }
-
-            if (!empty($ageParts)) {
-                $fields['Domain Age'] = implode(', ', $ageParts);
-            }
-        }
-    }
-
-    // Expiry countdown
-    if (isset($fields['Expiry Date'])) {
-        $expiryTime = strtotime($fields['Expiry Date']);
-        if ($expiryTime) {
-            $daysLeft = (int)ceil(($expiryTime - time()) / 86400);
-            $fields['Expires In'] = $daysLeft . ' days';
-        }
-    }
-
-    return $fields;
-}
-
-
-// ═══════════════════════════════════════════════════════════════════
-//  RDAP lookup
-// ═══════════════════════════════════════════════════════════════════
-
-function rdapLookup(string $domain): ?array {
-    $url = "https://rdap.org/domain/" . urlencode($domain);
-
-    if (function_exists('curl_init')) {
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS      => 5,
-            CURLOPT_TIMEOUT        => 5,
-            CURLOPT_CONNECTTIMEOUT => 3,
-            CURLOPT_HTTPHEADER     => ['Accept: application/rdap+json'],
-            CURLOPT_USERAGENT      => 'mwWhoisLookup/1.0',
-            CURLOPT_PROTOCOLS      => CURLPROTO_HTTPS,
-        ]);
-        $response = curl_exec($ch);
-        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response === false || $code >= 400) {
-            return null;
-        }
-    } else {
-        $ctx = stream_context_create([
-            'http' => [
-                'header' => "Accept: application/rdap+json\r\n",
-                'timeout' => 5,
-                'follow_location' => 1,
-                'max_redirects' => 5,
-                'ignore_errors' => true,
-            ],
-            'ssl' => [
-                'verify_peer' => true,
-                'verify_peer_name' => true,
-            ],
-        ]);
-        $response = @file_get_contents($url, false, $ctx);
-
-        if ($response === false) {
-            return null;
-        }
-    }
-
-    $data = json_decode($response, true);
-
-    if (!$data) {
-        return null;
-    }
-
-    if (isset($data['errorCode'])) {
-        return null;
-    }
-
-    return $data;
-}
-
-function formatRdapResponse(array $rdap): string {
-    $lines = [];
-
-    if (isset($rdap['ldhName'])) {
-        $lines[] = "Domain Name: " . strtoupper($rdap['ldhName']);
-    }
-
-    if (isset($rdap['status']) && is_array($rdap['status'])) {
-        foreach ($rdap['status'] as $s) {
-            $lines[] = "Domain Status: " . $s;
-        }
-    }
-
-    if (isset($rdap['events']) && is_array($rdap['events'])) {
-        foreach ($rdap['events'] as $e) {
-            $action = '';
-            if (isset($e['eventAction'])) {
-                $action = ucfirst($e['eventAction']);
-            }
-
-            $date = '';
-            if (isset($e['eventDate'])) {
-                $date = $e['eventDate'];
-            }
-
-            $lines[] = $action . ": " . $date;
-        }
-    }
-
-    if (isset($rdap['entities']) && is_array($rdap['entities'])) {
-        foreach ($rdap['entities'] as $entity) {
-            $roles = '';
-            if (isset($entity['roles'])) {
-                $roles = implode(', ', $entity['roles']);
-            }
-
-            $handle = '';
-            if (isset($entity['handle'])) {
-                $handle = $entity['handle'];
-            }
-
-            if ($roles) {
-                $lines[] = ucfirst($roles) . ": " . $handle;
-            }
-
-            if (isset($entity['vcardArray'][1]) && is_array($entity['vcardArray'][1])) {
-                foreach ($entity['vcardArray'][1] as $vc) {
-                    if ($vc[0] === 'fn') {
-                        $lines[] = "  Name: " . $vc[3];
-                    }
-                    if ($vc[0] === 'org') {
-                        if (is_array($vc[3])) {
-                            $lines[] = "  Organization: " . $vc[3][0];
-                        } else {
-                            $lines[] = "  Organization: " . $vc[3];
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (isset($rdap['nameservers']) && is_array($rdap['nameservers'])) {
-        foreach ($rdap['nameservers'] as $ns) {
-            $nsName = '';
-            if (isset($ns['ldhName'])) {
-                $nsName = $ns['ldhName'];
-            }
-            $lines[] = "Name Server: " . $nsName;
-        }
-    }
-
-    return implode("\n", $lines);
-}
-
-
-// ═══════════════════════════════════════════════════════════════════
-//  JSON response helper
-// ═══════════════════════════════════════════════════════════════════
-
-function sendJson(array $data, int $status = 200): void {
-    http_response_code($status);
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-    exit;
-}
-
-function sendError(string $message, int $status = 400): void {
-    sendJson(['error' => $message], $status);
-}
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -606,94 +73,221 @@ if ($sourceParam !== 'rdap' && $sourceParam !== 'whois') {
     $sourceParam = 'rdap';
 }
 
-// CSRF (skip for JSON API requests)
-if (!$jsonFormat && !validateCsrfToken()) {
+// API key authentication (Issue #61)
+$apiKeyConfig = null;
+$apiKeyHeader = isset($_SERVER['HTTP_X_API_KEY']) ? trim($_SERVER['HTTP_X_API_KEY']) : '';
+if ($apiKeyHeader) {
+    $apiKeyConfig = validateApiKey($apiKeyHeader);
+    if (!$apiKeyConfig) {
+        sendError('Invalid API key.', 401);
+    }
+    $jsonFormat = true; // API key users always get JSON
+}
+
+// CSRF (skip for JSON API requests and API key users)
+if (!$jsonFormat && !$apiKeyConfig && !validateCsrfToken()) {
     sendError('Invalid request. Please refresh the page and try again.', 403);
 }
 
-// Rate limit
-if (!checkRateLimit()) {
+// Rate limit — use API key tier limit if applicable
+$rateLimit = $apiKeyConfig ? getApiKeyRateLimit($apiKeyConfig) : RATE_LIMIT_MAX;
+if (!checkRateLimit() || !checkIpRateLimit()) {
     sendError('Rate limit exceeded. Please wait before trying again.', 429);
 }
 
 // Update TLD data (IANA + second-level suffixes, throttled to once per day)
 updateTldDataIfNeeded();
 
-// Parse & validate domain
+// Parse & validate input
 $rawDomainInput = '';
 if (isset($_POST['domain'])) {
-    $rawDomainInput = (string)$_POST['domain'];
-}
-$domain = sanitizeDomainInput($rawDomainInput);
-
-if (!$domain || !isValidDomain($domain)) {
-    sendError('Invalid domain name.');
+    $rawDomainInput = trim((string)$_POST['domain']);
 }
 
-// ─── Lookup pipeline ───
-$whoisText = getCached($domain);
-$fromCache = ($whoisText !== null);
-$dataSource = 'whois';
+// ─── Check if input is an IP address (Issue #45) ───
+$isIpLookup = isIpAddress($rawDomainInput);
+$reverseDns = null;
 
-// Try RDAP first (unless source=whois or cached)
-if (!$fromCache && $sourceParam === 'rdap') {
-    $rdap = rdapLookup($domain);
-    if ($rdap) {
-        $dataSource = 'rdap';
-        $whoisText = formatRdapResponse($rdap);
+if ($isIpLookup) {
+    $domain = $rawDomainInput;
+    $reverseDns = reverseDnsLookup($domain);
+    $whoisText = ipWhoisLookup($domain);
+    $dataSource = 'whois';
+    $fromCache = false;
+    $availability = 'n/a';
+    $parsed = [];
+    $dns = [];
+
+    if ($reverseDns) {
+        $parsed['PTR Hostname'] = $reverseDns;
+        $dns = getDnsRecords($reverseDns);
+    }
+} else {
+    $domain = sanitizeDomainInput($rawDomainInput);
+
+    if (!$domain || !isValidDomain($domain)) {
+        sendError('Invalid domain name.');
+    }
+
+    // ─── Lookup pipeline ───
+    $whoisText = getCached($domain);
+    $fromCache = ($whoisText !== null);
+    $dataSource = 'whois';
+
+    if ($fromCache) {
+        trackLookup('cache_hit', $domain);
+    }
+
+    // Try RDAP first (unless source=whois or cached)
+    if (!$fromCache && $sourceParam === 'rdap') {
+        $rdap = rdapLookup($domain);
+        if ($rdap) {
+            $dataSource = 'rdap';
+            $whoisText = formatRdapResponse($rdap);
+            trackLookup('rdap', $domain);
+        }
+    }
+
+    // Fall back to system WHOIS
+    if (!$whoisText) {
+        $whoisText = shell_exec("whois " . escapeshellarg($domain) . " 2>&1");
+        $dataSource = 'whois';
+        trackLookup('whois', $domain);
+    }
+
+    // Cache result
+    if ($whoisText && !$fromCache) {
+        setCache($domain, $whoisText);
+    }
+
+    // Build response
+    $availability = 'unknown';
+    if ($whoisText) {
+        $availability = detectAvailability($whoisText);
+    }
+
+    $parsed = [];
+    if ($whoisText) {
+        $parsed = parseWhoisFields($whoisText);
+    }
+
+    $dns = getDnsRecords($domain);
+}
+
+// Email security check (Issue #56) — only for domain lookups
+$emailSecurity = [];
+if (!$isIpLookup && $domain) {
+    $emailSecurity = checkEmailSecurity($domain);
+}
+
+// SSL/TLS certificate info (Issue #19) — only for domain lookups
+$sslInfo = null;
+if (!$isIpLookup && $domain) {
+    $sslInfo = getSslInfo($domain);
+}
+
+// Registrar reputation check (Issue #51)
+$registrarReputation = null;
+if (!empty($parsed['Registrar'])) {
+    $registrarReputation = checkRegistrarReputation($parsed['Registrar']);
+}
+
+// Google Safe Browsing (Issue #52) — only if API key configured
+$safeBrowsing = null;
+if (!$isIpLookup && $domain && !empty($config['safe_browsing_api_key'])) {
+    $safeBrowsing = checkSafeBrowsing($domain, $config['safe_browsing_api_key']);
+}
+
+// VirusTotal (Issue #53) — only if API key configured
+$virusTotal = null;
+if (!$isIpLookup && $domain && !empty($config['virustotal_api_key'])) {
+    $virusTotal = checkVirusTotal($domain, $config['virustotal_api_key']);
+}
+
+// Have I Been Pwned (Issue #65) — only if API key configured
+$hibp = null;
+if (!$isIpLookup && $domain && !empty($config['hibp_api_key'])) {
+    $hibp = checkHibpDomain($domain, $config['hibp_api_key']);
+}
+
+// Screenshot URL (Issue #55) — generate if enabled
+$screenshotUrl = null;
+if (!$isIpLookup && $domain && !empty($config['screenshot_enabled'])) {
+    $screenshotUrl = 'https://image.thum.io/get/width/600/' . urlencode('https://' . $domain);
+}
+
+// Subdomain discovery (Issue #46) — only for domain lookups
+$subdomains = [];
+if (!$isIpLookup && $domain) {
+    $subdomains = discoverSubdomains($domain);
+}
+
+// IP geolocation (Issue #18) — for first A record, or for IP lookups
+$geolocation = null;
+if ($isIpLookup) {
+    $geolocation = getIpGeolocation($domain);
+} elseif (!empty($dns)) {
+    foreach ($dns as $record) {
+        if ($record['type'] === 'A' && !empty($record['value'])) {
+            $geolocation = getIpGeolocation($record['value']);
+            break;
+        }
     }
 }
-
-// Fall back to system WHOIS
-if (!$whoisText) {
-    $whoisText = shell_exec("whois " . escapeshellarg($domain) . " 2>&1");
-    $dataSource = 'whois';
-}
-
-// Cache result
-if ($whoisText && !$fromCache) {
-    setCache($domain, $whoisText);
-}
-
-// Build response
-$availability = 'unknown';
-if ($whoisText) {
-    $availability = detectAvailability($whoisText);
-}
-
-$parsed = [];
-if ($whoisText) {
-    $parsed = parseWhoisFields($whoisText);
-}
-
-$dns = getDnsRecords($domain);
 
 if ($jsonFormat) {
     header('Access-Control-Allow-Origin: *');
     header('Access-Control-Allow-Methods: POST');
     header('Access-Control-Allow-Headers: Content-Type');
-    sendJson([
+    $response = [
         'domain'       => $domain,
+        'is_ip'        => $isIpLookup,
         'availability' => $availability,
         'data_source'  => $dataSource,
         'parsed'       => $parsed,
         'dns'          => $dns,
         'raw'          => $whoisText,
         'cached'       => $fromCache,
-    ]);
+        'email_security' => $emailSecurity,
+        'ssl' => $sslInfo,
+        'geolocation' => $geolocation,
+        'subdomains' => $subdomains,
+        'registrar_reputation' => $registrarReputation,
+        'safe_browsing' => $safeBrowsing,
+        'virustotal' => $virusTotal,
+        'screenshot_url' => $screenshotUrl,
+        'hibp' => $hibp,
+    ];
+    if ($reverseDns) {
+        $response['reverse_dns'] = $reverseDns;
+    }
+    sendJson($response);
 } else {
     $whoisOutput = '';
     if ($whoisText) {
         $whoisOutput = $whoisText;
     }
 
-    sendJson([
+    $response = [
         'whois'        => htmlspecialchars($whoisOutput, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+        'is_ip'        => $isIpLookup,
         'availability' => $availability,
         'data_source'  => $dataSource,
         'parsed'       => $parsed,
         'dns'          => $dns,
         'cached'       => $fromCache,
-    ]);
+        'email_security' => $emailSecurity,
+        'ssl' => $sslInfo,
+        'geolocation' => $geolocation,
+        'subdomains' => $subdomains,
+        'registrar_reputation' => $registrarReputation,
+        'safe_browsing' => $safeBrowsing,
+        'virustotal' => $virusTotal,
+        'screenshot_url' => $screenshotUrl,
+        'hibp' => $hibp,
+    ];
+    if ($reverseDns) {
+        $response['reverse_dns'] = $reverseDns;
+    }
+    sendJson($response);
 }
-

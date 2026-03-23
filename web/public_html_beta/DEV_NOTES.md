@@ -54,10 +54,10 @@ git commit -m "refactor: extract session config to shared file"
 
 ### Manual version control
 
-To manually set the version (e.g. for a major release), edit the version in `infoAppVer.php`:
+To manually set the version (e.g. for a major release), edit the version in `includes/infoAppVer.php`:
 
 ```php
-$app["Application"]["Version"]["Version"] = "2.0.0";
+$app["Application"]["Version"]["Number"] = "2.0.0";
 ```
 
 The auto-increment will continue from that version on the next push.
@@ -86,10 +86,10 @@ git push origin main --tags
 
 ## Development status
 
-The development status in `infoAppVer.php` is set automatically:
+The development status in `includes/infoAppVer.php` is set automatically:
 
 - **Deploy action (Option 1):** When deploying from `main`, the GitHub Action sets `Development Status` to `NULL` before uploading
-- **Runtime failsafe (Option 2):** `infoAppVer.php` checks `__DIR__` — if not in `public_html_beta/` or `public_html_dev/`, status is forced to `NULL`
+- **Runtime failsafe (Option 2):** `includes/infoAppVer.php` checks `__DIR__` — if not in `public_html_beta/` or `public_html_dev/`, status is forced to `NULL`
 
 ## SFTP deployment
 
@@ -116,6 +116,6 @@ Deployment is controlled by the `SFTP_ENABLED` repository variable (Settings →
 | Workflow | Trigger | Purpose |
 |---|---|---|
 | `deploy.yml` | Push to `main` or `beta` | SFTP upload of changed files |
-| `version-bump.yml` | Push to `beta` (code changes) | Auto-increment semver in `infoAppVer.php` |
+| `version-bump.yml` | Push to `beta` (code changes) | Auto-increment semver in `includes/infoAppVer.php` |
 | `changelog.yml` | Push to `main` or `beta` | Auto-append entry to `CHANGELOG.md` |
 | `release.yml` | Tag push (`v*`) | Create GitHub Release (stable or pre-release) |
