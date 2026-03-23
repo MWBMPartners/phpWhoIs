@@ -263,6 +263,15 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             </div>
         </div>
 
+        <div id="bulkProgress" class="mt-3" style="display:none;">
+            <div class="d-flex justify-content-between small text-muted mb-1">
+                <span id="bulkProgressText">Looking up 0 of 0...</span>
+                <span id="bulkProgressPercent">0%</span>
+            </div>
+            <div class="progress" style="height: 6px;">
+                <div class="progress-bar" id="bulkProgressBar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+            </div>
+        </div>
         <div id="bulkResults" class="accordion mt-3" style="display:none;"></div>
         <div id="compareResults" class="mt-3" style="display:none;"></div>
 
@@ -592,6 +601,17 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             acc.innerHTML = '';
             acc.style.display = '';
             var done = 0;
+            var total = domains.length;
+
+            // Show progress bar
+            var progressEl = document.getElementById('bulkProgress');
+            var progressBar = document.getElementById('bulkProgressBar');
+            var progressText = document.getElementById('bulkProgressText');
+            var progressPercent = document.getElementById('bulkProgressPercent');
+            progressEl.style.display = '';
+            progressBar.style.width = '0%';
+            progressText.textContent = 'Looking up 0 of ' + total + '...';
+            progressPercent.textContent = '0%';
 
             domains.forEach(function (domain, i) {
                 setTimeout(function () {
@@ -635,8 +655,16 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                             acc.appendChild(item);
                         })
                         .finally(function () {
-                            if (++done === domains.length) {
+                            ++done;
+                            var pct = Math.round((done / total) * 100);
+                            progressBar.style.width = pct + '%';
+                            progressBar.setAttribute('aria-valuenow', pct);
+                            progressText.textContent = 'Looking up ' + done + ' of ' + total + '...';
+                            progressPercent.textContent = pct + '%';
+                            if (done === total) {
                                 showLoading(false);
+                                progressText.textContent = 'Complete — ' + total + ' domains looked up';
+                                progressBar.classList.add('bg-success');
                                 if (bulkResultsData.length > 0) {
                                     document.getElementById('bulkExportButtons').style.display = 'flex';
                                 }
@@ -980,7 +1008,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         }
 
         function hideResults() {
-            ['availabilityBadge', 'dataSourceBadge', 'parsedFields', 'resultTabs', 'dnsResultPane', 'emailSecurityPane', 'sslPane', 'subdomainsPane', 'bulkResults', 'bulkExportButtons', 'compareResults'].forEach(function (id) {
+            ['availabilityBadge', 'dataSourceBadge', 'parsedFields', 'resultTabs', 'dnsResultPane', 'emailSecurityPane', 'sslPane', 'subdomainsPane', 'bulkResults', 'bulkProgress', 'bulkExportButtons', 'compareResults'].forEach(function (id) {
                 document.getElementById(id).style.display = 'none';
             });
             document.getElementById('whoisResultPane').style.display = '';
