@@ -36,10 +36,11 @@ body {
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
-/* Subpages (docs, privacy, terms) need normal scrolling */
-body.subpage {
-    overflow: auto;
-    height: auto;
+/* Subpage scrollable content area (fixed header + scrollable body + fixed footer) */
+.subpage-content {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 /* ─── Fixed header ─── */

@@ -101,7 +101,7 @@ $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
         .docs-body { padding: 0 20px 80px; }
     </style>
 </head>
-<body class="subpage">
+<body>
     <header class="docs-header header-form">
         <h1>
             <a href="/">
@@ -125,23 +125,13 @@ $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
         </div>
     </header>
 
-    <div class="docs-body">
-        <div id="swagger-ui"></div>
+    <div class="subpage-content">
+        <div class="docs-body">
+            <div id="swagger-ui"></div>
+        </div>
     </div>
 
-    <footer class="footer">
-        <div class="footer-row">
-            <div class="footer-left">
-                <a href="privacy" class="footer-link">Privacy Policy</a> | <a href="terms" class="footer-link">Terms of Service</a>
-            </div>
-            <div class="footer-right">
-                <?php echo htmlspecialchars($appName); ?>
-                <?php if (isset($app["Application"]["Version"]["Number"]) && $app["Application"]["Version"]["Number"]): ?>
-                    v<?php echo htmlspecialchars($app["Application"]["Version"]["Number"]); ?>
-                <?php endif; ?>
-            </div>
-        </div>
-    </footer>
+    <?php require __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'footer.php'; ?>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>

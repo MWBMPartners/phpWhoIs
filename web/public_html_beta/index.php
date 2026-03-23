@@ -307,36 +307,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     </main>
 
     <!-- Footer -->
-    <footer class="footer">
-        <div class="footer-row">
-            <div class="footer-left">
-                <a href="docs" class="footer-link">API Documentation</a><br>
-                <a href="privacy" class="footer-link">Privacy Policy</a> | <a href="terms" class="footer-link">Terms of Service</a>
-            </div>
-            <div class="footer-right">
-                <?php
-                    echo $pageTitle;
-                    
-                    if (isset($app["Application"]["Version"]["Number"]) && $app["Application"]["Version"]["Number"]){
-                        echo " v" . htmlspecialchars($app["Application"]["Version"]["Number"]);
-
-                        if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["SHA"]["Short"])){
-                            echo ' <span style="font-size: 0.8em">(<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" rel="noopener noreferrer" class="footer-commit">';
-                            echo htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["SHA"]["Short"]);
-                            echo '</a>';
-
-                            if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Date"])){
-                                echo ' ' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["Date"]);
-                            }
-
-                            echo ")</span><br>";
-                        }
-                    }
-                ?>
-                &copy; <?php echo htmlspecialchars("$copyrightYear $copyrightOwner"); ?>. All Rights Reserved
-            </div>
-        </div>
-    </footer>
+    <?php $appName = $pageTitle; require __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'footer.php'; ?>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
     <script>

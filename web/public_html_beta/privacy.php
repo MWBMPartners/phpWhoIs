@@ -35,7 +35,7 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'style.css'); ?>">
 </head>
-<body class="subpage">
+<body>
     <header class="header-form" style="padding: 15px 20px;">
         <div class="d-flex align-items-center justify-content-between">
             <h1 class="mb-0" style="font-size: 1.2rem;">
@@ -59,6 +59,7 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
         </div>
     </header>
 
+    <div class="subpage-content">
     <div class="container py-4" style="max-width: 800px; padding-bottom: 80px;">
     <p class="text-muted">Last updated: <?php echo date('j F Y'); ?></p>
 
@@ -163,21 +164,9 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
     <h2 class="mt-4">10. Contact</h2>
     <p>For privacy-related enquiries, please contact <a href="<?php echo htmlspecialchars($vendorUrl); ?>"><?php echo htmlspecialchars($vendorName); ?></a>.</p>
     </div>
+    </div>
 
-    <footer class="footer">
-        <div class="footer-row">
-            <div class="footer-left">
-                <a href="docs" class="footer-link">API Documentation</a><br>
-                <a href="privacy" class="footer-link">Privacy Policy</a> | <a href="terms" class="footer-link">Terms of Service</a>
-            </div>
-            <div class="footer-right">
-                <?php echo htmlspecialchars($appName); ?>
-                <?php if (isset($app["Application"]["Version"]["Number"]) && $app["Application"]["Version"]["Number"]): ?>
-                    v<?php echo htmlspecialchars($app["Application"]["Version"]["Number"]); ?>
-                <?php endif; ?>
-            </div>
-        </div>
-    </footer>
+    <?php require __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'footer.php'; ?>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
     <script>
