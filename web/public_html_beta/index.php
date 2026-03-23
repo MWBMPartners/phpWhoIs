@@ -488,6 +488,72 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         document.getElementById('clearHistory').addEventListener('click', function () { localStorage.removeItem('whoisHistory'); renderHistory(); });
         renderHistory();
 
+        // ── Domain watch list (Issue #79) ──
+        function getWatchList() { try { return JSON.parse(localStorage.getItem('whoisWatchList') || '[]'); } catch (e) { return []; } }
+        function saveWatchList(list) { localStorage.setItem('whoisWatchList', JSON.stringify(list)); }
+
+        function toggleWatch(domain, expiryDate) {
+            var list = getWatchList();
+            var idx = list.findIndex(function (w) { return w.domain === domain; });
+            if (idx !== -1) {
+                list.splice(idx, 1);
+            } else {
+                list.push({ domain: domain, expiry: expiryDate || null, added: Date.now() });
+            }
+            saveWatchList(list);
+            updateWatchButtons();
+        }
+
+        function isWatched(domain) {
+            return getWatchList().some(function (w) { return w.domain === domain; });
+        }
+
+        function updateWatchButtons() {
+            document.querySelectorAll('.watchDomainBtn').forEach(function (btn) {
+                var d = btn.dataset.domain;
+                if (isWatched(d)) {
+                    btn.innerHTML = '<i class="bi bi-eye-fill"></i>';
+                    btn.classList.remove('btn-outline-secondary');
+                    btn.classList.add('btn-info');
+                    btn.title = 'Unwatch domain';
+                } else {
+                    btn.innerHTML = '<i class="bi bi-eye"></i>';
+                    btn.classList.remove('btn-info');
+                    btn.classList.add('btn-outline-secondary');
+                    btn.title = 'Watch for expiry';
+                }
+            });
+        }
+
+        // Delegate watch button clicks
+        document.addEventListener('click', function (e) {
+            var btn = e.target.closest('.watchDomainBtn');
+            if (!btn) return;
+            var domain = btn.dataset.domain;
+            var expiry = lastLookupData && lastLookupData.parsed ? lastLookupData.parsed['Expiry Date'] : null;
+            toggleWatch(domain, expiry);
+        });
+
+        // Check watched domains on load for expiry warnings
+        (function checkWatchedExpiry() {
+            var list = getWatchList();
+            var warnings = list.filter(function (w) {
+                if (!w.expiry) return false;
+                var exp = new Date(w.expiry);
+                var diff = (exp - new Date()) / (1000 * 60 * 60 * 24);
+                return diff > 0 && diff <= 30;
+            });
+            if (warnings.length > 0) {
+                var banner = document.createElement('div');
+                banner.className = 'alert alert-warning alert-dismissible fade show m-2';
+                banner.setAttribute('role', 'alert');
+                banner.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-2"></i><strong>' + warnings.length + ' watched domain(s) expiring within 30 days:</strong> ' +
+                    warnings.map(function (w) { return '<a href="?domain=' + encodeURIComponent(w.domain) + '">' + esc(w.domain) + '</a>'; }).join(', ') +
+                    '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+                document.body.insertBefore(banner, document.body.firstChild);
+            }
+        })();
+
         // ── URL param auto-lookup ──
         var urlDomain = new URLSearchParams(window.location.search).get('domain');
         if (urlDomain) { document.getElementById('domain').value = urlDomain; triggerLookup(urlDomain); }
@@ -833,7 +899,9 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                     '<div><i class="bi bi-check-circle-fill me-2"></i><strong>' + esc(currentDomain) + '</strong> appears to be available!</div>' +
                     '<div class="d-flex gap-1 flex-wrap">' + regButtons + '</div></div>';
             } else {
-                avBadge.innerHTML = '<div class="alert alert-info d-flex align-items-center"><i class="bi bi-info-circle-fill me-2"></i><strong>' + esc(currentDomain) + '</strong>&nbsp;is registered.</div>';
+                var watchBtn = ' <button class="btn btn-outline-secondary btn-sm ms-auto watchDomainBtn" data-domain="' + esc(currentDomain) + '" title="Watch for expiry"><i class="bi bi-eye"></i></button>';
+                avBadge.innerHTML = '<div class="alert alert-info d-flex align-items-center">' +
+                    '<div><i class="bi bi-info-circle-fill me-2"></i><strong>' + esc(currentDomain) + '</strong>&nbsp;is registered.</div>' + watchBtn + '</div>';
             }
             avBadge.style.display = '';
 
