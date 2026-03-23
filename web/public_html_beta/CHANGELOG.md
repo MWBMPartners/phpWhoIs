@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [a5e5d9b] - 2026-03-23
+
+**fix: conditionally apply expose_php for both mod_php and PHP-FPM**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`a5e5d9b`](https://github.com/MWBMPartners/phpWhoIs/commit/a5e5d9b50ee5c55a0915e3fe98e8a8eaf1b8d817)
+
+### Changed files
+
+- `.htaccess`
+
+
 ## [d681681] - 2026-03-23
 
 **fix: remove php_flag from .htaccess — causes 500 on PHP-FPM servers**
