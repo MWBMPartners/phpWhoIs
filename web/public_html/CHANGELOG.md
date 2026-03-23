@@ -3,6 +3,46 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [ed7e59b] - 2026-03-23
+
+**Merge beta into main — promote live build**
+
+- Branch: `main`
+- Author: Salem874
+- Commit: [`ed7e59b`](https://github.com/MWBMPartners/phpWhoIs/commit/ed7e59b0e41072ef5b979dba4976f41230b477f3)
+
+### Changed files
+
+- `.htaccess`
+- `DEV_NOTES.md`
+- `admin.php`
+- `assets/api/openapi.yaml`
+- `assets/css/style.css`
+- `assets/images/favicon.gif`
+- `assets/images/favicon.icns`
+- `assets/images/favicon.ico`
+- `assets/images/favicon.png`
+- `assets/images/favicon.svg`
+- `assets/images/logo-notext.svg`
+- `assets/images/logo.png`
+- `assets/images/logo.svg`
+- `docs.php`
+- `favicon.gif`
+- `favicon.ico`
+- `health.php`
+- `includes/config.php`
+- `includes/functions.php`
+- `includes/infoAppVer.php`
+- `includes/session_config.php`
+- `index.php`
+- `lang/de.json`
+- `lang/en.json`
+- `lang/es.json`
+- `lang/fr.json`
+- `lookup.php`
+- `monitor.php`
+
+
 ## [9db2ddd] - 2026-03-23
 
 **Add application version info and session configuration**
