@@ -101,7 +101,7 @@ $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
         .docs-body { padding: 0 20px 80px; }
     </style>
 </head>
-<body>
+<body class="subpage">
     <header class="docs-header header-form">
         <h1>
             <a href="/">
