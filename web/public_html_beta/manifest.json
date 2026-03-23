@@ -1,0 +1,22 @@
+{
+    "name": "WHOIS Lookup",
+    "short_name": "WhoIs",
+    "description": "Free domain WHOIS and RDAP lookup tool",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#0d6efd",
+    "icons": [
+        {
+            "src": "assets/images/favicon.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "assets/images/favicon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml"
+        }
+    ]
+}

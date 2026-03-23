@@ -113,6 +113,8 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <link rel="icon" type="image/x-icon" href="assets/images/favicon.ico">
     <link rel="icon" type="image/gif" href="assets/images/favicon.gif">
     <link rel="apple-touch-icon" href="assets/images/favicon.png">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0d6efd">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
@@ -1275,6 +1277,11 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             }
         });
     });
+
+    // ── PWA Service Worker registration (Issue #25) ──
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').catch(function () {});
+    }
     </script>
 </body>
 </html>
