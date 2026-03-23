@@ -1,201 +1,293 @@
-<?php //https://chatgpt.com/share/66ed46d1-c1a4-800b-bc0a-93663c3084dd ?>
 <?php
-// Disable browser, server, and intermediary caching to ensure fresh results
+/**
+ * mwWhoIs Lookup API
+ * Handles WHOIS/RDAP lookups, DNS queries, and domain availability detection.
+ * (C) 2024 MWBM Partners Ltd (t/a MWservices)
+ */
+
+// ─── Shared session config (must match index.php) ───
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'session_config.php';
+
+// ─── Security headers ───
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
-header("Cache-Control: post-check=0, pre-check=0", false);
 header("Pragma: no-cache");
 header("Expires: Thu, 01 Jan 1970 00:00:00 GMT");
+header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: DENY");
+header("X-XSS-Protection: 1; mode=block");
+header("Referrer-Policy: strict-origin-when-cross-origin");
+header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'");
 
-// Path to store the public suffix list metadata (e.g., ETag and Last-Modified)
-//define('METADATA_FILE', 'suffix_list_metadata.json');
-define('METADATA_FILE', dirname(dirname(__FILE__)). DIRECTORY_SEPARATOR .'_libs'. DIRECTORY_SEPARATOR .'suffix_list_metadata.json');
-// URL for the Mozilla Public Suffix List
-define('PUBLIC_SUFFIX_LIST_URL', 'https://publicsuffix.org/list/public_suffix_list.dat');
+// ─── Constants ───
+define('IANA_TLD_URL', 'https://data.iana.org/TLD/tlds-alpha-by-domain.txt');
+define('IANA_TLD_PATH', __DIR__ . DIRECTORY_SEPARATOR . 'tlds.txt');
+define('PSL_ICANN_URL', 'https://publicsuffix.org/list/public_suffix_list.dat');
+define('SL_SUFFIXES_PATH', __DIR__ . DIRECTORY_SEPARATOR . 'second_level_suffixes.txt');
+define('TLD_META_PATH', __DIR__ . DIRECTORY_SEPARATOR . 'tld_metadata.json');
+define('CACHE_DIR', sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'mwwhois_cache');
+define('CACHE_TTL', 900);
+define('RATE_LIMIT_MAX', 30);
+define('RATE_LIMIT_WINDOW', 60);
+define('MAX_DOMAIN_LENGTH', 253);
+define('MAX_POST_SIZE', 1024);
 
-// Function to update the public suffix list, only if it has changed
-// This ensures we always have the latest list but avoid unnecessary downloads
-function updatePublicSuffixList() {
-    $headers = [];
+// ─── Load config & functions ───
+$config = [];
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php';
+}
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
 
-    // Check if there is previously stored metadata (ETag and Last-Modified)
-    if (file_exists(METADATA_FILE)) {
-        $metadata = json_decode(file_get_contents(METADATA_FILE), true);
-        if (isset($metadata['etag'])) {
-            $headers['If-None-Match'] = $metadata['etag']; // Add the ETag header to the request
-        }
-        if (isset($metadata['last_modified'])) {
-            $headers['If-Modified-Since'] = $metadata['last_modified']; // Add the Last-Modified header
+
+// ═══════════════════════════════════════════════════════════════════
+//  Main request handler
+// ═══════════════════════════════════════════════════════════════════
+
+// Only allow POST
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    header('Allow: POST');
+    exit;
+}
+
+// Validate input size
+if (!validateInputSize()) {
+    sendError('Request too large.', 413);
+}
+
+// Parameters (sanitize GET inputs)
+$formatParam = '';
+if (isset($_GET['format'])) {
+    $formatParam = strtolower(trim($_GET['format']));
+}
+$jsonFormat = ($formatParam === 'json');
+
+$sourceParam = 'rdap';
+if (isset($_GET['source'])) {
+    $sourceParam = strtolower(trim($_GET['source']));
+}
+if (isset($_POST['source'])) {
+    $sourceParam = strtolower(trim($_POST['source']));
+}
+if ($sourceParam !== 'rdap' && $sourceParam !== 'whois') {
+    $sourceParam = 'rdap';
+}
+
+// API key authentication (Issue #61)
+$apiKeyConfig = null;
+$apiKeyHeader = isset($_SERVER['HTTP_X_API_KEY']) ? trim($_SERVER['HTTP_X_API_KEY']) : '';
+if ($apiKeyHeader) {
+    $apiKeyConfig = validateApiKey($apiKeyHeader);
+    if (!$apiKeyConfig) {
+        sendError('Invalid API key.', 401);
+    }
+    $jsonFormat = true; // API key users always get JSON
+}
+
+// CSRF (skip for JSON API requests and API key users)
+if (!$jsonFormat && !$apiKeyConfig && !validateCsrfToken()) {
+    sendError('Invalid request. Please refresh the page and try again.', 403);
+}
+
+// Rate limit — use API key tier limit if applicable
+$rateLimit = $apiKeyConfig ? getApiKeyRateLimit($apiKeyConfig) : RATE_LIMIT_MAX;
+if (!checkRateLimit() || !checkIpRateLimit()) {
+    sendError('Rate limit exceeded. Please wait before trying again.', 429);
+}
+
+// Update TLD data (IANA + second-level suffixes, throttled to once per day)
+updateTldDataIfNeeded();
+
+// Parse & validate input
+$rawDomainInput = '';
+if (isset($_POST['domain'])) {
+    $rawDomainInput = trim((string)$_POST['domain']);
+}
+
+// ─── Check if input is an IP address (Issue #45) ───
+$isIpLookup = isIpAddress($rawDomainInput);
+$reverseDns = null;
+
+if ($isIpLookup) {
+    $domain = $rawDomainInput;
+    $reverseDns = reverseDnsLookup($domain);
+    $whoisText = ipWhoisLookup($domain);
+    $dataSource = 'whois';
+    $fromCache = false;
+    $availability = 'n/a';
+    $parsed = [];
+    $dns = [];
+
+    if ($reverseDns) {
+        $parsed['PTR Hostname'] = $reverseDns;
+        $dns = getDnsRecords($reverseDns);
+    }
+} else {
+    $domain = sanitizeDomainInput($rawDomainInput);
+
+    if (!$domain || !isValidDomain($domain)) {
+        sendError('Invalid domain name.');
+    }
+
+    // ─── Lookup pipeline ───
+    $whoisText = getCached($domain);
+    $fromCache = ($whoisText !== null);
+    $dataSource = 'whois';
+
+    if ($fromCache) {
+        trackLookup('cache_hit', $domain);
+    }
+
+    // Try RDAP first (unless source=whois or cached)
+    if (!$fromCache && $sourceParam === 'rdap') {
+        $rdap = rdapLookup($domain);
+        if ($rdap) {
+            $dataSource = 'rdap';
+            $whoisText = formatRdapResponse($rdap);
+            trackLookup('rdap', $domain);
         }
     }
 
-    // Set up the HTTP context for the request (including timeout and conditional headers)
-    $contextOptions = [
-        'http' => [
-            'method' => 'GET',
-            'header' => array_map(function ($key, $value) {
-                return "$key: $value";
-            }, array_keys($headers), $headers),
-            'timeout' => 5, // Timeout to avoid hanging if the list server is slow
-        ]
+    // Fall back to system WHOIS
+    if (!$whoisText) {
+        $whoisText = shell_exec("whois " . escapeshellarg($domain) . " 2>&1");
+        $dataSource = 'whois';
+        trackLookup('whois', $domain);
+    }
+
+    // Cache result
+    if ($whoisText && !$fromCache) {
+        setCache($domain, $whoisText);
+    }
+
+    // Build response
+    $availability = 'unknown';
+    if ($whoisText) {
+        $availability = detectAvailability($whoisText);
+    }
+
+    $parsed = [];
+    if ($whoisText) {
+        $parsed = parseWhoisFields($whoisText);
+    }
+
+    $dns = getDnsRecords($domain);
+}
+
+// Email security check (Issue #56) — only for domain lookups
+$emailSecurity = [];
+if (!$isIpLookup && $domain) {
+    $emailSecurity = checkEmailSecurity($domain);
+}
+
+// SSL/TLS certificate info (Issue #19) — only for domain lookups
+$sslInfo = null;
+if (!$isIpLookup && $domain) {
+    $sslInfo = getSslInfo($domain);
+}
+
+// Registrar reputation check (Issue #51)
+$registrarReputation = null;
+if (!empty($parsed['Registrar'])) {
+    $registrarReputation = checkRegistrarReputation($parsed['Registrar']);
+}
+
+// Google Safe Browsing (Issue #52) — only if API key configured
+$safeBrowsing = null;
+if (!$isIpLookup && $domain && !empty($config['safe_browsing_api_key'])) {
+    $safeBrowsing = checkSafeBrowsing($domain, $config['safe_browsing_api_key']);
+}
+
+// VirusTotal (Issue #53) — only if API key configured
+$virusTotal = null;
+if (!$isIpLookup && $domain && !empty($config['virustotal_api_key'])) {
+    $virusTotal = checkVirusTotal($domain, $config['virustotal_api_key']);
+}
+
+// Have I Been Pwned (Issue #65) — only if API key configured
+$hibp = null;
+if (!$isIpLookup && $domain && !empty($config['hibp_api_key'])) {
+    $hibp = checkHibpDomain($domain, $config['hibp_api_key']);
+}
+
+// Screenshot URL (Issue #55) — generate if enabled
+$screenshotUrl = null;
+if (!$isIpLookup && $domain && !empty($config['screenshot_enabled'])) {
+    $screenshotUrl = 'https://image.thum.io/get/width/600/' . urlencode('https://' . $domain);
+}
+
+// Subdomain discovery (Issue #46) — only for domain lookups
+$subdomains = [];
+if (!$isIpLookup && $domain) {
+    $subdomains = discoverSubdomains($domain);
+}
+
+// IP geolocation (Issue #18) — for first A record, or for IP lookups
+$geolocation = null;
+if ($isIpLookup) {
+    $geolocation = getIpGeolocation($domain);
+} elseif (!empty($dns)) {
+    foreach ($dns as $record) {
+        if ($record['type'] === 'A' && !empty($record['value'])) {
+            $geolocation = getIpGeolocation($record['value']);
+            break;
+        }
+    }
+}
+
+if ($jsonFormat) {
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: POST');
+    header('Access-Control-Allow-Headers: Content-Type');
+    $response = [
+        'domain'       => $domain,
+        'is_ip'        => $isIpLookup,
+        'availability' => $availability,
+        'data_source'  => $dataSource,
+        'parsed'       => $parsed,
+        'dns'          => $dns,
+        'raw'          => $whoisText,
+        'cached'       => $fromCache,
+        'email_security' => $emailSecurity,
+        'ssl' => $sslInfo,
+        'geolocation' => $geolocation,
+        'subdomains' => $subdomains,
+        'registrar_reputation' => $registrarReputation,
+        'safe_browsing' => $safeBrowsing,
+        'virustotal' => $virusTotal,
+        'screenshot_url' => $screenshotUrl,
+        'hibp' => $hibp,
     ];
-    $context = stream_context_create($contextOptions);
-
-    // Fetch the public suffix list, using conditional headers
-    $response = @file_get_contents(PUBLIC_SUFFIX_LIST_URL, false, $context);
-
-    // Check if the resource was successfully fetched
-    if ($response === false) {
-        // Log the error and return false (the script will fall back to the cached list or default behavior)
-        error_log("Failed to fetch the public suffix list from " . PUBLIC_SUFFIX_LIST_URL);
-        return false;
+    if ($reverseDns) {
+        $response['reverse_dns'] = $reverseDns;
+    }
+    sendJson($response);
+} else {
+    $whoisOutput = '';
+    if ($whoisText) {
+        $whoisOutput = $whoisText;
     }
 
-    // Check if the resource was not modified (HTTP 304)
-    $http_response_header = isset($http_response_header) ? $http_response_header : [];
-    $statusCode = parseHttpStatusCode($http_response_header);
-
-    if ($statusCode == 304) {
-        // No update needed (resource has not changed)
-        return true;
+    $response = [
+        'whois'        => htmlspecialchars($whoisOutput, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+        'is_ip'        => $isIpLookup,
+        'availability' => $availability,
+        'data_source'  => $dataSource,
+        'parsed'       => $parsed,
+        'dns'          => $dns,
+        'cached'       => $fromCache,
+        'email_security' => $emailSecurity,
+        'ssl' => $sslInfo,
+        'geolocation' => $geolocation,
+        'subdomains' => $subdomains,
+        'registrar_reputation' => $registrarReputation,
+        'safe_browsing' => $safeBrowsing,
+        'virustotal' => $virusTotal,
+        'screenshot_url' => $screenshotUrl,
+        'hibp' => $hibp,
+    ];
+    if ($reverseDns) {
+        $response['reverse_dns'] = $reverseDns;
     }
-
-    // If a new list was fetched, save it and update the metadata
-    if ($statusCode == 200) {
-        file_put_contents('public_suffix_list.dat', $response); // Save the list locally
-
-        // Parse the headers for ETag and Last-Modified and save them
-        $newMetadata = parseHttpHeadersForMetadata($http_response_header);
-        file_put_contents(METADATA_FILE, json_encode($newMetadata));
-
-        return true;
-    }
-
-    return false;
+    sendJson($response);
 }
-
-// Helper function to parse the HTTP status code from response headers
-function parseHttpStatusCode($headers) {
-    foreach ($headers as $header) {
-        if (preg_match('/HTTP\/\d\.\d (\d{3})/', $header, $matches)) {
-            return (int)$matches[1];
-        }
-    }
-    return 200; // Default to 200 OK if no status code is found
-}
-
-// Helper function to extract ETag and Last-Modified headers from the HTTP response
-function parseHttpHeadersForMetadata($headers) {
-    $metadata = [];
-    foreach ($headers as $header) {
-        if (stripos($header, 'ETag:') === 0) {
-            $metadata['etag'] = trim(substr($header, 5));
-        }
-        if (stripos($header, 'Last-Modified:') === 0) {
-            $metadata['last_modified'] = trim(substr($header, 14));
-        }
-    }
-    return $metadata;
-}
-
-// Function to load the locally cached Public Suffix List (or return null if unavailable)
-function loadPublicSuffixList() {
-    $filePath = 'public_suffix_list.dat';
-
-    // Check if the list exists locally
-    if (file_exists($filePath)) {
-        $list = file($filePath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        $suffixes = [];
-
-        // Filter out comments and add the suffixes to the list
-        foreach ($list as $line) {
-            if (strpos($line, '//') === 0) continue; // Skip comments
-            $suffixes[] = trim($line);
-        }
-        return $suffixes;
-    }
-
-    return null; // Return null if the list is not available
-}
-
-// Function to extract the main domain using the public suffix list
-function extractMainDomainUsingSuffixList($domain, $suffixes) {
-    $domainParts = explode('.', $domain);
-    $count = count($domainParts);
-
-    // If no suffix list is available, fall back to default two-part extraction
-    if (!$suffixes) {
-        return implode('.', array_slice($domainParts, -2));
-    }
-
-    // Check each part of the domain against the suffix list
-    for ($i = 0; $i < $count - 1; $i++) {
-        $possibleTLD = implode('.', array_slice($domainParts, $i));
-
-        if (in_array($possibleTLD, $suffixes)) {
-            // Return the registrable domain (SLD + TLD)
-            return implode('.', array_slice($domainParts, $i - 1));
-        }
-    }
-
-    // If no match is found, assume the last two parts are SLD + TLD
-    return implode('.', array_slice($domainParts, -2));
-}
-
-// Main logic for handling the WHOIS lookup request
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    // Attempt to update the public suffix list (will fallback if unable)
-    if (!updatePublicSuffixList()) {
-        error_log("Public suffix list could not be updated. Using local copy or default extraction.");
-    }
-
-    $suffixes = loadPublicSuffixList(); // Load the public suffix list
-    $input = $_POST['domain']; // Get the domain input from the form
-
-    // Step 1: Sanitize and extract the domain
-    $domain = getDomainFromInput($input, $suffixes);
-
-    // Step 2: Validate the extracted domain
-    if (!$domain || !validateDomain($domain)) {
-        echo "Invalid domain name.";
-        exit;
-    }
-
-    // Step 3: Perform the WHOIS lookup using shell command
-    $escapedDomain = escapeshellarg($domain); // Escape the domain for shell execution
-    $whois_info = shell_exec("whois $escapedDomain");
-
-    // Step 4: Output the WHOIS result
-    if (!$whois_info) {
-        echo "Whois lookup failed or no information found.";
-    } else {
-        echo "<pre>" . htmlspecialchars($whois_info) . "</pre>"; // HTML escape the result for safety
-    }
-}
-
-// Function to extract and clean the domain from the user input
-function getDomainFromInput($input, $suffixes) {
-    $input = trim($input); // Remove any extra spaces
-    $input = filter_var($input, FILTER_SANITIZE_URL); // Sanitize the input as a URL
-    $parsedUrl = parse_url($input, PHP_URL_HOST); // Parse the hostname from the URL
-
-    // If parsing fails, assume the input is a domain name
-    if (!$parsedUrl) {
-        $parsedUrl = $input;
-    }
-
-    // Remove 'www.' if present at the start
-    if (strpos($parsedUrl, 'www.') === 0) {
-        $parsedUrl = substr($parsedUrl, 4);
-    }
-
-    // Use the public suffix list to extract the main domain
-    return extractMainDomainUsingSuffixList($parsedUrl, $suffixes);
-}
-
-// Function to validate the extracted domain (ensures the domain follows a valid structure)
-function validateDomain($domain) {
-    // Regular expression to validate domain format (e.g., example.com)
-    $pattern = '/^(?!\-)(?:[a-zA-Z0-9\-]{1,63}\.)+(?:[a-zA-Z]{2,})$/';
-    return preg_match($pattern, $domain);
-}
-?>
