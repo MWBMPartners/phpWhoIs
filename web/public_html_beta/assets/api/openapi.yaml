@@ -16,7 +16,7 @@ info:
     ## Caching
     - Results are cached for **15 minutes** (900 seconds).
     - Cached responses include `"cached": true`.
-  version: "1.15"
+  version: "1.17"
   contact:
     name: MWBM Partners Ltd
   license:
