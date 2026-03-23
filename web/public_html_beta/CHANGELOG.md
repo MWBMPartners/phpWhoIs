@@ -3,6 +3,24 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [e9d5a58] - 2026-03-23
+
+**fix: fixed header with scrollable content on subpages, shared footer**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`e9d5a58`](https://github.com/MWBMPartners/phpWhoIs/commit/e9d5a580fe75580ee229f9a651a967fbc907663e)
+
+### Changed files
+
+- `assets/css/style.css`
+- `docs.php`
+- `includes/footer.php`
+- `index.php`
+- `privacy.php`
+- `terms.php`
+
+
 ## [8ffe0ba] - 2026-03-23
 
 **fix: enable scrolling on subpages (docs, privacy, terms)**
