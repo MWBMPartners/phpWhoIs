@@ -745,11 +745,11 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             if (data.geolocation) {
                 var geo = data.geolocation;
                 var geoHtml = '<div class="card mt-3"><div class="card-header"><strong>Server Location</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                if (geo.city) { geoHtml += '<tr><td class="fw-bold">City</td><td>' + geo.city + '</td></tr>'; }
-                if (geo.country) { geoHtml += '<tr><td class="fw-bold">Country</td><td>' + geo.country + ' (' + geo.country_code + ')</td></tr>'; }
-                if (geo.isp) { geoHtml += '<tr><td class="fw-bold">ISP</td><td>' + geo.isp + '</td></tr>'; }
-                if (geo.org) { geoHtml += '<tr><td class="fw-bold">Organization</td><td>' + geo.org + '</td></tr>'; }
-                if (geo.as) { geoHtml += '<tr><td class="fw-bold">AS</td><td>' + geo.as + '</td></tr>'; }
+                if (geo.city) { geoHtml += '<tr><td class="fw-bold">City</td><td>' + esc(geo.city) + '</td></tr>'; }
+                if (geo.country) { geoHtml += '<tr><td class="fw-bold">Country</td><td>' + esc(geo.country) + ' (' + esc(geo.country_code) + ')</td></tr>'; }
+                if (geo.isp) { geoHtml += '<tr><td class="fw-bold">ISP</td><td>' + esc(geo.isp) + '</td></tr>'; }
+                if (geo.org) { geoHtml += '<tr><td class="fw-bold">Organization</td><td>' + esc(geo.org) + '</td></tr>'; }
+                if (geo.as) { geoHtml += '<tr><td class="fw-bold">AS</td><td>' + esc(geo.as) + '</td></tr>'; }
                 geoHtml += '</table></div></div>';
                 document.getElementById('parsedFields').innerHTML += geoHtml;
                 document.getElementById('parsedFields').style.display = '';
@@ -763,7 +763,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 document.getElementById('resultTabs').style.display = '';
                 var dnsHtml = '<table class="table table-striped table-sm"><thead><tr><th>Type</th><th>Value</th><th>Priority</th></tr></thead><tbody>';
                 data.dns.forEach(function (r) {
-                    dnsHtml += '<tr><td><span class="badge bg-secondary">' + r.type + '</span></td><td>' + r.value + '</td><td>' + (r.priority || '') + '</td></tr>';
+                    dnsHtml += '<tr><td><span class="badge bg-secondary">' + esc(r.type) + '</span></td><td>' + esc(r.value) + '</td><td>' + esc(r.priority || '') + '</td></tr>';
                 });
                 dnsHtml += '</tbody></table>';
                 document.getElementById('dnsResultPane').innerHTML = dnsHtml;
@@ -815,13 +815,13 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 var ssl = data.ssl;
                 var sslHtml = '<div class="card"><div class="card-header"><strong>SSL/TLS Certificate</strong></div><div class="card-body"><table class="table table-sm mb-0">';
                 var expiredClass = ssl.expired ? ' class="table-danger"' : '';
-                sslHtml += '<tr><td class="fw-bold">Subject</td><td>' + (ssl.subject || '') + '</td></tr>';
-                sslHtml += '<tr><td class="fw-bold">Issuer</td><td>' + (ssl.issuer || '') + '</td></tr>';
-                sslHtml += '<tr><td class="fw-bold">Valid From</td><td>' + (ssl.valid_from || '') + '</td></tr>';
-                sslHtml += '<tr><td class="fw-bold">Valid To</td><td>' + (ssl.valid_to || '') + '</td></tr>';
-                sslHtml += '<tr' + expiredClass + '><td class="fw-bold">Expires In</td><td>' + (ssl.expires_in || '') + (ssl.expired ? ' <span class="badge bg-danger">EXPIRED</span>' : '') + '</td></tr>';
+                sslHtml += '<tr><td class="fw-bold">Subject</td><td>' + esc(ssl.subject || '') + '</td></tr>';
+                sslHtml += '<tr><td class="fw-bold">Issuer</td><td>' + esc(ssl.issuer || '') + '</td></tr>';
+                sslHtml += '<tr><td class="fw-bold">Valid From</td><td>' + esc(ssl.valid_from || '') + '</td></tr>';
+                sslHtml += '<tr><td class="fw-bold">Valid To</td><td>' + esc(ssl.valid_to || '') + '</td></tr>';
+                sslHtml += '<tr' + expiredClass + '><td class="fw-bold">Expires In</td><td>' + esc(ssl.expires_in || '') + (ssl.expired ? ' <span class="badge bg-danger">EXPIRED</span>' : '') + '</td></tr>';
                 if (ssl.san && ssl.san.length) {
-                    sslHtml += '<tr><td class="fw-bold">Alt Names</td><td>' + ssl.san.join(', ') + '</td></tr>';
+                    sslHtml += '<tr><td class="fw-bold">Alt Names</td><td>' + ssl.san.map(esc).join(', ') + '</td></tr>';
                 }
                 sslHtml += '</table></div></div>';
                 document.getElementById('sslPane').innerHTML = sslHtml;
