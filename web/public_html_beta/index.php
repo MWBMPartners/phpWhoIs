@@ -267,7 +267,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         <div id="compareResults" class="mt-3" style="display:none;"></div>
 
         <!-- Bulk export buttons (Issue #49) -->
-        <div id="bulkExportButtons" class="mt-2 d-flex gap-2" style="display:none;">
+        <div id="bulkExportButtons" class="mt-2 gap-2" style="display:none;">
             <button class="btn btn-outline-secondary btn-sm" id="exportCsvBtn" aria-label="Export bulk results as CSV"><i class="bi bi-filetype-csv" aria-hidden="true"></i> Export CSV</button>
             <button class="btn btn-outline-secondary btn-sm" id="exportJsonBtn" aria-label="Export bulk results as JSON"><i class="bi bi-filetype-json" aria-hidden="true"></i> Export JSON</button>
         </div>
@@ -285,10 +285,6 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                     
                     if (isset($app["Application"]["Version"]["Version"]) && $app["Application"]["Version"]["Version"]){
                         echo " v" . htmlspecialchars($app["Application"]["Version"]["Version"]);
-
-                        if (!empty($app["Application"]["Version"]["Development"]["Status"])){
-                            echo " " . htmlspecialchars($app["Application"]["Version"]["Development"]["Status"]);
-                        }
 
                         if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["Short"])){
                             echo ' (<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" rel="noopener noreferrer" class="footer-commit">';
@@ -632,7 +628,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                             if (++done === domains.length) {
                                 showLoading(false);
                                 if (bulkResultsData.length > 0) {
-                                    document.getElementById('bulkExportButtons').style.display = '';
+                                    document.getElementById('bulkExportButtons').style.display = 'flex';
                                 }
                             }
                         });
