@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [e253326] - 2026-03-24T21:20:10Z
+
+**feat: expand DNS propagation to 37 public resolvers across 6 regions**
+
+- Commit: [`e253326`](https://github.com/MWBMPartners/phpWhoIs/commit/e2533269a04b5443f07e793a227aed430eee4e3c)
+
+
 ## [8ce9d07] - 2026-03-24T21:17:31Z
 
 **feat: move DNS propagation resolvers to config and expand to 16 servers**
