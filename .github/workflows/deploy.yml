@@ -7,17 +7,65 @@ on:
       - beta
   workflow_dispatch:
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    # Only run if SFTP credentials are configured
-    if: ${{ vars.SFTP_ENABLED == 'true' }}
+permissions:
+  contents: write
 
+jobs:
+  # Sync beta files to production directory on main branch pushes
+  sync-beta-to-production:
+    runs-on: ubuntu-latest
+    if: github.ref_name == 'main' && !contains(github.event.head_commit.message, '[skip sync]')
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync public_html_beta → public_html
+        id: sync
+        run: |
+          rsync -a --delete \
+            --exclude='.DS_Store' \
+            --exclude='.gitkeep' \
+            --exclude='CHANGELOG.md' \
+            --exclude='README.md' \
+            --exclude='DEV_NOTES.md' \
+            web/public_html_beta/ web/public_html/
+
+          if git diff --quiet web/public_html/; then
+            echo "synced=false" >> $GITHUB_OUTPUT
+            echo "Production files already in sync"
+          else
+            echo "synced=true" >> $GITHUB_OUTPUT
+            echo "Files synced — changes detected:"
+            git diff --stat web/public_html/
+          fi
+
+      - name: Commit synced files
+        if: steps.sync.outputs.synced == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add web/public_html/
+          git commit -m "build: auto-sync public_html from public_html_beta [skip sync]"
+          git push origin main
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [sync-beta-to-production]
+    if: always() && vars.SFTP_ENABLED == 'true'
+
+    steps:
+      - name: Checkout code (latest, including any sync commits)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Pull latest (in case sync job pushed new commits)
+        if: github.ref_name == 'main'
+        run: git pull origin main
 
       - name: Determine deployment target
         id: target
