@@ -198,7 +198,11 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 <textarea class="form-control" id="bulkDomains" name="domains" rows="4"
                     placeholder="example.com&#10;example.org&#10;example.net" required></textarea>
             </div>
-            <button type="submit" class="btn btn-primary submit-btn">Lookup All</button>
+            <div class="d-flex gap-2 align-items-center">
+                <button type="submit" class="btn btn-primary submit-btn">Lookup All</button>
+                <label class="btn btn-outline-secondary btn-sm mb-0" for="bulkFileInput" title="Import from file"><i class="bi bi-upload me-1"></i>Import</label>
+                <input type="file" id="bulkFileInput" accept=".txt,.csv" class="d-none">
+            </div>
         </form>
         </div>
 
@@ -269,6 +273,8 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             <button class="btn btn-outline-secondary btn-sm" id="qrCodeBtn" aria-label="Generate QR code for sharing"><i class="bi bi-qr-code" aria-hidden="true"></i> QR Code</button>
             <button class="btn btn-outline-secondary btn-sm" id="exportJsonSingleBtn" aria-label="Export lookup as JSON"><i class="bi bi-filetype-json" aria-hidden="true"></i> Export JSON</button>
             <button class="btn btn-outline-info btn-sm" id="diffBtn" aria-label="Compare cached vs fresh WHOIS"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Refresh &amp; Diff</button>
+            <button class="btn btn-outline-secondary btn-sm" id="printPdfBtn" aria-label="Save as PDF"><i class="bi bi-file-pdf" aria-hidden="true"></i> PDF</button>
+            <button class="btn btn-outline-secondary btn-sm" id="shareBtn" aria-label="Copy share link"><i class="bi bi-share" aria-hidden="true"></i> Share</button>
         </div>
 
         <!-- QR Code modal (Issue #50) -->
@@ -690,6 +696,18 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             if (domains.length) triggerBulkLookup(domains);
         });
 
+        // ── Bulk file import (Issue #117) ──
+        document.getElementById('bulkFileInput').addEventListener('change', function () {
+            var file = this.files[0];
+            if (!file) return;
+            var reader = new FileReader();
+            reader.onload = function (e) {
+                document.getElementById('bulkDomains').value = e.target.result;
+            };
+            reader.readAsText(file);
+            this.value = ''; // Reset so same file can be re-imported
+        });
+
         // ── Compare form submit (Issue #48) ──
         document.getElementById('compareForm').addEventListener('submit', function (e) {
             e.preventDefault();
@@ -952,6 +970,10 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             // Source badge
             var dsBadge = document.getElementById('dataSourceBadge');
             dsBadge.innerHTML = '<span class="badge bg-secondary">Source: ' + (data.data_source || 'whois').toUpperCase() + (data.cached ? ' (cached)' : '') + '</span>';
+            if (data.rate_limit) {
+                var rlClass = data.rate_limit.remaining <= 5 ? 'bg-danger' : (data.rate_limit.remaining <= 10 ? 'bg-warning' : 'bg-secondary');
+                dsBadge.innerHTML += ' <span class="badge ' + rlClass + '" title="Rate limit">' + data.rate_limit.remaining + '/' + data.rate_limit.limit + ' remaining</span>';
+            }
             dsBadge.style.display = '';
 
             // Parsed fields card
@@ -1488,6 +1510,22 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             }
             var modal = new bootstrap.Modal(document.getElementById('qrCodeModal'));
             modal.show();
+        });
+
+        // ── PDF export (Issue #120) ──
+        document.getElementById('printPdfBtn').addEventListener('click', function () {
+            window.print();
+        });
+
+        // ── Share link (Issue #121) ──
+        document.getElementById('shareBtn').addEventListener('click', function () {
+            var shareUrl = window.location.origin + window.location.pathname + '?domain=' + encodeURIComponent(currentDomain);
+            navigator.clipboard.writeText(shareUrl).then(function () {
+                var b = document.getElementById('shareBtn');
+                b.innerHTML = '<i class="bi bi-check"></i> Copied!';
+                b.setAttribute('aria-label', 'Link copied');
+                setTimeout(function () { b.innerHTML = '<i class="bi bi-share"></i> Share'; b.setAttribute('aria-label', 'Copy share link'); }, 2000);
+            });
         });
 
         // ── Click-to-select WHOIS output (Issue #34) ──

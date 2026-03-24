@@ -99,6 +99,10 @@ if (!checkRateLimit() || !checkIpRateLimit()) {
     sendError('Rate limit exceeded. Please wait before trying again.', 429);
 }
 
+// Rate limit quota info (Issue #118)
+$rateLimitUsed = isset($_SESSION['rate_limit']['count']) ? $_SESSION['rate_limit']['count'] : 0;
+$rateLimitRemaining = max(0, $rateLimit - $rateLimitUsed);
+
 // Update TLD data (IANA + second-level suffixes, throttled to once per day)
 updateTldDataIfNeeded();
 
@@ -465,6 +469,7 @@ if ($jsonFormat) {
         'response_times' => $responseTimes,
         'ns_diversity' => $nsDiversity,
         'domain_suggestions' => $domainSuggestions,
+        'rate_limit' => ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit],
         'dnt' => $dnt,
     ];
     if ($reverseDns) {
@@ -518,6 +523,7 @@ if ($jsonFormat) {
         'response_times' => $responseTimes,
         'ns_diversity' => $nsDiversity,
         'domain_suggestions' => $domainSuggestions,
+        'rate_limit' => ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit],
         'dnt' => $dnt,
     ];
     if ($reverseDns) {
