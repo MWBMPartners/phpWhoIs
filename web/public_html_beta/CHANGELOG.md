@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [08c715e] - 2026-03-24
+
+**fix: restrict PWA install prompt to production builds only**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`08c715e`](https://github.com/MWBMPartners/phpWhoIs/commit/08c715e9153f1e1d24cd03ec00adffdc16cb8094)
+
+### Changed files
+
+- `index.php`
+
+
 ## [d2a642c] - 2026-03-24
 
 **feat: add in-app PWA installation prompt (#170)**
