@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [9419bfc] - 2026-03-24T21:09:48Z
+
+**feat: add fix guide links to security checks for failed/warning items**
+
+- Commit: [`9419bfc`](https://github.com/MWBMPartners/phpWhoIs/commit/9419bfc403d123fa4b100b674593870457465446)
+
+
 ## [a47fe3a] - 2026-03-24T20:59:24Z
 
 **fix: clean subdomain from stale history entries and add timestamps to changelog**
