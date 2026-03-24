@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [4234935] - 2026-03-24
+
+**feat: enhance security score calculation and display details in UI**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`4234935`](https://github.com/MWBMPartners/phpWhoIs/commit/4234935fc06c8b7b805892e35ef9d67897deca53)
+
+### Changed files
+
+- `includes/functions.php`
+- `index.php`
+
+
 ## [7d6568e] - 2026-03-24
 
 **fix: adjust z-index and position for availability badge dropdown**
