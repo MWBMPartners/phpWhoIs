@@ -154,11 +154,13 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
 
     <?php if (empty($app["Application"]["Version"]["Development"]["Status"])): ?>
     <!-- PWA install banner — production only (Issue #170) -->
-    <div id="pwaInstallBanner" class="alert alert-primary alert-dismissible d-flex align-items-center gap-2 m-0 py-2 px-3 rounded-0 small" style="display:none; padding-right: 2.5rem;" role="alert">
+    <div id="pwaInstallBanner" class="alert alert-primary d-flex align-items-center gap-2 m-0 py-2 px-3 rounded-0 small" style="display:none;" role="alert">
         <i class="bi bi-download" aria-hidden="true"></i>
         <span>Install <strong><?php echo htmlspecialchars($pageTitle); ?></strong> for quick access</span>
-        <button class="btn btn-primary btn-sm ms-auto me-3" id="pwaInstallBtn">Install</button>
-        <button type="button" class="btn-close" id="pwaInstallDismiss" aria-label="Dismiss" style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%);"></button>
+        <div class="ms-auto d-flex align-items-center gap-2 flex-shrink-0">
+            <button class="btn btn-primary btn-sm" id="pwaInstallBtn">Install</button>
+            <button type="button" class="btn-close" id="pwaInstallDismiss" aria-label="Dismiss"></button>
+        </div>
     </div>
     <?php endif; ?>
 
