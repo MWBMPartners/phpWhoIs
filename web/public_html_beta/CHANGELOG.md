@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [26129b2] - 2026-03-24T21:54:21Z
+
+**fix: move flag to resolver name suffix, replace location column with type column**
+
+- Commit: [`26129b2`](https://github.com/MWBMPartners/phpWhoIs/commit/26129b21c5f707a56f22b400437e07cc76ccde5b)
+
+
 ## [5b845ee] - 2026-03-24T21:48:16Z
 
 **fix: relabel Anycast to Global and sort DNS resolvers by location/name/IP**
