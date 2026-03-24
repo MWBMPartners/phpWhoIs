@@ -17,7 +17,7 @@ header("Referrer-Policy: strict-origin-when-cross-origin");
 // ─── Config ───
 $config = [];
 if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php')) {
-    require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php';
+    require_once (__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php');
 }
 
 // ─── Debug mode (requires matching debug key from config) ───
@@ -313,8 +313,52 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <script>
     document.addEventListener('DOMContentLoaded', function () {
         var CSRF = '<?php echo htmlspecialchars($csrfToken); ?>';
-        var REG_CONFIG = <?php echo json_encode(isset($config['registration']) ? $config['registration'] : ['enabled' => false]); ?>;
-        var AFFILIATE_REGISTRARS = <?php echo json_encode(isset($config['affiliate_registrars']) ? $config['affiliate_registrars'] : []); ?>;
+        var REGISTRARS = <?php
+            // New format: 'registrars' array
+            if (!empty($config['registrars'])) {
+                echo json_encode($config['registrars']);
+            }
+            // Legacy fallback: 'registration' + 'affiliate_registrars'
+            elseif (!empty($config['registration']['enabled'])) {
+                $legacy = [['name' => $config['registration']['button_text'] ?? 'Register', 'url_template' => $config['registration']['url_template'], 'open_in_new_tab' => $config['registration']['open_in_new_tab'] ?? true]];
+                if (!empty($config['affiliate_registrars'])) {
+                    $legacy = array_merge($legacy, $config['affiliate_registrars']);
+                }
+                echo json_encode($legacy);
+            } else {
+                echo '[]';
+            }
+        ?>;
+
+        // Build registration button(s) — single = direct link, multiple = dropdown
+        function buildRegisterButtons(domain) {
+            if (!REGISTRARS.length) return '';
+            var encodedDomain = encodeURIComponent(domain);
+
+            if (REGISTRARS.length === 1) {
+                var r = REGISTRARS[0];
+                var url = r.url_template.replace('{domain}', encodedDomain);
+                var target = r.open_in_new_tab ? ' target="_blank" rel="noopener noreferrer"' : '';
+                return '<a href="' + url + '"' + target + ' class="btn btn-success btn-sm"><i class="bi bi-cart-plus me-1" aria-hidden="true"></i>Register at ' + esc(r.name) + '</a>';
+            }
+
+            // Multiple registrars — dropdown
+            var html = '<div class="btn-group">';
+            var first = REGISTRARS[0];
+            var firstUrl = first.url_template.replace('{domain}', encodedDomain);
+            var firstTarget = first.open_in_new_tab ? ' target="_blank" rel="noopener noreferrer"' : '';
+            html += '<a href="' + firstUrl + '"' + firstTarget + ' class="btn btn-success btn-sm"><i class="bi bi-cart-plus me-1" aria-hidden="true"></i>Register</a>';
+            html += '<button type="button" class="btn btn-success btn-sm dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Choose registrar"><span class="visually-hidden">Choose registrar</span></button>';
+            html += '<ul class="dropdown-menu" role="menu">';
+            REGISTRARS.forEach(function (r) {
+                var url = r.url_template.replace('{domain}', encodedDomain);
+                var target = r.open_in_new_tab ? ' target="_blank" rel="noopener noreferrer"' : '';
+                html += '<li><a class="dropdown-item" href="' + url + '"' + target + ' role="menuitem"><i class="bi bi-box-arrow-up-right me-2"></i>' + esc(r.name) + '</a></li>';
+            });
+            html += '</ul></div>';
+            return html;
+        }
+
         var formattedResult = '';
         var rawWhoisText = '';
         var lastLookupData = null;
@@ -810,12 +854,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
 
                             var badgeClass = data.availability === 'available' ? 'bg-success' : 'bg-info';
                             var badgeText = data.availability === 'available' ? 'Available' : 'Registered';
-                            var regBtn = '';
-                            if (data.availability === 'available' && REG_CONFIG.enabled) {
-                                var bulkRegUrl = REG_CONFIG.url_template.replace('{domain}', encodeURIComponent(domain));
-                                var bulkTarget = REG_CONFIG.open_in_new_tab ? ' target="_blank"' : '';
-                                regBtn = ' <a href="' + bulkRegUrl + '"' + bulkTarget + ' class="btn btn-success btn-sm ms-2"><i class="bi bi-cart-plus me-1"></i>' + REG_CONFIG.button_text + '</a>';
-                            }
+                            var regBtn = data.availability === 'available' ? ' ' + buildRegisterButtons(domain) : '';
                             var item = document.createElement('div');
                             item.className = 'accordion-item';
                             item.innerHTML =
@@ -891,20 +930,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             // Availability badge
             var avBadge = document.getElementById('availabilityBadge');
             if (data.availability === 'available') {
-                var regButtons = '';
-                if (REG_CONFIG.enabled) {
-                    var regUrl = REG_CONFIG.url_template.replace('{domain}', encodeURIComponent(currentDomain));
-                    var regTarget = REG_CONFIG.open_in_new_tab ? ' target="_blank" rel="noopener noreferrer"' : '';
-                    regButtons = '<a href="' + regUrl + '"' + regTarget + ' class="btn btn-success btn-sm"><i class="bi bi-cart-plus me-1" aria-hidden="true"></i>' + REG_CONFIG.button_text + '</a>';
-                }
-                // Affiliate registrars (Issue #63)
-                if (AFFILIATE_REGISTRARS.length) {
-                    AFFILIATE_REGISTRARS.forEach(function (aff) {
-                        var affUrl = aff.url_template.replace('{domain}', encodeURIComponent(currentDomain));
-                        var affTarget = aff.open_in_new_tab ? ' target="_blank" rel="noopener noreferrer"' : '';
-                        regButtons += ' <a href="' + affUrl + '"' + affTarget + ' class="btn btn-outline-success btn-sm"><i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>' + esc(aff.name) + '</a>';
-                    });
-                }
+                var regButtons = buildRegisterButtons(currentDomain);
                 avBadge.innerHTML = '<div class="alert alert-success d-flex align-items-center justify-content-between flex-wrap gap-2">' +
                     '<div><i class="bi bi-check-circle-fill me-2"></i><strong>' + esc(currentDomain) + '</strong> appears to be available!</div>' +
                     '<div class="d-flex gap-1 flex-wrap">' + regButtons + '</div></div>';
