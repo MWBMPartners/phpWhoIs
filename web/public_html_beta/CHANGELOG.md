@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [abf4c2e] - 2026-03-24
+
+**fix: make Portfolio and RSS feed discoverable from main UI (#166, #167)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`abf4c2e`](https://github.com/MWBMPartners/phpWhoIs/commit/abf4c2ee5d44ce31f057e73988a29c47fe5240a1)
+
+### Changed files
+
+- `includes/footer.php`
+- `index.php`
+
+
 ## [5eb9f12] - 2026-03-24
 
 **refactor: modernise codebase for PHP 8.5 with 8.4 backward compat (#165)**
