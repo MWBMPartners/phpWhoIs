@@ -1174,6 +1174,120 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 document.getElementById('sslPane').innerHTML += shHtml;
             }
 
+            // HTTP Security Headers (Issue #106)
+            if (data.http_headers) {
+                var hh = data.http_headers;
+                var hhHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-lock me-1"></i>HTTP Security Headers</strong> <span class="badge ' + (hh.grade <= 'B' ? 'bg-success' : (hh.grade <= 'D' ? 'bg-warning' : 'bg-danger')) + '">' + hh.grade + ' (' + hh.pass + '/' + hh.total + ')</span></div><div class="card-body"><table class="table table-sm mb-0">';
+                hh.headers.forEach(function (h) {
+                    var icon = h.present ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+                    hhHtml += '<tr><td class="fw-bold">' + icon + ' ' + esc(h.header) + '</td><td>' + (h.present ? '<code class="small">' + esc(h.value || '') + '</code>' : '<span class="text-muted">missing</span>') + '</td></tr>';
+                });
+                hhHtml += '</table></div></div>';
+                document.getElementById('sslPane').innerHTML += hhHtml;
+            }
+
+            // TLS Audit (Issue #108)
+            if (data.tls_audit) {
+                var ta = data.tls_audit;
+                var taHtml = '<div class="card mt-3"><div class="card-header"><strong>TLS Version Support</strong>' + (ta.insecure ? ' <span class="badge bg-danger">Insecure versions enabled</span>' : '') + '</div><div class="card-body"><table class="table table-sm mb-0">';
+                if (ta.protocol) taHtml += '<tr><td class="fw-bold">Negotiated</td><td>' + esc(ta.protocol) + '</td></tr>';
+                if (ta.cipher) taHtml += '<tr><td class="fw-bold">Cipher</td><td><code>' + esc(ta.cipher) + '</code></td></tr>';
+                for (var ver in ta.versions) {
+                    var cls = (ver === 'TLSv1.0' || ver === 'TLSv1.1') && ta.versions[ver] ? ' class="table-danger"' : '';
+                    taHtml += '<tr' + cls + '><td class="fw-bold">' + esc(ver) + '</td><td>' + (ta.versions[ver] ? '<i class="bi bi-check-circle text-success"></i> Supported' : '<i class="bi bi-x-circle text-muted"></i> Not supported') + '</td></tr>';
+                }
+                taHtml += '</table></div></div>';
+                document.getElementById('sslPane').innerHTML += taHtml;
+            }
+
+            // CAA Records (Issue #109)
+            if (data.caa_records && data.caa_records.found) {
+                var caaHtml = '<div class="card mt-3"><div class="card-header"><strong>CAA Records</strong></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Tag</th><th>Value</th><th>Flag</th></tr></thead><tbody>';
+                data.caa_records.records.forEach(function (r) {
+                    caaHtml += '<tr><td>' + esc(r.tag) + '</td><td>' + esc(r.value) + '</td><td>' + r.flag + '</td></tr>';
+                });
+                caaHtml += '</tbody></table></div></div>';
+                document.getElementById('sslPane').innerHTML += caaHtml;
+            }
+
+            // SMTP Security (Issue #110)
+            if (data.smtp_security) {
+                var sm = data.smtp_security;
+                var smIcon = sm.starttls ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+                var esPane = document.getElementById('emailSecurityPane');
+                esPane.innerHTML += '<div class="card mt-3"><div class="card-header"><strong>SMTP Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+                esPane.innerHTML = esPane.innerHTML.slice(0, -1); // reopen
+                var smHtml = '<div class="card mt-3"><div class="card-header"><strong>SMTP Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+                smHtml += '<tr><td class="fw-bold">MX Server</td><td>' + esc(sm.mx_host) + '</td></tr>';
+                if (sm.banner) smHtml += '<tr><td class="fw-bold">Banner</td><td><code class="small">' + esc(sm.banner) + '</code></td></tr>';
+                smHtml += '<tr><td class="fw-bold">' + smIcon + ' STARTTLS</td><td>' + (sm.starttls ? 'Supported' : 'Not supported') + '</td></tr>';
+                smHtml += '</table></div></div>';
+                document.getElementById('emailSecurityPane').innerHTML += smHtml;
+            }
+
+            // Redirect Chain (Issue #107)
+            if (data.redirect_chain && data.redirect_chain.hops > 1) {
+                var rc = data.redirect_chain;
+                var rcHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-arrow-right-circle me-1"></i>Redirect Chain</strong>' + (rc.suspicious ? ' <span class="badge bg-warning">Excessive redirects</span>' : '') + (rc.http_to_https ? ' <span class="badge bg-info">HTTP→HTTPS</span>' : '') + '</div><div class="card-body"><ol class="mb-0 small">';
+                rc.chain.forEach(function (hop) {
+                    rcHtml += '<li><code>' + esc(hop.url) + '</code> <span class="badge bg-secondary">' + hop.status + '</span></li>';
+                });
+                rcHtml += '</ol></div></div>';
+                document.getElementById('parsedFields').innerHTML += rcHtml;
+                document.getElementById('parsedFields').style.display = '';
+            }
+
+            // HTTP Versions (Issue #112)
+            if (data.http_versions) {
+                var hv = data.http_versions;
+                var hvHtml = '<div class="card mt-3"><div class="card-header"><strong>Protocol Support</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+                if (hv.protocol) hvHtml += '<tr><td class="fw-bold">Negotiated</td><td>' + esc(hv.protocol) + '</td></tr>';
+                hvHtml += '<tr><td class="fw-bold">HTTP/2</td><td>' + (hv.http2 ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No') + '</td></tr>';
+                hvHtml += '<tr><td class="fw-bold">HTTP/3</td><td>' + (hv.http3 ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No') + '</td></tr>';
+                hvHtml += '</table></div></div>';
+                document.getElementById('sslPane').innerHTML += hvHtml;
+            }
+
+            // IPv6 (Issue #113)
+            if (data.ipv6) {
+                var v6Icon = data.ipv6.has_aaaa ? '<i class="bi bi-check-circle text-success me-1"></i>' : '<i class="bi bi-x-circle text-warning me-1"></i>';
+                var v6Text = data.ipv6.has_aaaa ? 'IPv6 ready (' + data.ipv6.aaaa_records.map(esc).join(', ') + ')' : 'No AAAA records — IPv6 not configured';
+                document.getElementById('dnsResultPane').innerHTML += '<div class="alert ' + (data.ipv6.has_aaaa ? 'alert-success' : 'alert-warning') + ' mt-2 small">' + v6Icon + '<strong>IPv6:</strong> ' + v6Text + '</div>';
+            }
+
+            // Response Times (Issue #114)
+            if (data.response_times && data.response_times.dns_ms !== null) {
+                var rt = data.response_times;
+                var rtHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-speedometer2 me-1"></i>Response Times</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+                rtHtml += '<tr><td class="fw-bold">DNS Resolution</td><td>' + rt.dns_ms + ' ms</td></tr>';
+                rtHtml += '<tr><td class="fw-bold">Time to First Byte</td><td>' + rt.ttfb_ms + ' ms</td></tr>';
+                rtHtml += '<tr><td class="fw-bold">Total</td><td>' + rt.total_ms + ' ms</td></tr>';
+                rtHtml += '</table></div></div>';
+                document.getElementById('parsedFields').innerHTML += rtHtml;
+                document.getElementById('parsedFields').style.display = '';
+            }
+
+            // NS Diversity (Issue #115)
+            if (data.ns_diversity && !data.ns_diversity.diverse) {
+                document.getElementById('dnsResultPane').innerHTML += '<div class="alert alert-warning mt-2 small"><i class="bi bi-exclamation-triangle me-1"></i><strong>NS Diversity:</strong> ' + esc(data.ns_diversity.warning) + '</div>';
+            }
+
+            // Reverse IP (Issue #111)
+            if (data.reverse_ip && data.reverse_ip.count > 1) {
+                var riHtml = '<div class="card mt-3"><div class="card-header"><strong>Shared Hosting</strong> <span class="badge bg-secondary">' + data.reverse_ip.count + ' domains on same IP</span></div><div class="card-body"><div class="small">' + data.reverse_ip.domains.slice(0, 15).map(esc).join(', ') + (data.reverse_ip.count > 15 ? '...' : '') + '</div></div></div>';
+                document.getElementById('subdomainsPane').innerHTML += riHtml;
+            }
+
+            // Domain Suggestions (Issue #116)
+            if (data.domain_suggestions && data.domain_suggestions.length > 0) {
+                var sgHtml = '<div class="card mt-2"><div class="card-header"><strong><i class="bi bi-lightbulb me-1"></i>Available Alternatives</strong></div><div class="card-body"><div class="d-flex flex-wrap gap-2">';
+                data.domain_suggestions.forEach(function (d) {
+                    sgHtml += '<a href="?domain=' + encodeURIComponent(d) + '" class="btn btn-outline-success btn-sm">' + esc(d) + '</a>';
+                });
+                sgHtml += '</div></div></div>';
+                document.getElementById('availabilityBadge').innerHTML += sgHtml;
+            }
+
             // Subdomains (Issue #46)
             if (data.subdomains && data.subdomains.length) {
                 document.getElementById('resultTabs').style.display = '';

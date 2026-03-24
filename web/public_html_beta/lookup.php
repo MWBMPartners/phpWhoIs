@@ -322,6 +322,74 @@ if (!$isIpLookup && $whoisText) {
 // Hosting country risk (Issue #105) — uses existing geolocation data
 $hostingRisk = null;
 
+// HTTP security headers audit (Issue #106) — skip if DNT
+$httpHeaders = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $httpHeaders = auditHttpHeaders($domain);
+}
+
+// Redirect chain (Issue #107) — skip if DNT
+$redirectChain = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $redirectChain = detectRedirectChain($domain);
+}
+
+// TLS audit (Issue #108) — skip if DNT
+$tlsAudit = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $tlsAudit = auditTlsVersions($domain);
+}
+
+// CAA records (Issue #109) — no API key needed
+$caaRecords = null;
+if (!$isIpLookup && $domain) {
+    $caaRecords = checkCaaRecords($domain);
+}
+
+// SMTP security (Issue #110) — no API key needed
+$smtpSecurity = null;
+if (!$isIpLookup && $domain) {
+    $smtpSecurity = checkSmtpSecurity($domain);
+}
+
+// Reverse IP (Issue #111) — skip if DNT (third-party API)
+$reverseIp = null;
+if (!$dnt && !empty($dns)) {
+    foreach ($dns as $rec) {
+        if ($rec['type'] === 'A' && !empty($rec['value'])) {
+            $reverseIp = reverseIpLookup($rec['value']);
+            break;
+        }
+    }
+}
+
+// HTTP version check (Issue #112) — skip if DNT
+$httpVersions = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $httpVersions = checkHttpVersions($domain);
+}
+
+// IPv6 readiness (Issue #113) — no API key needed
+$ipv6 = null;
+if (!$isIpLookup && $domain) {
+    $ipv6 = checkIpv6Readiness($domain);
+}
+
+// Response times (Issue #114) — skip if DNT
+$responseTimes = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $responseTimes = measureResponseTimes($domain);
+}
+
+// NS diversity (Issue #115) — no API key needed
+$nsDiversity = null;
+if (!$isIpLookup && $domain) {
+    $nsDiversity = checkNsDiversity($domain);
+}
+
+// Domain suggestions (Issue #116) — only for registered/unavailable domains
+$domainSuggestions = [];
+
 // Subdomain discovery (Issue #46) — only for domain lookups
 $subdomains = [];
 if (!$isIpLookup && $domain) {
@@ -345,6 +413,11 @@ if (!$dnt) {
 
 // Hosting country risk (Issue #105) — computed after geolocation
 $hostingRisk = assessHostingRisk($geolocation);
+
+// Domain suggestions (Issue #116) — only for registered/taken domains
+if (!$isIpLookup && $domain && $availability === 'registered') {
+    $domainSuggestions = suggestAlternativeDomains($domain);
+}
 
 if ($jsonFormat) {
     header('Access-Control-Allow-Origin: *');
@@ -381,6 +454,17 @@ if ($jsonFormat) {
         'dane_tlsa' => $daneTlsa,
         'whois_privacy' => $whoisPrivacy,
         'hosting_risk' => $hostingRisk,
+        'http_headers' => $httpHeaders,
+        'redirect_chain' => $redirectChain,
+        'tls_audit' => $tlsAudit,
+        'caa_records' => $caaRecords,
+        'smtp_security' => $smtpSecurity,
+        'reverse_ip' => $reverseIp,
+        'http_versions' => $httpVersions,
+        'ipv6' => $ipv6,
+        'response_times' => $responseTimes,
+        'ns_diversity' => $nsDiversity,
+        'domain_suggestions' => $domainSuggestions,
         'dnt' => $dnt,
     ];
     if ($reverseDns) {
@@ -423,6 +507,17 @@ if ($jsonFormat) {
         'dane_tlsa' => $daneTlsa,
         'whois_privacy' => $whoisPrivacy,
         'hosting_risk' => $hostingRisk,
+        'http_headers' => $httpHeaders,
+        'redirect_chain' => $redirectChain,
+        'tls_audit' => $tlsAudit,
+        'caa_records' => $caaRecords,
+        'smtp_security' => $smtpSecurity,
+        'reverse_ip' => $reverseIp,
+        'http_versions' => $httpVersions,
+        'ipv6' => $ipv6,
+        'response_times' => $responseTimes,
+        'ns_diversity' => $nsDiversity,
+        'domain_suggestions' => $domainSuggestions,
         'dnt' => $dnt,
     ];
     if ($reverseDns) {

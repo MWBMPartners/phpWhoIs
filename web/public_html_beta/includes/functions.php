@@ -1694,3 +1694,406 @@ function assessHostingRisk(?array $geolocation): ?array {
 
     return ['risk' => 'low', 'country' => $country, 'country_code' => $cc, 'reason' => ''];
 }
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  HTTP Security Headers audit (Issue #106)
+// ═══════════════════════════════════════════════════════════════════
+
+function auditHttpHeaders(string $domain): ?array {
+    $url = 'https://' . $domain;
+    $ctx = stream_context_create(['http' => ['method' => 'HEAD', 'timeout' => 5, 'follow_location' => 1, 'max_redirects' => 3, 'header' => "User-Agent: mwWhoIs Security Audit\r\n"], 'ssl' => ['verify_peer' => false]]);
+    $headers = @get_headers($url, true, $ctx);
+    if (!$headers) {
+        // Try HTTP fallback
+        $url = 'http://' . $domain;
+        $headers = @get_headers($url, true, $ctx);
+        if (!$headers) return null;
+    }
+
+    // Normalise header keys to lowercase
+    $h = [];
+    foreach ($headers as $k => $v) {
+        if (is_string($k)) $h[strtolower($k)] = is_array($v) ? end($v) : $v;
+    }
+
+    $checks = [
+        'strict-transport-security' => ['label' => 'HSTS', 'desc' => 'Enforces HTTPS connections'],
+        'content-security-policy'   => ['label' => 'CSP', 'desc' => 'Controls resource loading sources'],
+        'x-frame-options'           => ['label' => 'X-Frame-Options', 'desc' => 'Prevents clickjacking'],
+        'x-content-type-options'    => ['label' => 'X-Content-Type-Options', 'desc' => 'Prevents MIME sniffing'],
+        'referrer-policy'           => ['label' => 'Referrer-Policy', 'desc' => 'Controls referrer information'],
+        'permissions-policy'        => ['label' => 'Permissions-Policy', 'desc' => 'Controls browser features'],
+        'cross-origin-opener-policy' => ['label' => 'COOP', 'desc' => 'Cross-origin opener policy'],
+        'cross-origin-resource-policy' => ['label' => 'CORP', 'desc' => 'Cross-origin resource policy'],
+    ];
+
+    $results = [];
+    $pass = 0;
+    $total = count($checks);
+    foreach ($checks as $header => $meta) {
+        $present = isset($h[$header]);
+        $value = $present ? $h[$header] : null;
+        $results[] = ['header' => $meta['label'], 'description' => $meta['desc'], 'present' => $present, 'value' => $value];
+        if ($present) $pass++;
+    }
+
+    $grade = 'F';
+    $pct = ($pass / $total) * 100;
+    if ($pct >= 87) $grade = 'A';
+    elseif ($pct >= 75) $grade = 'B';
+    elseif ($pct >= 62) $grade = 'C';
+    elseif ($pct >= 50) $grade = 'D';
+    elseif ($pct >= 37) $grade = 'E';
+
+    return ['grade' => $grade, 'pass' => $pass, 'total' => $total, 'headers' => $results];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  HTTP Redirect chain detection (Issue #107)
+// ═══════════════════════════════════════════════════════════════════
+
+function detectRedirectChain(string $domain): ?array {
+    $chain = [];
+    $url = 'http://' . $domain;
+    $maxRedirects = 10;
+
+    for ($i = 0; $i < $maxRedirects; $i++) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_TIMEOUT => 5,
+            CURLOPT_HEADER => true,
+            CURLOPT_NOBODY => true,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_USERAGENT => 'mwWhoIs',
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $redirectUrl = curl_getinfo($ch, CURLINFO_REDIRECT_URL);
+        curl_close($ch);
+
+        $chain[] = ['url' => $url, 'status' => $httpCode];
+
+        if ($httpCode >= 300 && $httpCode < 400 && $redirectUrl) {
+            $url = $redirectUrl;
+        } else {
+            break;
+        }
+    }
+
+    $suspicious = count($chain) > 5;
+    $httpToHttps = false;
+    if (count($chain) >= 2 && strpos($chain[0]['url'], 'http://') === 0 && strpos(end($chain)['url'], 'https://') === 0) {
+        $httpToHttps = true;
+    }
+
+    return ['chain' => $chain, 'hops' => count($chain), 'http_to_https' => $httpToHttps, 'suspicious' => $suspicious];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  TLS version & cipher suite audit (Issue #108)
+// ═══════════════════════════════════════════════════════════════════
+
+function auditTlsVersions(string $domain): ?array {
+    $result = ['versions' => [], 'cipher' => null, 'protocol' => null, 'insecure' => false];
+
+    // Check negotiated TLS version
+    $ch = curl_init('https://' . $domain);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_NOBODY => true, CURLOPT_TIMEOUT => 5, CURLOPT_SSL_VERIFYPEER => false]);
+    curl_exec($ch);
+    $sslVersion = curl_getinfo($ch, CURLINFO_SSL_VERIFYRESULT);
+    $protocol = curl_getinfo($ch, CURLINFO_PROTOCOL);
+
+    // Get TLS version from verbose info
+    $tlsVer = null;
+    if (defined('CURLINFO_TLS_SSL_PTR')) {
+        // Not available in all PHP versions
+    }
+
+    // Fallback: use openssl s_client
+    $output = @shell_exec('echo | timeout 5 openssl s_client -connect ' . escapeshellarg($domain . ':443') . ' 2>/dev/null | grep "Protocol\|Cipher"');
+    if ($output) {
+        if (preg_match('/Protocol\s*:\s*(.+)/i', $output, $m)) {
+            $result['protocol'] = trim($m[1]);
+        }
+        if (preg_match('/Cipher\s*:\s*(.+)/i', $output, $m)) {
+            $result['cipher'] = trim($m[1]);
+        }
+    }
+    curl_close($ch);
+
+    // Test specific TLS versions
+    $tests = [
+        'TLSv1.0' => CURL_SSLVERSION_TLSv1_0,
+        'TLSv1.1' => CURL_SSLVERSION_TLSv1_1,
+        'TLSv1.2' => CURL_SSLVERSION_TLSv1_2,
+    ];
+    if (defined('CURL_SSLVERSION_TLSv1_3')) {
+        $tests['TLSv1.3'] = CURL_SSLVERSION_TLSv1_3;
+    }
+
+    foreach ($tests as $name => $const) {
+        $ch = curl_init('https://' . $domain);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_NOBODY => true, CURLOPT_TIMEOUT => 3, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_SSLVERSION => $const]);
+        $ok = curl_exec($ch);
+        $err = curl_errno($ch);
+        curl_close($ch);
+        $supported = ($err === 0);
+        $result['versions'][$name] = $supported;
+        if ($supported && ($name === 'TLSv1.0' || $name === 'TLSv1.1')) {
+            $result['insecure'] = true;
+        }
+    }
+
+    return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  CAA record check (Issue #109)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkCaaRecords(string $domain): array {
+    $result = ['found' => false, 'records' => []];
+
+    // PHP dns_get_record supports CAA on PHP 7.0.16+
+    $records = @dns_get_record($domain, DNS_CAA);
+    if ($records) {
+        foreach ($records as $rec) {
+            if (isset($rec['type']) && $rec['type'] === 'CAA') {
+                $result['found'] = true;
+                $result['records'][] = [
+                    'flag'  => $rec['flags'] ?? 0,
+                    'tag'   => $rec['tag'] ?? '',
+                    'value' => $rec['value'] ?? '',
+                ];
+            }
+        }
+    }
+
+    // Fallback via dig
+    if (!$result['found']) {
+        $output = @shell_exec('dig +short CAA ' . escapeshellarg($domain) . ' 2>/dev/null');
+        if ($output && trim($output)) {
+            $lines = array_filter(explode("\n", trim($output)));
+            foreach ($lines as $line) {
+                $parts = preg_split('/\s+/', trim($line), 3);
+                if (count($parts) >= 3) {
+                    $result['found'] = true;
+                    $result['records'][] = ['flag' => (int)$parts[0], 'tag' => $parts[1], 'value' => trim($parts[2], '"')];
+                }
+            }
+        }
+    }
+
+    return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  SMTP banner & STARTTLS check (Issue #110)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkSmtpSecurity(string $domain): ?array {
+    // Get MX records
+    $mxRecords = @dns_get_record($domain, DNS_MX);
+    if (!$mxRecords || count($mxRecords) === 0) return null;
+
+    // Sort by priority and use the first
+    usort($mxRecords, function ($a, $b) { return ($a['pri'] ?? 99) - ($b['pri'] ?? 99); });
+    $mxHost = $mxRecords[0]['target'] ?? null;
+    if (!$mxHost) return null;
+
+    $result = ['mx_host' => $mxHost, 'banner' => null, 'starttls' => false, 'reachable' => false];
+
+    $fp = @fsockopen($mxHost, 25, $errno, $errstr, 5);
+    if (!$fp) return $result;
+
+    $result['reachable'] = true;
+    stream_set_timeout($fp, 5);
+
+    // Read banner
+    $banner = fgets($fp, 1024);
+    $result['banner'] = trim($banner);
+
+    // Send EHLO
+    fwrite($fp, "EHLO mwwhois.check\r\n");
+    $ehloResponse = '';
+    while ($line = fgets($fp, 1024)) {
+        $ehloResponse .= $line;
+        if (preg_match('/^\d{3} /', $line)) break;
+    }
+
+    $result['starttls'] = (stripos($ehloResponse, 'STARTTLS') !== false);
+
+    fwrite($fp, "QUIT\r\n");
+    fclose($fp);
+
+    return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Reverse IP lookup (Issue #111)
+// ═══════════════════════════════════════════════════════════════════
+
+function reverseIpLookup(string $ip): ?array {
+    $url = 'https://api.hackertarget.com/reverseiplookup/?q=' . urlencode($ip);
+    $ctx = stream_context_create(['http' => ['timeout' => 5, 'header' => "User-Agent: mwWhoIs\r\n"]]);
+    $response = @file_get_contents($url, false, $ctx);
+    if (!$response || strpos($response, 'error') !== false || strpos($response, 'API count') !== false) return null;
+
+    $domains = array_filter(array_map('trim', explode("\n", trim($response))));
+    return ['ip' => $ip, 'count' => count($domains), 'domains' => array_slice($domains, 0, 25)];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  HTTP/2 and HTTP/3 support detection (Issue #112)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkHttpVersions(string $domain): array {
+    $result = ['http2' => false, 'http3' => false, 'protocol' => null];
+
+    $ch = curl_init('https://' . $domain);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_NOBODY => true,
+        CURLOPT_TIMEOUT => 5,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_2_0,
+        CURLOPT_HEADER => true,
+    ]);
+    $response = curl_exec($ch);
+    $httpVersion = curl_getinfo($ch, CURLINFO_HTTP_VERSION);
+    curl_close($ch);
+
+    if ($httpVersion === CURL_HTTP_VERSION_2_0 || $httpVersion === 2) {
+        $result['http2'] = true;
+        $result['protocol'] = 'HTTP/2';
+    } elseif ($httpVersion === CURL_HTTP_VERSION_1_1 || $httpVersion === 1) {
+        $result['protocol'] = 'HTTP/1.1';
+    }
+
+    // Check for HTTP/3 via Alt-Svc header
+    if ($response && preg_match('/alt-svc:\s*([^\r\n]+)/i', $response, $m)) {
+        if (stripos($m[1], 'h3') !== false) {
+            $result['http3'] = true;
+        }
+    }
+
+    return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  IPv6 readiness check (Issue #113)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkIpv6Readiness(string $domain): array {
+    $result = ['has_aaaa' => false, 'aaaa_records' => [], 'reachable' => null];
+
+    $records = @dns_get_record($domain, DNS_AAAA);
+    if ($records) {
+        foreach ($records as $rec) {
+            if (isset($rec['ipv6'])) {
+                $result['has_aaaa'] = true;
+                $result['aaaa_records'][] = $rec['ipv6'];
+            }
+        }
+    }
+
+    return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  DNS resolution & HTTP response time (Issue #114)
+// ═══════════════════════════════════════════════════════════════════
+
+function measureResponseTimes(string $domain): array {
+    $result = ['dns_ms' => null, 'ttfb_ms' => null, 'total_ms' => null];
+
+    $ch = curl_init('https://' . $domain);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_NOBODY => true,
+        CURLOPT_TIMEOUT => 10,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_USERAGENT => 'mwWhoIs',
+    ]);
+    curl_exec($ch);
+
+    if (curl_errno($ch) === 0) {
+        $result['dns_ms'] = round(curl_getinfo($ch, CURLINFO_NAMELOOKUP_TIME) * 1000);
+        $result['ttfb_ms'] = round(curl_getinfo($ch, CURLINFO_STARTTRANSFER_TIME) * 1000);
+        $result['total_ms'] = round(curl_getinfo($ch, CURLINFO_TOTAL_TIME) * 1000);
+    }
+    curl_close($ch);
+
+    return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Nameserver diversity check (Issue #115)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkNsDiversity(string $domain): array {
+    $result = ['nameservers' => [], 'unique_networks' => 0, 'diverse' => true, 'warning' => null];
+
+    $nsRecords = @dns_get_record($domain, DNS_NS);
+    if (!$nsRecords) return $result;
+
+    $networks = [];
+    foreach ($nsRecords as $rec) {
+        $ns = $rec['target'] ?? '';
+        if (!$ns) continue;
+
+        $nsIp = @gethostbyname($ns);
+        $network = ($nsIp !== $ns) ? implode('.', array_slice(explode('.', $nsIp), 0, 2)) . '.x.x' : 'unknown';
+        $result['nameservers'][] = ['hostname' => $ns, 'ip' => ($nsIp !== $ns) ? $nsIp : null, 'network' => $network];
+        $networks[$network] = true;
+    }
+
+    $result['unique_networks'] = count($networks);
+    if (count($result['nameservers']) > 1 && $result['unique_networks'] <= 1) {
+        $result['diverse'] = false;
+        $result['warning'] = 'All nameservers are in the same network — single point of failure risk';
+    }
+
+    return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Domain name suggestions (Issue #116)
+// ═══════════════════════════════════════════════════════════════════
+
+function suggestAlternativeDomains(string $domain): array {
+    $parts = explode('.', $domain, 2);
+    $name = $parts[0];
+    $currentTld = $parts[1] ?? 'com';
+
+    $altTlds = ['com', 'net', 'org', 'io', 'co', 'info', 'biz', 'dev', 'app', 'xyz', 'me', 'co.uk', 'uk'];
+    $suggestions = [];
+
+    foreach ($altTlds as $tld) {
+        if ($tld === $currentTld) continue;
+        $candidate = $name . '.' . $tld;
+        $whois = @shell_exec('whois ' . escapeshellarg($candidate) . ' 2>&1');
+        if ($whois) {
+            $avail = detectAvailability($whois);
+            if ($avail === 'available') {
+                $suggestions[] = $candidate;
+            }
+        }
+        if (count($suggestions) >= 5) break; // Limit to 5 suggestions
+    }
+
+    return $suggestions;
+}
