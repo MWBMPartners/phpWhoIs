@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [d2a642c] - 2026-03-24
+
+**feat: add in-app PWA installation prompt (#170)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`d2a642c`](https://github.com/MWBMPartners/phpWhoIs/commit/d2a642cd34a9c21868445014e63b62d2aa5d41b5)
+
+### Changed files
+
+- `index.php`
+
+
 ## [bbfa429] - 2026-03-24
 
 **feat: sync manifest.json from infoAppVer.php during deployment (#168)**
