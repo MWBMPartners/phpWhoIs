@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [35413e7] - 2026-03-24T22:08:20Z
+
+**feat: add URL params to control UI visibility (hideSecScore, hideDomainSummary, Only)**
+
+- Commit: [`35413e7`](https://github.com/MWBMPartners/phpWhoIs/commit/35413e765e8fe5f164489aa2c3801046045e67b0)
+
+
 ## [290d5fa] - 2026-03-24T22:02:45Z
 
 **feat: add GitHub Action to auto-update DNS resolvers from public-dns.info**
