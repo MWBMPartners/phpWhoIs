@@ -53,7 +53,9 @@ function generateVerificationToken(string $domain, string $sessionId): string {
  */
 function verifyDomainOwnership(string $domain, string $token): bool {
     $records = @dns_get_record('_mwwhois-verify.' . $domain, DNS_TXT);
-    if (!$records) return false;
+    if (!$records) {
+        return false;
+    }
 
     foreach ($records as $record) {
         if (isset($record['txt']) && trim($record['txt']) === $token) {
@@ -74,9 +76,13 @@ function verifyDomainOwnership(string $domain, string $token): bool {
  * Keys file format: { "key_hash": { "tier": "free|premium", "rate_limit": 30, "created": "...", "label": "..." } }
  */
 function loadApiKeys(): array {
-    if (!defined('CACHE_DIR')) return [];
+    if (!defined('CACHE_DIR')) {
+        return [];
+    }
     $file = CACHE_DIR . DIRECTORY_SEPARATOR . 'api_keys.json';
-    if (!file_exists($file)) return [];
+    if (!file_exists($file)) {
+        return [];
+    }
     $keys = json_decode(file_get_contents($file), true);
     return is_array($keys) ? $keys : [];
 }
@@ -94,7 +100,9 @@ function validateApiKey(string $key): ?array {
  * Get rate limit for an API key tier.
  */
 function getApiKeyRateLimit(?array $keyConfig): int {
-    if (!$keyConfig) return RATE_LIMIT_MAX; // Default: 30/min
+    if (!$keyConfig) {
+        return RATE_LIMIT_MAX; // Default: 30/min
+    }
     return isset($keyConfig['rate_limit']) ? (int)$keyConfig['rate_limit'] : RATE_LIMIT_MAX;
 }
 
@@ -104,19 +112,33 @@ function getApiKeyRateLimit(?array $keyConfig): int {
 // ═══════════════════════════════════════════════════════════════════
 
 function trackLookup(string $type, string $domain = ''): void {
-    if (!defined('CACHE_DIR')) return;
+    if (!defined('CACHE_DIR')) {
+        return;
+    }
     $file = CACHE_DIR . DIRECTORY_SEPARATOR . 'lookup_stats.json';
     $stats = file_exists($file) ? json_decode(file_get_contents($file), true) : [];
-    if (!$stats) $stats = ['total' => 0, 'cache_hits' => 0, 'rdap' => 0, 'whois' => 0, 'errors' => 0, 'popular_domains' => []];
+    if (!$stats) {
+        $stats = ['total' => 0, 'cache_hits' => 0, 'rdap' => 0, 'whois' => 0, 'errors' => 0, 'popular_domains' => []];
+    }
 
     $stats['total'] = ($stats['total'] ?? 0) + 1;
-    if ($type === 'cache_hit') $stats['cache_hits'] = ($stats['cache_hits'] ?? 0) + 1;
-    if ($type === 'rdap') $stats['rdap'] = ($stats['rdap'] ?? 0) + 1;
-    if ($type === 'whois') $stats['whois'] = ($stats['whois'] ?? 0) + 1;
-    if ($type === 'error') $stats['errors'] = ($stats['errors'] ?? 0) + 1;
+    if ($type === 'cache_hit') {
+        $stats['cache_hits'] = ($stats['cache_hits'] ?? 0) + 1;
+    }
+    if ($type === 'rdap') {
+        $stats['rdap'] = ($stats['rdap'] ?? 0) + 1;
+    }
+    if ($type === 'whois') {
+        $stats['whois'] = ($stats['whois'] ?? 0) + 1;
+    }
+    if ($type === 'error') {
+        $stats['errors'] = ($stats['errors'] ?? 0) + 1;
+    }
 
     if ($domain) {
-        if (!isset($stats['popular_domains'])) $stats['popular_domains'] = [];
+        if (!isset($stats['popular_domains'])) {
+            $stats['popular_domains'] = [];
+        }
         $stats['popular_domains'][$domain] = ($stats['popular_domains'][$domain] ?? 0) + 1;
         arsort($stats['popular_domains']);
         $stats['popular_domains'] = array_slice($stats['popular_domains'], 0, 100, true);
@@ -1315,10 +1337,14 @@ function checkCertTransparency(string $domain): ?array {
 
     $ctx = stream_context_create(['http' => ['timeout' => 5, 'header' => "User-Agent: mwWhoIs\r\n"]]);
     $response = @file_get_contents($url, false, $ctx);
-    if (!$response) return null;
+    if (!$response) {
+        return null;
+    }
 
     $certs = json_decode($response, true);
-    if (!is_array($certs)) return null;
+    if (!is_array($certs)) {
+        return null;
+    }
 
     // Get the 10 most recent
     usort($certs, function ($a, $b) {
@@ -1345,7 +1371,9 @@ function checkCertTransparency(string $domain): ?array {
 // ═══════════════════════════════════════════════════════════════════
 
 function assessDomainAgeRisk(array $parsed): ?array {
-    if (empty($parsed['Creation Date'])) return null;
+    if (empty($parsed['Creation Date'])) {
+        return null;
+    }
 
     try {
         $created = new DateTime($parsed['Creation Date']);
@@ -1378,7 +1406,9 @@ function assessDomainAgeRisk(array $parsed): ?array {
 // ═══════════════════════════════════════════════════════════════════
 
 function checkAbuseIPDB(string $ip, string $apiKey): ?array {
-    if (!filter_var($ip, FILTER_VALIDATE_IP)) return null;
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+        return null;
+    }
 
     $ch = curl_init();
     curl_setopt_array($ch, [
@@ -1391,10 +1421,14 @@ function checkAbuseIPDB(string $ip, string $apiKey): ?array {
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
-    if ($httpCode !== 200 || !$response) return null;
+    if ($httpCode !== 200 || !$response) {
+        return null;
+    }
 
     $data = json_decode($response, true);
-    if (!isset($data['data'])) return null;
+    if (!isset($data['data'])) {
+        return null;
+    }
 
     $d = $data['data'];
     return [
@@ -1413,15 +1447,21 @@ function checkAbuseIPDB(string $ip, string $apiKey): ?array {
 // ═══════════════════════════════════════════════════════════════════
 
 function checkShodan(string $ip, string $apiKey): ?array {
-    if (!filter_var($ip, FILTER_VALIDATE_IP)) return null;
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+        return null;
+    }
 
     $url = 'https://api.shodan.io/shodan/host/' . urlencode($ip) . '?key=' . urlencode($apiKey) . '&minify=true';
     $ctx = stream_context_create(['http' => ['timeout' => 5]]);
     $response = @file_get_contents($url, false, $ctx);
-    if (!$response) return null;
+    if (!$response) {
+        return null;
+    }
 
     $data = json_decode($response, true);
-    if (!is_array($data) || isset($data['error'])) return null;
+    if (!is_array($data) || isset($data['error'])) {
+        return null;
+    }
 
     $ports = $data['ports'] ?? [];
     sort($ports);
@@ -1457,10 +1497,14 @@ function checkPhishTank(string $domain, string $apiKey): ?array {
         ],
     ]);
     $response = @file_get_contents($url, false, $ctx);
-    if (!$response) return null;
+    if (!$response) {
+        return null;
+    }
 
     $data = json_decode($response, true);
-    if (!isset($data['results'])) return null;
+    if (!isset($data['results'])) {
+        return null;
+    }
 
     return [
         'in_database' => (bool)($data['results']['in_database'] ?? false),
@@ -1488,10 +1532,14 @@ function checkUrlhaus(string $domain): ?array {
         ],
     ]);
     $response = @file_get_contents($url, false, $ctx);
-    if (!$response) return null;
+    if (!$response) {
+        return null;
+    }
 
     $data = json_decode($response, true);
-    if (!is_array($data)) return null;
+    if (!is_array($data)) {
+        return null;
+    }
 
     return [
         'status'       => $data['query_status'] ?? 'unknown',
@@ -1507,7 +1555,9 @@ function checkUrlhaus(string $domain): ?array {
 // ═══════════════════════════════════════════════════════════════════
 
 function checkSpamhaus(string $ip): ?array {
-    if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) return null;
+    if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        return null;
+    }
 
     // Reverse IP for DNSBL query
     $reversed = implode('.', array_reverse(explode('.', $ip)));
@@ -1676,7 +1726,9 @@ function detectWhoisPrivacy(string $whoisText, array $parsed): array {
 // ═══════════════════════════════════════════════════════════════════
 
 function assessHostingRisk(?array $geolocation): ?array {
-    if (!$geolocation || empty($geolocation['country_code'])) return null;
+    if (!$geolocation || empty($geolocation['country_code'])) {
+        return null;
+    }
 
     // Countries frequently flagged in threat intelligence reports
     $highRisk = ['RU', 'CN', 'KP', 'IR', 'SY', 'CU'];
@@ -1708,13 +1760,17 @@ function auditHttpHeaders(string $domain): ?array {
         // Try HTTP fallback
         $url = 'http://' . $domain;
         $headers = @get_headers($url, true, $ctx);
-        if (!$headers) return null;
+        if (!$headers) {
+            return null;
+        }
     }
 
     // Normalise header keys to lowercase
     $h = [];
     foreach ($headers as $k => $v) {
-        if (is_string($k)) $h[strtolower($k)] = is_array($v) ? end($v) : $v;
+        if (is_string($k)) {
+            $h[strtolower($k)] = is_array($v) ? end($v) : $v;
+        }
     }
 
     $checks = [
@@ -1735,16 +1791,24 @@ function auditHttpHeaders(string $domain): ?array {
         $present = isset($h[$header]);
         $value = $present ? $h[$header] : null;
         $results[] = ['header' => $meta['label'], 'description' => $meta['desc'], 'present' => $present, 'value' => $value];
-        if ($present) $pass++;
+        if ($present) {
+            $pass++;
+        }
     }
 
     $grade = 'F';
     $pct = ($pass / $total) * 100;
-    if ($pct >= 87) $grade = 'A';
-    elseif ($pct >= 75) $grade = 'B';
-    elseif ($pct >= 62) $grade = 'C';
-    elseif ($pct >= 50) $grade = 'D';
-    elseif ($pct >= 37) $grade = 'E';
+    if ($pct >= 87) {
+        $grade = 'A';
+    } elseif ($pct >= 75) {
+        $grade = 'B';
+    } elseif ($pct >= 62) {
+        $grade = 'C';
+    } elseif ($pct >= 50) {
+        $grade = 'D';
+    } elseif ($pct >= 37) {
+        $grade = 'E';
+    }
 
     return ['grade' => $grade, 'pass' => $pass, 'total' => $total, 'headers' => $results];
 }
@@ -1901,17 +1965,25 @@ function checkCaaRecords(string $domain): array {
 function checkSmtpSecurity(string $domain): ?array {
     // Get MX records
     $mxRecords = @dns_get_record($domain, DNS_MX);
-    if (!$mxRecords || count($mxRecords) === 0) return null;
+    if (!$mxRecords || count($mxRecords) === 0) {
+        return null;
+    }
 
     // Sort by priority and use the first
-    usort($mxRecords, function ($a, $b) { return ($a['pri'] ?? 99) - ($b['pri'] ?? 99); });
+    usort($mxRecords, function ($a, $b) {
+        return ($a['pri'] ?? 99) - ($b['pri'] ?? 99);
+    });
     $mxHost = $mxRecords[0]['target'] ?? null;
-    if (!$mxHost) return null;
+    if (!$mxHost) {
+        return null;
+    }
 
     $result = ['mx_host' => $mxHost, 'banner' => null, 'starttls' => false, 'reachable' => false];
 
     $fp = @fsockopen($mxHost, 25, $errno, $errstr, 5);
-    if (!$fp) return $result;
+    if (!$fp) {
+        return $result;
+    }
 
     $result['reachable'] = true;
     stream_set_timeout($fp, 5);
@@ -1925,7 +1997,9 @@ function checkSmtpSecurity(string $domain): ?array {
     $ehloResponse = '';
     while ($line = fgets($fp, 1024)) {
         $ehloResponse .= $line;
-        if (preg_match('/^\d{3} /', $line)) break;
+        if (preg_match('/^\d{3} /', $line)) {
+            break;
+        }
     }
 
     $result['starttls'] = (stripos($ehloResponse, 'STARTTLS') !== false);
@@ -1945,7 +2019,9 @@ function reverseIpLookup(string $ip): ?array {
     $url = 'https://api.hackertarget.com/reverseiplookup/?q=' . urlencode($ip);
     $ctx = stream_context_create(['http' => ['timeout' => 5, 'header' => "User-Agent: mwWhoIs\r\n"]]);
     $response = @file_get_contents($url, false, $ctx);
-    if (!$response || str_contains($response, 'error')  || str_contains($response, 'API count') ) return null;
+    if (!$response || str_contains($response, 'error')  || str_contains($response, 'API count') ) {
+        return null;
+    }
 
     $domains = array_filter(array_map('trim', explode("\n", trim($response))));
     return ['ip' => $ip, 'count' => count($domains), 'domains' => array_slice($domains, 0, 25)];
@@ -2047,12 +2123,16 @@ function checkNsDiversity(string $domain): array {
     $result = ['nameservers' => [], 'unique_networks' => 0, 'diverse' => true, 'warning' => null];
 
     $nsRecords = @dns_get_record($domain, DNS_NS);
-    if (!$nsRecords) return $result;
+    if (!$nsRecords) {
+        return $result;
+    }
 
     $networks = [];
     foreach ($nsRecords as $rec) {
         $ns = $rec['target'] ?? '';
-        if (!$ns) continue;
+        if (!$ns) {
+            continue;
+        }
 
         $nsIp = @gethostbyname($ns);
         $network = ($nsIp !== $ns) ? implode('.', array_slice(explode('.', $nsIp), 0, 2)) . '.x.x' : 'unknown';
@@ -2083,7 +2163,9 @@ function suggestAlternativeDomains(string $domain): array {
     $suggestions = [];
 
     foreach ($altTlds as $tld) {
-        if ($tld === $currentTld) continue;
+        if ($tld === $currentTld) {
+            continue;
+        }
         $candidate = $name . '.' . $tld;
         $whois = @shell_exec('whois ' . escapeshellarg($candidate) . ' 2>&1');
         if ($whois) {
@@ -2092,7 +2174,9 @@ function suggestAlternativeDomains(string $domain): array {
                 $suggestions[] = $candidate;
             }
         }
-        if (count($suggestions) >= 5) break; // Limit to 5 suggestions
+        if (count($suggestions) >= 5) {
+            break; // Limit to 5 suggestions
+        }
     }
 
     return $suggestions;
@@ -2110,39 +2194,70 @@ function detectTechStack(string $domain): ?array {
     if (isset($http_response_header)) {
         foreach ($http_response_header as $h) {
             $parts = explode(':', $h, 2);
-            if (count($parts) === 2) $headers[strtolower(trim($parts[0]))] = trim($parts[1]);
+            if (count($parts) === 2) {
+                $headers[strtolower(trim($parts[0]))] = trim($parts[1]);
+            }
         }
     }
 
     $techs = [];
 
     // Server
-    if (!empty($headers['server'])) $techs[] = ['category' => 'Server', 'name' => $headers['server']];
-    if (!empty($headers['x-powered-by'])) $techs[] = ['category' => 'Framework', 'name' => $headers['x-powered-by']];
+    if (!empty($headers['server'])) {
+        $techs[] = ['category' => 'Server', 'name' => $headers['server']];
+    }
+    if (!empty($headers['x-powered-by'])) {
+        $techs[] = ['category' => 'Framework', 'name' => $headers['x-powered-by']];
+    }
 
     if ($html) {
         // CMS detection
-        if (str_contains(strtolower($html), 'wp-content')  || str_contains(strtolower($html), 'wordpress') ) $techs[] = ['category' => 'CMS', 'name' => 'WordPress'];
-        elseif (str_contains(strtolower($html), 'joomla') ) $techs[] = ['category' => 'CMS', 'name' => 'Joomla'];
-        elseif (str_contains(strtolower($html), 'drupal') ) $techs[] = ['category' => 'CMS', 'name' => 'Drupal'];
-        elseif (str_contains(strtolower($html), 'shopify') ) $techs[] = ['category' => 'CMS', 'name' => 'Shopify'];
-        elseif (str_contains(strtolower($html), 'squarespace') ) $techs[] = ['category' => 'CMS', 'name' => 'Squarespace'];
-        elseif (str_contains(strtolower($html), 'wix.com') ) $techs[] = ['category' => 'CMS', 'name' => 'Wix'];
+        if (str_contains(strtolower($html), 'wp-content')  || str_contains(strtolower($html), 'wordpress') ) {
+            $techs[] = ['category' => 'CMS', 'name' => 'WordPress'];
+        } elseif (str_contains(strtolower($html), 'joomla') ) {
+            $techs[] = ['category' => 'CMS', 'name' => 'Joomla'];
+        } elseif (str_contains(strtolower($html), 'drupal') ) {
+            $techs[] = ['category' => 'CMS', 'name' => 'Drupal'];
+        } elseif (str_contains(strtolower($html), 'shopify') ) {
+            $techs[] = ['category' => 'CMS', 'name' => 'Shopify'];
+        } elseif (str_contains(strtolower($html), 'squarespace') ) {
+            $techs[] = ['category' => 'CMS', 'name' => 'Squarespace'];
+        } elseif (str_contains(strtolower($html), 'wix.com') ) {
+            $techs[] = ['category' => 'CMS', 'name' => 'Wix'];
+        }
 
         // JS frameworks
-        if (str_contains(strtolower($html), 'react')  || str_contains(strtolower($html), '__next_data__') ) $techs[] = ['category' => 'JS Framework', 'name' => 'React'];
-        if (str_contains(strtolower($html), 'vue')  && str_contains(strtolower($html), 'data-v-') ) $techs[] = ['category' => 'JS Framework', 'name' => 'Vue.js'];
-        if (str_contains(strtolower($html), 'angular')  || str_contains(strtolower($html), 'ng-') ) $techs[] = ['category' => 'JS Framework', 'name' => 'Angular'];
+        if (str_contains(strtolower($html), 'react')  || str_contains(strtolower($html), '__next_data__') ) {
+            $techs[] = ['category' => 'JS Framework', 'name' => 'React'];
+        }
+        if (str_contains(strtolower($html), 'vue')  && str_contains(strtolower($html), 'data-v-') ) {
+            $techs[] = ['category' => 'JS Framework', 'name' => 'Vue.js'];
+        }
+        if (str_contains(strtolower($html), 'angular')  || str_contains(strtolower($html), 'ng-') ) {
+            $techs[] = ['category' => 'JS Framework', 'name' => 'Angular'];
+        }
 
         // CDN
-        if (str_contains(strtolower($html), 'cloudflare')  || !empty($headers['cf-ray'])) $techs[] = ['category' => 'CDN', 'name' => 'Cloudflare'];
-        if (str_contains(strtolower($html), 'cdn.jsdelivr.net') ) $techs[] = ['category' => 'CDN', 'name' => 'jsDelivr'];
-        if (str_contains(strtolower($html), 'cloudfront') ) $techs[] = ['category' => 'CDN', 'name' => 'CloudFront'];
-        if (str_contains(strtolower($html), 'akamai') ) $techs[] = ['category' => 'CDN', 'name' => 'Akamai'];
+        if (str_contains(strtolower($html), 'cloudflare')  || !empty($headers['cf-ray'])) {
+            $techs[] = ['category' => 'CDN', 'name' => 'Cloudflare'];
+        }
+        if (str_contains(strtolower($html), 'cdn.jsdelivr.net') ) {
+            $techs[] = ['category' => 'CDN', 'name' => 'jsDelivr'];
+        }
+        if (str_contains(strtolower($html), 'cloudfront') ) {
+            $techs[] = ['category' => 'CDN', 'name' => 'CloudFront'];
+        }
+        if (str_contains(strtolower($html), 'akamai') ) {
+            $techs[] = ['category' => 'CDN', 'name' => 'Akamai'];
+        }
 
         // Analytics
-        if (str_contains(strtolower($html), 'google-analytics')  || str_contains(strtolower($html), 'gtag')  || str_contains(strtolower($html), 'ga-') ) $techs[] = ['category' => 'Analytics', 'name' => 'Google Analytics'];
-        if (str_contains(strtolower($html), 'matomo')  || str_contains(strtolower($html), 'piwik') ) $techs[] = ['category' => 'Analytics', 'name' => 'Matomo'];
+        if (str_contains(strtolower($html), 'google-analytics')  || str_contains(strtolower($html), 'gtag')  || str_contains(strtolower($html), 'ga-') ) {
+            $techs[] = ['category' => 'Analytics', 'name' => 'Google Analytics'];
+        }
+        if (str_contains(strtolower($html), 'matomo')  || str_contains(strtolower($html), 'piwik') ) {
+            $techs[] = ['category' => 'Analytics', 'name' => 'Matomo'];
+        }
 
         // Meta generator
         if (preg_match('/<meta[^>]+name=["\']generator["\'][^>]+content=["\']([^"\']+)/i', $html, $m)) {
@@ -2169,7 +2284,9 @@ function analyseRobotsTxt(string $domain): ?array {
             $line = trim($line);
             if (str_starts_with(strtolower($line), 'disallow:')) {
                 $path = trim(substr($line, 9));
-                if ($path) $result['disallowed'][] = $path;
+                if ($path) {
+                    $result['disallowed'][] = $path;
+                }
             } elseif (str_starts_with(strtolower($line), 'sitemap:')) {
                 $result['sitemaps'][] = trim(substr($line, 8));
             } elseif (str_starts_with(strtolower($line), 'crawl-delay:')) {
@@ -2212,7 +2329,9 @@ function checkDnsPropagation(string $domain): array {
     }
 
     // Check consistency
-    $allAnswers = array_map(function ($r) { return implode(',', $r['answers']); }, $results);
+    $allAnswers = array_map(function ($r) {
+        return implode(',', $r['answers']);
+    }, $results);
     $consistent = count(array_unique($allAnswers)) <= 1;
 
     return ['resolvers' => $results, 'consistent' => $consistent];
@@ -2239,7 +2358,10 @@ function calculateSecurityScore(array $data): array {
     $hstsPass = false;
     if (!empty($data['http_headers'])) {
         foreach ($data['http_headers']['headers'] ?? [] as $h) {
-            if ($h['header'] === 'HSTS' && $h['present']) { $hstsPass = true; break; }
+            if ($h['header'] === 'HSTS' && $h['present']) {
+                $hstsPass = true;
+                break;
+            }
         }
     }
     $details[] = [
@@ -2332,16 +2454,24 @@ function calculateSecurityScore(array $data): array {
 
     $passed = 0;
     foreach ($details as $d) {
-        if ($d['status'] === 'pass') $passed++;
+        if ($d['status'] === 'pass') {
+            $passed++;
+        }
     }
     $total = count($details);
     $pct = $total > 0 ? round(($passed / $total) * 100) : 0;
     $grade = 'F';
-    if ($pct >= 90) $grade = 'A';
-    elseif ($pct >= 75) $grade = 'B';
-    elseif ($pct >= 60) $grade = 'C';
-    elseif ($pct >= 45) $grade = 'D';
-    elseif ($pct >= 30) $grade = 'E';
+    if ($pct >= 90) {
+        $grade = 'A';
+    } elseif ($pct >= 75) {
+        $grade = 'B';
+    } elseif ($pct >= 60) {
+        $grade = 'C';
+    } elseif ($pct >= 45) {
+        $grade = 'D';
+    } elseif ($pct >= 30) {
+        $grade = 'E';
+    }
 
     return ['grade' => $grade, 'score' => $pct, 'passed' => $passed, 'total' => $total, 'details' => $details];
 }
@@ -2352,7 +2482,9 @@ function calculateSecurityScore(array $data): array {
 // ═══════════════════════════════════════════════════════════════════
 
 function checkMultiDnsbl(string $ip): array {
-    if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) return ['listed' => false, 'lists' => []];
+    if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        return ['listed' => false, 'lists' => []];
+    }
 
     $reversed = implode('.', array_reverse(explode('.', $ip)));
     $zones = [

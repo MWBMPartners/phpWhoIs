@@ -79,12 +79,29 @@ $_showApiDocs = !empty($_SESSION['logged_in'])
         </div>
     </footer>
     <script>
-    (function(){try{var w=JSON.parse(localStorage.getItem('watchedDomains')||'[]');if(w.length){
+    (function () {
+        try {
+            var w = JSON.parse(localStorage.getItem('watchedDomains') || '[]');
+            if (w.length) {
 <?php if ($_showPortfolio): ?>
-        var fl=document.getElementById('footerPortfolioLink');if(fl)fl.style.display='';
-        var hl=document.getElementById('historyPortfolioLink');if(hl)hl.style.display='';
+                var fl = document.getElementById('footerPortfolioLink');
+                if (fl) {
+                    fl.style.display = '';
+                }
+                var hl = document.getElementById('historyPortfolioLink');
+                if (hl) {
+                    hl.style.display = '';
+                }
 <?php endif; ?>
-        var wf=document.getElementById('footerWatchlistFeed');if(wf)wf.style.display='';
-        var hwf=document.getElementById('historyWatchlistFeed');if(hwf)hwf.style.display='';
-    }}catch(e){}})();
+                var wf = document.getElementById('footerWatchlistFeed');
+                if (wf) {
+                    wf.style.display = '';
+                }
+                var hwf = document.getElementById('historyWatchlistFeed');
+                if (hwf) {
+                    hwf.style.display = '';
+                }
+            }
+        } catch (e) {}
+    })();
     </script>

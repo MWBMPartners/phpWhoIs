@@ -203,19 +203,28 @@ if ($appName) {
     </div>
 </div>
 <script>
-document.getElementById('webhookTestBtn').addEventListener('click', function() {
+document.getElementById('webhookTestBtn').addEventListener('click', function () {
     var url = document.getElementById('webhookTestUrl').value.trim();
     var result = document.getElementById('webhookTestResult');
-    if (!url) { result.innerHTML = '<span class="text-danger">Enter a webhook URL</span>'; return; }
+    if (!url) {
+        result.innerHTML = '<span class="text-danger">Enter a webhook URL</span>';
+        return;
+    }
     result.innerHTML = '<span class="text-muted">Sending...</span>';
     fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ test: true, source: 'mwWhoIs admin', timestamp: new Date().toISOString(), domain: 'test.example.com', changes: [{ field: 'Test', old: 'before', new: 'after' }] }),
+        body: JSON.stringify({
+            test: true,
+            source: 'mwWhoIs admin',
+            timestamp: new Date().toISOString(),
+            domain: 'test.example.com',
+            changes: [{ field: 'Test', old: 'before', new: 'after' }]
+        }),
         mode: 'no-cors'
-    }).then(function() {
+    }).then(function () {
         result.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Payload sent (check your webhook receiver)</span>';
-    }).catch(function(e) {
+    }).catch(function (e) {
         result.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle"></i> ' + e.message + '</span>';
     });
 });

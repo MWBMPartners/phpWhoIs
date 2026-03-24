@@ -62,7 +62,9 @@ if (is_array($changeLog)) {
 // Also add watched domains with last_check as status items (if no change log)
 if (empty($items) && is_array($watched)) {
     foreach ($watched as $domain => $info) {
-        if (empty($info['last_check'])) continue;
+        if (empty($info['last_check'])) {
+            continue;
+        }
         $items[] = [
             'title'       => 'Monitoring: ' . $domain,
             'link'        => $baseUrl . '/?domain=' . urlencode($domain),

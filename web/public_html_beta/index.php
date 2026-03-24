@@ -707,7 +707,10 @@ if ($_showPortfolioIcon): ?>
 
         // ── URL param auto-lookup ──
         var urlDomain = new URLSearchParams(window.location.search).get('domain');
-        if (urlDomain) { document.getElementById('domain').value = urlDomain; triggerLookup(urlDomain); }
+        if (urlDomain) {
+            document.getElementById('domain').value = urlDomain;
+            triggerLookup(urlDomain);
+        }
 
         // ── Client-side domain validation (Issue #78) ──
         var domainInput = document.getElementById('domain');
@@ -718,7 +721,10 @@ if ($_showPortfolioIcon): ?>
         var validationTimer = null;
 
         function validateDomainInput(val) {
-            if (!val) { setValidation('', false); return; }
+            if (!val) {
+                setValidation('', false);
+                return;
+            }
             // Strip protocol/www for validation
             val = val.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').trim();
             if (domainRegex.test(val) || ipRegex.test(val)) {
@@ -755,19 +761,26 @@ if ($_showPortfolioIcon): ?>
         domainInput.addEventListener('input', function () {
             clearTimeout(validationTimer);
             var val = this.value.trim();
-            validationTimer = setTimeout(function () { validateDomainInput(val); }, 300);
+            validationTimer = setTimeout(function () {
+                validateDomainInput(val);
+            }, 300);
         });
 
         // Clear validation on focus
         domainInput.addEventListener('focus', function () {
-            if (!this.value.trim()) setValidation('', false);
+            if (!this.value.trim()) {
+                setValidation('', false);
+            }
         });
 
         // ── Single form submit ──
         document.getElementById('whoisForm').addEventListener('submit', function (e) {
             e.preventDefault();
             var d = document.getElementById('domain').value.trim();
-            if (d) { setValidation('', false); triggerLookup(d); }
+            if (d) {
+                setValidation('', false);
+                triggerLookup(d);
+            }
         });
 
         // ── Bulk form submit ──
@@ -775,13 +788,19 @@ if ($_showPortfolioIcon): ?>
             e.preventDefault();
             var text = document.getElementById('bulkDomains').value.trim();
             if (!text) return;
-            var domains = text.split(/[\n,]+/).map(function (d) { return d.trim(); }).filter(Boolean);
+            var domains = text.split(/[\n,]+/)
+                .map(function (d) {
+                    return d.trim();
+                })
+                .filter(Boolean);
             var BULK_MAX = 50;
             if (domains.length > BULK_MAX) {
                 showError('Maximum ' + BULK_MAX + ' domains per bulk lookup. You entered ' + domains.length + '.');
                 return;
             }
-            if (domains.length) triggerBulkLookup(domains);
+            if (domains.length) {
+                triggerBulkLookup(domains);
+            }
         });
 
         // ── Bulk file import (Issue #117) ──
@@ -801,7 +820,9 @@ if ($_showPortfolioIcon): ?>
             e.preventDefault();
             var d1 = document.getElementById('compareDomain1').value.trim();
             var d2 = document.getElementById('compareDomain2').value.trim();
-            if (d1 && d2) triggerCompare(d1, d2);
+            if (d1 && d2) {
+                triggerCompare(d1, d2);
+            }
         });
 
         function triggerCompare(domain1, domain2) {
@@ -816,9 +837,15 @@ if ($_showPortfolioIcon): ?>
                 fd.append('csrf_token', CSRF);
 
                 fetch('lookup?nocache=' + Date.now(), { method: 'POST', body: fd })
-                    .then(function (r) { return r.json(); })
-                    .then(function (data) { results[domain] = data; })
-                    .catch(function () { results[domain] = { error: 'Lookup failed' }; })
+                    .then(function (r) {
+                        return r.json();
+                    })
+                    .then(function (data) {
+                        results[domain] = data;
+                    })
+                    .catch(function () {
+                        results[domain] = { error: 'Lookup failed' };
+                    })
                     .finally(function () {
                         if (++done === 2) {
                             showLoading(false);
@@ -835,8 +862,16 @@ if ($_showPortfolioIcon): ?>
 
             var fields = ['availability', 'data_source'];
             var parsedKeys = {};
-            if (data1.parsed) for (var k in data1.parsed) parsedKeys[k] = true;
-            if (data2.parsed) for (var k in data2.parsed) parsedKeys[k] = true;
+            if (data1.parsed) {
+                for (var k in data1.parsed) {
+                    parsedKeys[k] = true;
+                }
+            }
+            if (data2.parsed) {
+                for (var k in data2.parsed) {
+                    parsedKeys[k] = true;
+                }
+            }
 
             // Availability row
             html += '<tr><td class="fw-bold">Availability</td><td>' + esc(data1.availability || 'N/A') + '</td><td>' + esc(data2.availability || 'N/A') + '</td></tr>';
@@ -886,8 +921,16 @@ if ($_showPortfolioIcon): ?>
 
             document.getElementById('exportCompareCsvBtn').addEventListener('click', function () {
                 var allKeys = {};
-                if (data1.parsed) for (var k in data1.parsed) allKeys[k] = true;
-                if (data2.parsed) for (var k in data2.parsed) allKeys[k] = true;
+                if (data1.parsed) {
+                    for (var k in data1.parsed) {
+                        allKeys[k] = true;
+                    }
+                }
+                if (data2.parsed) {
+                    for (var k in data2.parsed) {
+                        allKeys[k] = true;
+                    }
+                }
                 var csv = 'Field,"' + d1 + '","' + d2 + '"\n';
                 csv += '"Availability","' + (data1.availability || '') + '","' + (data2.availability || '') + '"\n';
                 for (var key in allKeys) {
@@ -914,10 +957,18 @@ if ($_showPortfolioIcon): ?>
             fd.append('csrf_token', CSRF);
 
             fetch('lookup?nocache=' + Date.now(), { method: 'POST', body: fd })
-                .then(function (r) { if (!r.ok) throw new Error('Server error: ' + r.status); return r.json(); })
+                .then(function (r) {
+                    if (!r.ok) {
+                        throw new Error('Server error: ' + r.status);
+                    }
+                    return r.json();
+                })
                 .then(function (data) {
                     showLoading(false);
-                    if (data.error) { showError(data.error); return; }
+                    if (data.error) {
+                        showError(data.error);
+                        return;
+                    }
                     // Use the cleaned domain from the backend (Issue #177)
                     if (data.domain) {
                         currentDomain = data.domain;
@@ -929,7 +980,10 @@ if ($_showPortfolioIcon): ?>
                     displayResults(data);
                     saveToHistory(currentDomain, data);
                 })
-                .catch(function (err) { showLoading(false); showError('Lookup failed: ' + err.message); });
+                .catch(function (err) {
+                    showLoading(false);
+                    showError('Lookup failed: ' + err.message);
+                });
         }
 
         // ── Bulk lookup ──
@@ -1074,6 +1128,14 @@ if ($_showPortfolioIcon): ?>
                 avBadge.innerHTML += '<div class="card mt-2"><div class="card-body p-2 text-center"><img src="' + data.screenshot_url + '" alt="Website preview of ' + esc(currentDomain) + '" class="img-fluid rounded" style="max-height:300px;" loading="lazy" onerror="this.parentElement.parentElement.style.display=\'none\'"></div></div>';
             }
 
+            // Reset tab pane visibility — only WHOIS shown by default (Issue #178)
+            document.getElementById('whoisResultPane').style.display = '';
+            document.getElementById('dnsResultPane').style.display = 'none';
+            document.getElementById('emailSecurityPane').style.display = 'none';
+            document.getElementById('sslPane').style.display = 'none';
+            document.getElementById('subdomainsPane').style.display = 'none';
+            document.getElementById('securityPane').style.display = 'none';
+
             // Source badge
             var dsBadge = document.getElementById('dataSourceBadge');
             dsBadge.innerHTML = '<span class="badge bg-secondary">Source: ' + (data.data_source || 'whois').toUpperCase() + (data.cached ? ' (cached)' : '') + '</span>';
@@ -1092,8 +1154,11 @@ if ($_showPortfolioIcon): ?>
                     var cls = '';
                     if (key === 'Expires In') {
                         var days = parseInt(val);
-                        if (days <= 30) cls = ' class="table-danger"';
-                        else if (days <= 90) cls = ' class="table-warning"';
+                        if (days <= 30) {
+                            cls = ' class="table-danger"';
+                        } else if (days <= 90) {
+                            cls = ' class="table-warning"';
+                        }
                     }
                     html += '<tr' + cls + '><td class="fw-bold">' + key + '</td><td>' + val + '</td></tr>';
                 }
@@ -1169,11 +1234,21 @@ if ($_showPortfolioIcon): ?>
             if (data.geolocation) {
                 var geo = data.geolocation;
                 var geoHtml = '<div class="card mt-3"><div class="card-header"><strong>Server Location</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                if (geo.city) { geoHtml += '<tr><td class="fw-bold">City</td><td>' + esc(geo.city) + '</td></tr>'; }
-                if (geo.country) { geoHtml += '<tr><td class="fw-bold">Country</td><td>' + esc(geo.country) + ' (' + esc(geo.country_code) + ')</td></tr>'; }
-                if (geo.isp) { geoHtml += '<tr><td class="fw-bold">ISP</td><td>' + esc(geo.isp) + '</td></tr>'; }
-                if (geo.org) { geoHtml += '<tr><td class="fw-bold">Organization</td><td>' + esc(geo.org) + '</td></tr>'; }
-                if (geo.as) { geoHtml += '<tr><td class="fw-bold">AS</td><td>' + esc(geo.as) + '</td></tr>'; }
+                if (geo.city) {
+                    geoHtml += '<tr><td class="fw-bold">City</td><td>' + esc(geo.city) + '</td></tr>';
+                }
+                if (geo.country) {
+                    geoHtml += '<tr><td class="fw-bold">Country</td><td>' + esc(geo.country) + ' (' + esc(geo.country_code) + ')</td></tr>';
+                }
+                if (geo.isp) {
+                    geoHtml += '<tr><td class="fw-bold">ISP</td><td>' + esc(geo.isp) + '</td></tr>';
+                }
+                if (geo.org) {
+                    geoHtml += '<tr><td class="fw-bold">Organization</td><td>' + esc(geo.org) + '</td></tr>';
+                }
+                if (geo.as) {
+                    geoHtml += '<tr><td class="fw-bold">AS</td><td>' + esc(geo.as) + '</td></tr>';
+                }
                 geoHtml += '</table></div></div>';
                 document.getElementById('parsedFields').innerHTML += geoHtml;
                 document.getElementById('parsedFields').style.display = '';
@@ -1294,8 +1369,12 @@ if ($_showPortfolioIcon): ?>
             if (data.shodan) {
                 var shHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-hdd-network me-1"></i>Exposed Services (Shodan)</strong></div><div class="card-body"><table class="table table-sm mb-0">';
                 shHtml += '<tr><td class="fw-bold">Open Ports</td><td>' + (data.shodan.ports.length ? data.shodan.ports.join(', ') : 'None detected') + '</td></tr>';
-                if (data.shodan.os) shHtml += '<tr><td class="fw-bold">OS</td><td>' + esc(data.shodan.os) + '</td></tr>';
-                if (data.shodan.org) shHtml += '<tr><td class="fw-bold">Organization</td><td>' + esc(data.shodan.org) + '</td></tr>';
+                if (data.shodan.os) {
+                    shHtml += '<tr><td class="fw-bold">OS</td><td>' + esc(data.shodan.os) + '</td></tr>';
+                }
+                if (data.shodan.org) {
+                    shHtml += '<tr><td class="fw-bold">Organization</td><td>' + esc(data.shodan.org) + '</td></tr>';
+                }
                 if (data.shodan.vulns && data.shodan.vulns.length) {
                     shHtml += '<tr class="table-danger"><td class="fw-bold">Known Vulnerabilities</td><td>' + data.shodan.vulns.map(esc).join(', ') + '</td></tr>';
                 }
@@ -1319,8 +1398,12 @@ if ($_showPortfolioIcon): ?>
             if (data.tls_audit) {
                 var ta = data.tls_audit;
                 var taHtml = '<div class="card mt-3"><div class="card-header"><strong>TLS Version Support</strong>' + (ta.insecure ? ' <span class="badge bg-danger">Insecure versions enabled</span>' : '') + '</div><div class="card-body"><table class="table table-sm mb-0">';
-                if (ta.protocol) taHtml += '<tr><td class="fw-bold">Negotiated</td><td>' + esc(ta.protocol) + '</td></tr>';
-                if (ta.cipher) taHtml += '<tr><td class="fw-bold">Cipher</td><td><code>' + esc(ta.cipher) + '</code></td></tr>';
+                if (ta.protocol) {
+                    taHtml += '<tr><td class="fw-bold">Negotiated</td><td>' + esc(ta.protocol) + '</td></tr>';
+                }
+                if (ta.cipher) {
+                    taHtml += '<tr><td class="fw-bold">Cipher</td><td><code>' + esc(ta.cipher) + '</code></td></tr>';
+                }
                 for (var ver in ta.versions) {
                     var cls = (ver === 'TLSv1.0' || ver === 'TLSv1.1') && ta.versions[ver] ? ' class="table-danger"' : '';
                     taHtml += '<tr' + cls + '><td class="fw-bold">' + esc(ver) + '</td><td>' + (ta.versions[ver] ? '<i class="bi bi-check-circle text-success"></i> Supported' : '<i class="bi bi-x-circle text-muted"></i> Not supported') + '</td></tr>';
@@ -1348,7 +1431,9 @@ if ($_showPortfolioIcon): ?>
                 esPane.innerHTML = esPane.innerHTML.slice(0, -1); // reopen
                 var smHtml = '<div class="card mt-3"><div class="card-header"><strong>SMTP Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
                 smHtml += '<tr><td class="fw-bold">MX Server</td><td>' + esc(sm.mx_host) + '</td></tr>';
-                if (sm.banner) smHtml += '<tr><td class="fw-bold">Banner</td><td><code class="small">' + esc(sm.banner) + '</code></td></tr>';
+                if (sm.banner) {
+                    smHtml += '<tr><td class="fw-bold">Banner</td><td><code class="small">' + esc(sm.banner) + '</code></td></tr>';
+                }
                 smHtml += '<tr><td class="fw-bold">' + smIcon + ' STARTTLS</td><td>' + (sm.starttls ? 'Supported' : 'Not supported') + '</td></tr>';
                 smHtml += '</table></div></div>';
                 document.getElementById('emailSecurityPane').innerHTML += smHtml;
@@ -1370,7 +1455,9 @@ if ($_showPortfolioIcon): ?>
             if (data.http_versions) {
                 var hv = data.http_versions;
                 var hvHtml = '<div class="card mt-3"><div class="card-header"><strong>Protocol Support</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                if (hv.protocol) hvHtml += '<tr><td class="fw-bold">Negotiated</td><td>' + esc(hv.protocol) + '</td></tr>';
+                if (hv.protocol) {
+                    hvHtml += '<tr><td class="fw-bold">Negotiated</td><td>' + esc(hv.protocol) + '</td></tr>';
+                }
                 hvHtml += '<tr><td class="fw-bold">HTTP/2</td><td>' + (hv.http2 ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No') + '</td></tr>';
                 hvHtml += '<tr><td class="fw-bold">HTTP/3</td><td>' + (hv.http3 ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No') + '</td></tr>';
                 hvHtml += '</table></div></div>';
@@ -1446,10 +1533,17 @@ if ($_showPortfolioIcon): ?>
 
                 // Store score history (Issue #138)
                 var scoreHistory = {};
-                try { scoreHistory = JSON.parse(localStorage.getItem('securityScoreHistory') || '{}'); } catch(e) {}
-                if (!scoreHistory[currentDomain]) scoreHistory[currentDomain] = [];
+                try {
+                    scoreHistory = JSON.parse(localStorage.getItem('securityScoreHistory') || '{}');
+                } catch(e) {
+                }
+                if (!scoreHistory[currentDomain]) {
+                    scoreHistory[currentDomain] = [];
+                }
                 scoreHistory[currentDomain].push({ ts: Date.now(), grade: ss.grade, score: ss.score });
-                if (scoreHistory[currentDomain].length > 20) scoreHistory[currentDomain] = scoreHistory[currentDomain].slice(-20);
+                if (scoreHistory[currentDomain].length > 20) {
+                    scoreHistory[currentDomain] = scoreHistory[currentDomain].slice(-20);
+                }
                 localStorage.setItem('securityScoreHistory', JSON.stringify(scoreHistory));
 
                 // Build sparkline from history
@@ -1519,8 +1613,12 @@ if ($_showPortfolioIcon): ?>
                 var rbHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-robot me-1"></i>Robots.txt & Sitemap</strong></div><div class="card-body"><table class="table table-sm mb-0">';
                 rbHtml += '<tr><td class="fw-bold">robots.txt</td><td>' + (rb.robots_found ? '<i class="bi bi-check-circle text-success"></i> Found' : '<i class="bi bi-x-circle text-muted"></i> Not found') + '</td></tr>';
                 rbHtml += '<tr><td class="fw-bold">sitemap.xml</td><td>' + (rb.sitemap_found ? '<i class="bi bi-check-circle text-success"></i> Found' : '<i class="bi bi-x-circle text-muted"></i> Not found') + '</td></tr>';
-                if (rb.disallowed.length) rbHtml += '<tr><td class="fw-bold">Disallowed paths</td><td><code class="small">' + rb.disallowed.slice(0, 10).map(esc).join('</code>, <code class="small">') + '</code>' + (rb.disallowed.length > 10 ? ' ...' : '') + '</td></tr>';
-                if (rb.crawl_delay) rbHtml += '<tr><td class="fw-bold">Crawl delay</td><td>' + rb.crawl_delay + 's</td></tr>';
+                if (rb.disallowed.length) {
+                    rbHtml += '<tr><td class="fw-bold">Disallowed paths</td><td><code class="small">' + rb.disallowed.slice(0, 10).map(esc).join('</code>, <code class="small">') + '</code>' + (rb.disallowed.length > 10 ? ' ...' : '') + '</td></tr>';
+                }
+                if (rb.crawl_delay) {
+                    rbHtml += '<tr><td class="fw-bold">Crawl delay</td><td>' + rb.crawl_delay + 's</td></tr>';
+                }
                 rbHtml += '</table></div></div>';
                 document.getElementById('subdomainsPane').innerHTML += rbHtml;
             }
@@ -1542,7 +1640,9 @@ if ($_showPortfolioIcon): ?>
                 var dbHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-exclamation me-1"></i>Blocklist Check</strong> <span class="badge ' + (db.listed ? 'bg-danger' : 'bg-success') + '">' + (db.listed ? db.lists.length + ' listed' : 'Clean') + '</span> <small class="text-muted">(' + db.total_checked + ' lists checked)</small></div>';
                 if (db.listed) {
                     dbHtml += '<div class="card-body"><table class="table table-sm mb-0 table-danger">';
-                    db.lists.forEach(function (l) { dbHtml += '<tr><td>' + esc(l.label) + '</td><td><code class="small">' + esc(l.zone) + '</code></td></tr>'; });
+                    db.lists.forEach(function (l) {
+                        dbHtml += '<tr><td>' + esc(l.label) + '</td><td><code class="small">' + esc(l.zone) + '</code></td></tr>';
+                    });
                     dbHtml += '</table></div>';
                 }
                 dbHtml += '</div>';
@@ -1576,11 +1676,15 @@ if ($_showPortfolioIcon): ?>
                         for (var k in snap.parsed) {
                             var sv = Array.isArray(snap.parsed[k]) ? snap.parsed[k].join(', ') : snap.parsed[k];
                             var pv = prev.parsed[k] ? (Array.isArray(prev.parsed[k]) ? prev.parsed[k].join(', ') : prev.parsed[k]) : '';
-                            if (sv !== pv) changes.push('<strong>' + k + ':</strong> ' + esc(pv || '(none)') + ' → ' + esc(sv));
+                            if (sv !== pv) {
+                                changes.push('<strong>' + k + ':</strong> ' + esc(pv || '(none)') + ' → ' + esc(sv));
+                            }
                         }
                         if (changes.length) {
                             tlHtml += '<ul class="mb-0 small">';
-                            changes.forEach(function (c) { tlHtml += '<li>' + c + '</li>'; });
+                            changes.forEach(function (c) {
+                                tlHtml += '<li>' + c + '</li>';
+                            });
                             tlHtml += '</ul>';
                         } else {
                             tlHtml += '<p class="small mb-0 text-muted">No changes detected</p>';
@@ -1610,7 +1714,10 @@ if ($_showPortfolioIcon): ?>
         document.querySelectorAll('#resultTabs .nav-link').forEach(function (tab) {
             tab.addEventListener('click', function (e) {
                 e.preventDefault();
-                document.querySelectorAll('#resultTabs .nav-link').forEach(function (t) { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
+                document.querySelectorAll('#resultTabs .nav-link').forEach(function (t) {
+                    t.classList.remove('active');
+                    t.setAttribute('aria-selected', 'false');
+                });
                 this.classList.add('active');
                 this.setAttribute('aria-selected', 'true');
                 var t = this.dataset.tab;
@@ -1641,7 +1748,9 @@ if ($_showPortfolioIcon): ?>
             document.getElementById('result').innerHTML = isRawView ? '<pre>' + rawWhoisText + '</pre>' : formattedResult;
             updateToggleBtn();
         });
-        function updateToggleBtn() { document.getElementById('toggleViewBtn').textContent = isRawView ? 'Show Formatted Whois' : 'Show Raw Whois'; }
+        function updateToggleBtn() {
+            document.getElementById('toggleViewBtn').textContent = isRawView ? 'Show Formatted Whois' : 'Show Raw Whois';
+        }
 
         // ── Copy / Download ──
         document.getElementById('copyBtn').addEventListener('click', function () {
@@ -1649,7 +1758,10 @@ if ($_showPortfolioIcon): ?>
                 var b = document.getElementById('copyBtn');
                 b.innerHTML = '<i class="bi bi-check"></i> Copied!';
                 b.setAttribute('aria-label', 'Copied to clipboard');
-                setTimeout(function () { b.innerHTML = '<i class="bi bi-clipboard"></i> Copy'; b.setAttribute('aria-label', 'Copy WHOIS data to clipboard'); }, 2000);
+                setTimeout(function () {
+                    b.innerHTML = '<i class="bi bi-clipboard"></i> Copy';
+                    b.setAttribute('aria-label', 'Copy WHOIS data to clipboard');
+                }, 2000);
             });
         });
         document.getElementById('downloadBtn').addEventListener('click', function () {
@@ -1662,7 +1774,9 @@ if ($_showPortfolioIcon): ?>
 
         // ── Export single lookup as JSON (Issue #73) ──
         document.getElementById('exportJsonSingleBtn').addEventListener('click', function () {
-            if (!lastLookupData) return;
+            if (!lastLookupData) {
+                return;
+            }
             var exportData = {
                 domain: currentDomain,
                 lookup_date: new Date().toISOString(),
@@ -1684,7 +1798,9 @@ if ($_showPortfolioIcon): ?>
 
         // ── WHOIS diff: cached vs fresh (Issue #21) ──
         document.getElementById('diffBtn').addEventListener('click', function () {
-            if (!currentDomain || !rawWhoisText) return;
+            if (!currentDomain || !rawWhoisText) {
+                return;
+            }
             var cachedWhois = rawWhoisText.replace(/<[^>]*>/g, '');
             var btn = this;
             btn.disabled = true;
@@ -1695,11 +1811,16 @@ if ($_showPortfolioIcon): ?>
             fd.append('csrf_token', CSRF);
 
             fetch('lookup?nocache=' + Date.now() + '&source=whois', { method: 'POST', body: fd })
-                .then(function (r) { return r.json(); })
+                .then(function (r) {
+                    return r.json();
+                })
                 .then(function (data) {
                     btn.disabled = false;
                     btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Refresh &amp; Diff';
-                    if (data.error) { showError(data.error); return; }
+                    if (data.error) {
+                        showError(data.error);
+                        return;
+                    }
                     var freshWhois = (data.whois || '').replace(/<[^>]*>/g, '');
 
                     // Build diff view
@@ -1718,8 +1839,12 @@ if ($_showPortfolioIcon): ?>
                             if (cl === fl) {
                                 diffHtml += ' ' + esc(fl) + '\n';
                             } else {
-                                if (cl) diffHtml += '<span style="background:#fdd;color:#900;">-' + esc(cl) + '</span>\n';
-                                if (fl) diffHtml += '<span style="background:#dfd;color:#060;">+' + esc(fl) + '</span>\n';
+                                if (cl) {
+                                    diffHtml += '<span style="background:#fdd;color:#900;">-' + esc(cl) + '</span>\n';
+                                }
+                                if (fl) {
+                                    diffHtml += '<span style="background:#dfd;color:#060;">+' + esc(fl) + '</span>\n';
+                                }
                             }
                         }
                         diffHtml += '</pre>';
@@ -1763,7 +1888,10 @@ if ($_showPortfolioIcon): ?>
                 var b = document.getElementById('shareBtn');
                 b.innerHTML = '<i class="bi bi-check"></i> Copied!';
                 b.setAttribute('aria-label', 'Link copied');
-                setTimeout(function () { b.innerHTML = '<i class="bi bi-share"></i> Share'; b.setAttribute('aria-label', 'Copy share link'); }, 2000);
+                setTimeout(function () {
+                    b.innerHTML = '<i class="bi bi-share"></i> Share';
+                    b.setAttribute('aria-label', 'Copy share link');
+                }, 2000);
             });
         });
 
@@ -1791,13 +1919,29 @@ if ($_showPortfolioIcon): ?>
         }
 
         function hideResults() {
-            ['availabilityBadge', 'dataSourceBadge', 'parsedFields', 'resultTabs', 'dnsResultPane', 'emailSecurityPane', 'sslPane', 'subdomainsPane', 'bulkResults', 'bulkProgress', 'bulkExportButtons', 'compareResults'].forEach(function (id) {
+            ['availabilityBadge', 'dataSourceBadge', 'parsedFields', 'resultTabs', 'dnsResultPane', 'emailSecurityPane', 'sslPane', 'subdomainsPane', 'securityPane', 'bulkResults', 'bulkProgress', 'bulkExportButtons', 'compareResults'].forEach(function (id) {
                 document.getElementById(id).style.display = 'none';
             });
             document.getElementById('whoisResultPane').style.display = '';
             document.getElementById('result').innerHTML = '';
+            document.getElementById('dnsResultPane').innerHTML = '';
+            document.getElementById('emailSecurityPane').innerHTML = '';
+            document.getElementById('sslPane').innerHTML = '';
+            document.getElementById('subdomainsPane').innerHTML = '';
+            document.getElementById('securityPane').innerHTML = '';
+            document.getElementById('parsedFields').innerHTML = '';
             document.getElementById('actionButtons').style.cssText = 'display:none !important';
             document.getElementById('emptyState').style.display = 'none';
+            // Reset active tab to WHOIS (Issue #178)
+            document.querySelectorAll('#resultTabs .nav-link').forEach(function (t) {
+                t.classList.remove('active');
+                t.setAttribute('aria-selected', 'false');
+            });
+            var whoisTab = document.getElementById('rtab-whois');
+            if (whoisTab) {
+                whoisTab.classList.add('active');
+                whoisTab.setAttribute('aria-selected', 'true');
+            }
         }
 
         function showError(msg) {
@@ -1842,9 +1986,13 @@ if ($_showPortfolioIcon): ?>
                 var sp = document.getElementById('singlePanel');
                 var bp = document.getElementById('bulkWhoisPanel');
                 var cp = document.getElementById('comparePanel');
-                if (sp.style.display !== 'none') document.getElementById('whoisForm').dispatchEvent(new Event('submit'));
-                else if (bp.style.display !== 'none') document.getElementById('bulkWhoisForm').dispatchEvent(new Event('submit'));
-                else if (cp.style.display !== 'none') document.getElementById('compareForm').dispatchEvent(new Event('submit'));
+                if (sp.style.display !== 'none') {
+                    document.getElementById('whoisForm').dispatchEvent(new Event('submit'));
+                } else if (bp.style.display !== 'none') {
+                    document.getElementById('bulkWhoisForm').dispatchEvent(new Event('submit'));
+                } else if (cp.style.display !== 'none') {
+                    document.getElementById('compareForm').dispatchEvent(new Event('submit'));
+                }
                 return;
             }
 
@@ -1862,7 +2010,10 @@ if ($_showPortfolioIcon): ?>
                 var tabMap = { '1': 'whois', '2': 'dns', '3': 'email', '4': 'ssl', '5': 'subdomains' };
                 if (tabMap[e.key] && document.getElementById('resultTabs').style.display !== 'none') {
                     var tabLink = document.querySelector('#resultTabs [data-tab="' + tabMap[e.key] + '"]');
-                    if (tabLink) { tabLink.click(); e.preventDefault(); }
+                    if (tabLink) {
+                        tabLink.click();
+                        e.preventDefault();
+                    }
                     return;
                 }
 
@@ -1888,7 +2039,8 @@ if ($_showPortfolioIcon): ?>
     // ── PWA Service Worker registration — production only (Issue #25) ──
     <?php if (empty($app["Application"]["Version"]["Development"]["Status"])): ?>
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js').catch(function () {});
+        navigator.serviceWorker.register('sw.js').catch(function () {
+        });
     }
     <?php endif; ?>
 
@@ -1900,10 +2052,14 @@ if ($_showPortfolioIcon): ?>
         var installBtn = document.getElementById('pwaInstallBtn');
         var dismissBtn = document.getElementById('pwaInstallDismiss');
 
-        if (window.matchMedia('(display-mode: standalone)').matches) return;
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+            return;
+        }
 
         var dismissed = localStorage.getItem('pwaInstallDismissed');
-        if (dismissed && (Date.now() - parseInt(dismissed)) < 7 * 24 * 60 * 60 * 1000) return;
+        if (dismissed && (Date.now() - parseInt(dismissed)) < 7 * 24 * 60 * 60 * 1000) {
+            return;
+        }
 
         window.addEventListener('beforeinstallprompt', function (e) {
             e.preventDefault();
@@ -1912,7 +2068,9 @@ if ($_showPortfolioIcon): ?>
         });
 
         installBtn.addEventListener('click', function () {
-            if (!deferredPrompt) return;
+            if (!deferredPrompt) {
+                return;
+            }
             deferredPrompt.prompt();
             deferredPrompt.userChoice.then(function (result) {
                 banner.style.display = 'none';

@@ -172,19 +172,39 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
     var theme = localStorage.getItem('theme') || 'auto';
     var systemDarkMQ = window.matchMedia('(prefers-color-scheme: dark)');
     applyTheme(theme);
-    systemDarkMQ.addEventListener('change', function () { if (theme === 'auto') applyTheme('auto'); });
+    systemDarkMQ.addEventListener('change', function () {
+        if (theme === 'auto') {
+            applyTheme('auto');
+        }
+    });
     document.querySelectorAll('[data-theme-value]').forEach(function (item) {
-        item.addEventListener('click', function (e) { e.preventDefault(); theme = this.dataset.themeValue; applyTheme(theme); localStorage.setItem('theme', theme); });
+        item.addEventListener('click', function (e) {
+            e.preventDefault();
+            theme = this.dataset.themeValue;
+            applyTheme(theme);
+            localStorage.setItem('theme', theme);
+        });
     });
     function applyTheme(t) {
         var resolved = t;
-        if (t === 'auto') resolved = systemDarkMQ.matches ? 'dark' : 'light';
-        if (resolved === 'colourblind') { document.documentElement.setAttribute('data-bs-theme', 'light'); document.documentElement.setAttribute('data-theme', 'colourblind'); }
-        else if (resolved === 'dark') { document.documentElement.setAttribute('data-bs-theme', 'dark'); document.documentElement.removeAttribute('data-theme'); }
-        else { document.documentElement.setAttribute('data-bs-theme', 'light'); document.documentElement.removeAttribute('data-theme'); }
+        if (t === 'auto') {
+            resolved = systemDarkMQ.matches ? 'dark' : 'light';
+        }
+        if (resolved === 'colourblind') {
+            document.documentElement.setAttribute('data-bs-theme', 'light');
+            document.documentElement.setAttribute('data-theme', 'colourblind');
+        } else if (resolved === 'dark') {
+            document.documentElement.setAttribute('data-bs-theme', 'dark');
+            document.documentElement.removeAttribute('data-theme');
+        } else {
+            document.documentElement.setAttribute('data-bs-theme', 'light');
+            document.documentElement.removeAttribute('data-theme');
+        }
         var icons = { auto: 'bi bi-circle-half', light: 'bi bi-sun-fill', dark: 'bi bi-moon-fill', colourblind: 'bi bi-eye-fill' };
         themeIcon.className = icons[t] || 'bi bi-circle-half';
-        document.querySelectorAll('[data-theme-value]').forEach(function (item) { item.classList.toggle('active', item.dataset.themeValue === t); });
+        document.querySelectorAll('[data-theme-value]').forEach(function (item) {
+            item.classList.toggle('active', item.dataset.themeValue === t);
+        });
     }
     </script>
 </body>

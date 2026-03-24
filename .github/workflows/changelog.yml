@@ -120,3 +120,52 @@ jobs:
               sleep 2
             done
           fi
+
+      - name: Determine remote path
+        if: steps.check.outputs.has_changes == 'true' && vars.SFTP_ENABLED == 'true'
+        id: remote
+        run: |
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "path=${{ secrets.SFTP_LIVE_PATH }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "beta" ]]; then
+            echo "path=${{ secrets.SFTP_BETA_PATH }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check SFTP auth method
+        if: steps.check.outputs.has_changes == 'true' && vars.SFTP_ENABLED == 'true'
+        id: auth
+        run: |
+          if [[ -n "${{ secrets.SFTP_KEY }}" ]]; then
+            echo "method=key" >> $GITHUB_OUTPUT
+          else
+            echo "method=password" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload CHANGELOG.md via SFTP (SSH key)
+        if: steps.check.outputs.has_changes == 'true' && vars.SFTP_ENABLED == 'true' && steps.auth.outputs.method == 'key'
+        env:
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_PORT: ${{ secrets.SFTP_PORT }}
+          SFTP_KEY: ${{ secrets.SFTP_KEY }}
+          REMOTE_PATH: ${{ steps.remote.outputs.path }}
+          CHANGELOG: ${{ steps.target.outputs.dir }}/CHANGELOG.md
+        run: |
+          sudo apt-get install -y lftp
+          mkdir -p ~/.ssh
+          echo "$SFTP_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          lftp -e "set sftp:connect-program \"ssh -o StrictHostKeyChecking=no -i $HOME/.ssh/deploy_key\"; open sftp://${SFTP_USER}@${SFTP_HOST}:${SFTP_PORT}; put ${CHANGELOG} -o ${REMOTE_PATH}/CHANGELOG.md; bye"
+
+      - name: Upload CHANGELOG.md via SFTP (password)
+        if: steps.check.outputs.has_changes == 'true' && vars.SFTP_ENABLED == 'true' && steps.auth.outputs.method == 'password'
+        env:
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_PASS: ${{ secrets.SFTP_PASSWORD }}
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_PORT: ${{ secrets.SFTP_PORT }}
+          REMOTE_PATH: ${{ steps.remote.outputs.path }}
+          CHANGELOG: ${{ steps.target.outputs.dir }}/CHANGELOG.md
+        run: |
+          sudo apt-get install -y lftp
+          lftp -u "${SFTP_USER},${SFTP_PASS}" -e "set sftp:auto-confirm yes; set ssl:verify-certificate no; put ${CHANGELOG} -o ${REMOTE_PATH}/CHANGELOG.md; bye" "sftp://${SFTP_HOST}:${SFTP_PORT}"

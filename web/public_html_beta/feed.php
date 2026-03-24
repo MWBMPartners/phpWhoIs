@@ -43,7 +43,9 @@ if (file_exists($changelogPath)) {
             continue;
         }
 
-        if (!$current) continue;
+        if (!$current) {
+            continue;
+        }
 
         // Title line: **feat: some description**
         if (!$current['title'] && preg_match('/^\*\*(.+)\*\*/', $line, $m)) {
@@ -58,9 +60,15 @@ if (file_exists($changelogPath)) {
         }
 
         // Skip header lines, accumulate the rest as description
-        if (strpos($line, '# Changelog') === 0) continue;
-        if (strpos($line, 'All notable changes') === 0) continue;
-        if (strpos($line, 'This changelog is') === 0) continue;
+        if (strpos($line, '# Changelog') === 0) {
+            continue;
+        }
+        if (strpos($line, 'All notable changes') === 0) {
+            continue;
+        }
+        if (strpos($line, 'This changelog is') === 0) {
+            continue;
+        }
 
         $current['description'] .= $line . "\n";
     }
