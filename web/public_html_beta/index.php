@@ -607,7 +607,47 @@ if ($_showPortfolioIcon): ?>
                 });
             });
         }
-        document.getElementById('clearHistory').addEventListener('click', function () { localStorage.removeItem('whoisHistory'); renderHistory(); });
+        document.getElementById('clearHistory').addEventListener('click', function () {
+            localStorage.removeItem('whoisHistory');
+            renderHistory();
+        });
+
+        // Clean stale history entries that contain full URLs (Issue #177)
+        (function cleanHistory() {
+            var h = getHistory();
+            var changed = false;
+            h = h.map(function (entry) {
+                var d = entry.domain;
+                if (!d) {
+                    return entry;
+                }
+                // Strip protocol and path to extract hostname
+                try {
+                    if (d.indexOf('://') !== -1 || d.indexOf('/') !== -1) {
+                        var url = d.indexOf('://') !== -1 ? d : 'http://' + d;
+                        var host = new URL(url).hostname;
+                        if (host && host !== d) {
+                            entry.domain = host;
+                            changed = true;
+                        }
+                    }
+                } catch (e) {}
+                return entry;
+            });
+            // Deduplicate after cleaning
+            if (changed) {
+                var seen = {};
+                h = h.filter(function (entry) {
+                    if (seen[entry.domain]) {
+                        return false;
+                    }
+                    seen[entry.domain] = true;
+                    return true;
+                });
+                localStorage.setItem('whoisHistory', JSON.stringify(h));
+            }
+        })();
+
         renderHistory();
 
         // ── Domain watch list (Issue #79) ──
