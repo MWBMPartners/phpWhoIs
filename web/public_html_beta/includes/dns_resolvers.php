@@ -30,15 +30,15 @@
 return [
 
     // ── Global ──
-    ['id' => 59, 'enabled' => false, 'name' => 'CleanBrowsing',   'ip' => '185.228.168.9',    'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
+    ['id' => 59, 'enabled' => true,  'name' => 'CleanBrowsing',   'ip' => '185.228.168.9',    'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
     ['id' => 60, 'enabled' => false, 'name' => 'CleanBrowsing',   'ip' => '185.228.169.9',    'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
-    ['id' => 73, 'enabled' => false, 'name' => 'CleanBrowsing',   'ip' => '185.228.168.168',  'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
+    ['id' => 73, 'enabled' => true,  'name' => 'CleanBrowsing',   'ip' => '185.228.168.168',  'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
     ['id' => 74, 'enabled' => false, 'name' => 'CleanBrowsing',   'ip' => '185.228.169.168',  'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
     ['id' => 3,  'enabled' => true,  'name' => 'Cloudflare',      'ip' => '1.0.0.1',          'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'standard',  'source' => 'manual', 'reliability' => null],
     ['id' => 4,  'enabled' => true,  'name' => 'Cloudflare',      'ip' => '1.1.1.1',          'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'standard',  'source' => 'manual', 'reliability' => null],
-    ['id' => 55, 'enabled' => false, 'name' => 'Cloudflare',      'ip' => '1.0.0.2',          'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
+    ['id' => 55, 'enabled' => true,  'name' => 'Cloudflare',      'ip' => '1.0.0.2',          'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
     ['id' => 56, 'enabled' => false, 'name' => 'Cloudflare',      'ip' => '1.1.1.2',          'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
-    ['id' => 67, 'enabled' => false, 'name' => 'Cloudflare',      'ip' => '1.0.0.3',          'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
+    ['id' => 67, 'enabled' => true,  'name' => 'Cloudflare',      'ip' => '1.0.0.3',          'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
     ['id' => 68, 'enabled' => false, 'name' => 'Cloudflare',      'ip' => '1.1.1.3',          'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
     ['id' => 9,  'enabled' => true,  'name' => 'DNS.SB',          'ip' => '185.222.222.222',  'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'standard',  'source' => 'manual', 'reliability' => null],
     ['id' => 10, 'enabled' => true,  'name' => 'DNS.SB',          'ip' => '45.11.45.11',      'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'standard',  'source' => 'manual', 'reliability' => null],
@@ -46,11 +46,11 @@ return [
     ['id' => 2,  'enabled' => true,  'name' => 'Google',          'ip' => '8.8.8.8',          'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'standard',  'source' => 'manual', 'reliability' => null],
     ['id' => 7,  'enabled' => true,  'name' => 'OpenDNS',         'ip' => '208.67.220.220',   'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'standard',  'source' => 'manual', 'reliability' => null],
     ['id' => 8,  'enabled' => true,  'name' => 'OpenDNS',         'ip' => '208.67.222.222',   'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'standard',  'source' => 'manual', 'reliability' => null],
-    ['id' => 69, 'enabled' => false, 'name' => 'OpenDNS',         'ip' => '208.67.220.123',   'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
+    ['id' => 69, 'enabled' => true,  'name' => 'OpenDNS',         'ip' => '208.67.220.123',   'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
     ['id' => 70, 'enabled' => false, 'name' => 'OpenDNS',         'ip' => '208.67.222.123',   'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
     ['id' => 5,  'enabled' => true,  'name' => 'Quad9',           'ip' => '149.112.112.112',  'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'standard',  'source' => 'manual', 'reliability' => null],
     ['id' => 6,  'enabled' => true,  'name' => 'Quad9',           'ip' => '9.9.9.9',          'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'standard',  'source' => 'manual', 'reliability' => null],
-    ['id' => 63, 'enabled' => false, 'name' => 'Quad9',           'ip' => '149.112.112.11',   'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
+    ['id' => 63, 'enabled' => true,  'name' => 'Quad9',           'ip' => '149.112.112.11',   'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
     ['id' => 64, 'enabled' => false, 'name' => 'Quad9',           'ip' => '9.9.9.11',         'country_code' => 'GLOBAL', 'location' => 'Global',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
 
     // ── Brazil ──
@@ -67,9 +67,9 @@ return [
     ['id' => 40, 'enabled' => true,  'name' => 'Ali DNS',         'ip' => '223.6.6.6',        'country_code' => 'CN',     'location' => 'China',        'type' => 'standard',  'source' => 'manual', 'reliability' => null],
 
     // ── Cyprus ──
-    ['id' => 57, 'enabled' => false, 'name' => 'AdGuard',         'ip' => '94.140.14.14',     'country_code' => 'CY',     'location' => 'Cyprus',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
+    ['id' => 57, 'enabled' => true,  'name' => 'AdGuard',         'ip' => '94.140.14.14',     'country_code' => 'CY',     'location' => 'Cyprus',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
     ['id' => 58, 'enabled' => false, 'name' => 'AdGuard',         'ip' => '94.140.15.15',     'country_code' => 'CY',     'location' => 'Cyprus',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
-    ['id' => 71, 'enabled' => false, 'name' => 'AdGuard',         'ip' => '94.140.14.15',     'country_code' => 'CY',     'location' => 'Cyprus',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
+    ['id' => 71, 'enabled' => true,  'name' => 'AdGuard',         'ip' => '94.140.14.15',     'country_code' => 'CY',     'location' => 'Cyprus',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
     ['id' => 72, 'enabled' => false, 'name' => 'AdGuard',         'ip' => '94.140.15.16',     'country_code' => 'CY',     'location' => 'Cyprus',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
 
     // ── Denmark ──
@@ -102,9 +102,9 @@ return [
     ['id' => 37, 'enabled' => true,  'name' => 'MSK-IX',          'ip' => '62.76.76.62',      'country_code' => 'RU',     'location' => 'Russia',       'type' => 'standard',  'source' => 'manual', 'reliability' => null],
     ['id' => 43, 'enabled' => true,  'name' => 'Yandex',          'ip' => '77.88.8.1',        'country_code' => 'RU',     'location' => 'Russia',       'type' => 'standard',  'source' => 'manual', 'reliability' => null],
     ['id' => 44, 'enabled' => true,  'name' => 'Yandex',          'ip' => '77.88.8.8',        'country_code' => 'RU',     'location' => 'Russia',       'type' => 'standard',  'source' => 'manual', 'reliability' => null],
-    ['id' => 65, 'enabled' => false, 'name' => 'Yandex',          'ip' => '77.88.8.2',        'country_code' => 'RU',     'location' => 'Russia',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
+    ['id' => 65, 'enabled' => true,  'name' => 'Yandex',          'ip' => '77.88.8.2',        'country_code' => 'RU',     'location' => 'Russia',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
     ['id' => 66, 'enabled' => false, 'name' => 'Yandex',          'ip' => '77.88.8.88',       'country_code' => 'RU',     'location' => 'Russia',       'type' => 'security',  'source' => 'manual', 'reliability' => null],
-    ['id' => 77, 'enabled' => false, 'name' => 'Yandex',          'ip' => '77.88.8.3',        'country_code' => 'RU',     'location' => 'Russia',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
+    ['id' => 77, 'enabled' => true,  'name' => 'Yandex',          'ip' => '77.88.8.3',        'country_code' => 'RU',     'location' => 'Russia',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
     ['id' => 78, 'enabled' => false, 'name' => 'Yandex',          'ip' => '77.88.8.7',        'country_code' => 'RU',     'location' => 'Russia',       'type' => 'family',    'source' => 'manual', 'reliability' => null],
 
     // ── South Africa ──
@@ -137,9 +137,9 @@ return [
     ['id' => 16, 'enabled' => true,  'name' => 'Level3',          'ip' => '4.2.2.2',          'country_code' => 'US',     'location' => 'US',           'type' => 'standard',  'source' => 'manual', 'reliability' => null],
     ['id' => 13, 'enabled' => true,  'name' => 'Neustar',         'ip' => '64.6.64.6',        'country_code' => 'US',     'location' => 'US',           'type' => 'standard',  'source' => 'manual', 'reliability' => null],
     ['id' => 14, 'enabled' => true,  'name' => 'Neustar',         'ip' => '64.6.65.6',        'country_code' => 'US',     'location' => 'US',           'type' => 'standard',  'source' => 'manual', 'reliability' => null],
-    ['id' => 61, 'enabled' => false, 'name' => 'Neustar',         'ip' => '156.154.70.2',     'country_code' => 'US',     'location' => 'US',           'type' => 'security',  'source' => 'manual', 'reliability' => null],
+    ['id' => 61, 'enabled' => true,  'name' => 'Neustar',         'ip' => '156.154.70.2',     'country_code' => 'US',     'location' => 'US',           'type' => 'security',  'source' => 'manual', 'reliability' => null],
     ['id' => 62, 'enabled' => false, 'name' => 'Neustar',         'ip' => '156.154.71.2',     'country_code' => 'US',     'location' => 'US',           'type' => 'security',  'source' => 'manual', 'reliability' => null],
-    ['id' => 75, 'enabled' => false, 'name' => 'Neustar',         'ip' => '156.154.70.3',     'country_code' => 'US',     'location' => 'US',           'type' => 'family',    'source' => 'manual', 'reliability' => null],
+    ['id' => 75, 'enabled' => true,  'name' => 'Neustar',         'ip' => '156.154.70.3',     'country_code' => 'US',     'location' => 'US',           'type' => 'family',    'source' => 'manual', 'reliability' => null],
     ['id' => 76, 'enabled' => false, 'name' => 'Neustar',         'ip' => '156.154.71.3',     'country_code' => 'US',     'location' => 'US',           'type' => 'family',    'source' => 'manual', 'reliability' => null],
     ['id' => 18, 'enabled' => true,  'name' => 'Norton CS',       'ip' => '199.85.126.20',    'country_code' => 'US',     'location' => 'US',           'type' => 'standard',  'source' => 'manual', 'reliability' => null],
     ['id' => 19, 'enabled' => true,  'name' => 'SafeDNS',         'ip' => '195.46.39.39',     'country_code' => 'US',     'location' => 'US',           'type' => 'standard',  'source' => 'manual', 'reliability' => null],

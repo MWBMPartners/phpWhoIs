@@ -537,9 +537,9 @@ if ($_showPortfolioIcon): ?>
                 // Type column
                 var typeBadge = '';
                 if (r.type === 'security') {
-                    typeBadge = '<span class="badge bg-info"><i class="bi bi-shield-check me-1"></i>Security</span>';
+                    typeBadge = '<span class="badge bg-info" title="Malware &amp; threat blocking"><i class="bi bi-shield-lock-fill me-1"></i>Security</span>';
                 } else if (r.type === 'family') {
-                    typeBadge = '<span class="badge bg-warning text-dark"><i class="bi bi-people-fill me-1"></i>Family</span>';
+                    typeBadge = '<span class="badge bg-warning text-dark" title="Parental control &amp; adult content filtering"><i class="bi bi-house-heart-fill me-1"></i>Family</span>';
                 }
                 dpHtml += '<tr><td class="fw-bold text-nowrap">' + esc(r.resolver) + flag + '</td><td>' + typeBadge + '</td><td><code>' + esc(r.ip) + '</code></td><td>' + (r.answers.length ? r.answers.map(esc).join(', ') : '<span class="text-muted">No answer</span>') + '</td></tr>';
             });
