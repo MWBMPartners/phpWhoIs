@@ -12,17 +12,20 @@ $config = [
     // Set to empty array [] to disable registration buttons entirely.
     'registrars' => [
         [
+            'enabled'         => true,
             'name'            => 'MWservices',
             'url_template'    => 'https://store.mwservices.it/cart.php?a=add&domain=register&query={domain}',
             'open_in_new_tab' => true,
         ],
         // Uncomment to add more providers:
         // [
+        //     'enabled'         => true,
         //     'name'            => 'Namecheap',
         //     'url_template'    => 'https://www.namecheap.com/domains/registration/results/?domain={domain}',
         //     'open_in_new_tab' => true,
         // ],
         // [
+        //     'enabled'         => false,  // Disabled — won't appear in the UI
         //     'name'            => 'GoDaddy',
         //     'url_template'    => 'https://www.godaddy.com/domainsearch/find?domainToCheck={domain}',
         //     'open_in_new_tab' => true,

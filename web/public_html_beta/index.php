@@ -314,9 +314,12 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     document.addEventListener('DOMContentLoaded', function () {
         var CSRF = '<?php echo htmlspecialchars($csrfToken); ?>';
         var REGISTRARS = <?php
-            // New format: 'registrars' array
+            // New format: 'registrars' array — filter to enabled only
             if (!empty($config['registrars'])) {
-                echo json_encode($config['registrars']);
+                $enabled = array_values(array_filter($config['registrars'], function ($r) {
+                    return !isset($r['enabled']) || $r['enabled'] === true;
+                }));
+                echo json_encode($enabled);
             }
             // Legacy fallback: 'registration' + 'affiliate_registrars'
             elseif (!empty($config['registration']['enabled'])) {
