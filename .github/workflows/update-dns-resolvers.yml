@@ -1,0 +1,69 @@
+name: Update DNS Resolvers
+
+on:
+  schedule:
+    # Run daily at 04:00 UTC
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      min_reliability:
+        description: 'Minimum reliability score (0.00–1.00)'
+        required: false
+        default: '0.80'
+      max_per_country:
+        description: 'Max auto-sourced resolvers per country'
+        required: false
+        default: '2'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    env:
+      DNS_MIN_RELIABILITY: ${{ github.event.inputs.min_reliability || '0.80' }}
+      DNS_MAX_PER_COUNTRY: ${{ github.event.inputs.max_per_country || '2' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: beta
+          fetch-depth: 0
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+
+      - name: Run DNS resolver updater
+        run: php scripts/update-dns-resolvers.php
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet web/public_html_beta/includes/dns_resolvers.php; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No changes to DNS resolvers"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "DNS resolvers updated"
+            git diff --stat web/public_html_beta/includes/dns_resolvers.php
+          fi
+
+      - name: Commit and push
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add web/public_html_beta/includes/dns_resolvers.php
+          git commit -m "chore: auto-update DNS resolver list from public-dns.info [skip ci]"
+
+          for i in 1 2 3; do
+            git fetch origin beta
+            git rebase origin/beta && git push origin beta && break
+            echo "Push attempt $i failed, retrying..."
+            sleep 2
+          done
