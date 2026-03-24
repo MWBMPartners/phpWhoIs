@@ -42,7 +42,7 @@ jobs:
         run: |
           TARGET_DIR="${{ steps.target.outputs.dir }}"
           CHANGELOG="$TARGET_DIR/CHANGELOG.md"
-          DATE=$(date +%Y-%m-%d)
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           COMMIT_SHA="${{ github.sha }}"
           SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-7)
           BRANCH="${{ github.ref_name }}"

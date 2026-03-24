@@ -612,7 +612,26 @@ if ($_showPortfolioIcon): ?>
             renderHistory();
         });
 
-        // Clean stale history entries that contain full URLs (Issue #177)
+        // Extract registrable domain from a hostname (mirrors PHP extractRegistrableDomain)
+        var secondLevelTlds = ['co.uk','org.uk','me.uk','ac.uk','gov.uk','net.uk','sch.uk','com.au','net.au','org.au','edu.au','gov.au','co.nz','net.nz','org.nz','co.za','org.za','web.za','com.br','net.br','org.br','co.in','net.in','org.in','gen.in','firm.in','ind.in','co.jp','or.jp','ne.jp','ac.jp','go.jp','com.cn','net.cn','org.cn','com.tw','net.tw','org.tw','com.hk','org.hk','net.hk','edu.hk','gov.hk','co.kr','or.kr','ne.kr','com.sg','net.sg','org.sg','edu.sg','gov.sg','com.my','net.my','org.my','gov.my','edu.my','com.mx','net.mx','org.mx','gob.mx','com.ar','net.ar','org.ar','co.il','org.il','net.il','ac.il','gov.il','com.tr','net.tr','org.tr','gen.tr','co.id','or.id','go.id','web.id','com.ph','net.ph','org.ph','com.pk','net.pk','org.pk','gov.pk','edu.pk','com.ng','net.ng','org.ng','gov.ng','edu.ng','co.ke','or.ke','ne.ke','go.ke','ac.ke','com.eg','net.eg','org.eg','gov.eg','edu.eg','com.ua','net.ua','org.ua','gov.ua','edu.ua'];
+
+        function extractDomain(host) {
+            var parts = host.toLowerCase().replace(/^www\./, '').split('.');
+            if (parts.length <= 2) {
+                return parts.join('.');
+            }
+            // Check for known second-level TLDs (longest first)
+            for (var len = Math.min(3, parts.length - 1); len >= 2; len--) {
+                var candidate = parts.slice(-len).join('.');
+                if (secondLevelTlds.indexOf(candidate) !== -1) {
+                    return parts.slice(-(len + 1)).join('.');
+                }
+            }
+            // Default: last two parts
+            return parts.slice(-2).join('.');
+        }
+
+        // Clean stale history entries that contain full URLs or subdomains (Issue #177)
         (function cleanHistory() {
             var h = getHistory();
             var changed = false;
@@ -622,16 +641,19 @@ if ($_showPortfolioIcon): ?>
                     return entry;
                 }
                 // Strip protocol and path to extract hostname
+                var host = d;
                 try {
                     if (d.indexOf('://') !== -1 || d.indexOf('/') !== -1) {
                         var url = d.indexOf('://') !== -1 ? d : 'http://' + d;
-                        var host = new URL(url).hostname;
-                        if (host && host !== d) {
-                            entry.domain = host;
-                            changed = true;
-                        }
+                        host = new URL(url).hostname;
                     }
                 } catch (e) {}
+                // Extract registrable domain (strip subdomains)
+                var clean = extractDomain(host);
+                if (clean !== d) {
+                    entry.domain = clean;
+                    changed = true;
+                }
                 return entry;
             });
             // Deduplicate after cleaning

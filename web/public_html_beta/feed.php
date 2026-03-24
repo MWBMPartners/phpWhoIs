@@ -27,8 +27,8 @@ if (file_exists($changelogPath)) {
     $current = null;
 
     foreach ($lines as $line) {
-        // Each entry starts with: ## [hash] - YYYY-MM-DD
-        if (preg_match('/^## \[([a-f0-9]+)\] - (\d{4}-\d{2}-\d{2})/', $line, $m)) {
+        // Each entry starts with: ## [hash] - YYYY-MM-DDTHH:MM:SSZ or ## [hash] - YYYY-MM-DD
+        if (preg_match('/^## \[([a-f0-9]+)\] - (\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}Z)?)/', $line, $m)) {
             if ($current) {
                 $current['description'] = trim($current['description']);
                 $items[] = $current;
