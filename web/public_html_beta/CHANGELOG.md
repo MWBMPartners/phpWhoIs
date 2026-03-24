@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [0fdc202] - 2026-03-24
+
+**feat: add min-height property to subpage and result containers for better overflow handling**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`0fdc202`](https://github.com/MWBMPartners/phpWhoIs/commit/0fdc20216b34deb04cec87e96b0caedf9fc6d03f)
+
+### Changed files
+
+- `assets/css/style.css`
+
+
 ## [c65bd4e] - 2026-03-24
 
 **feat: implement 13 security enhancement features (#93-#105)**
