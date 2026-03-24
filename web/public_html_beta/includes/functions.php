@@ -2362,6 +2362,7 @@ function checkDnsPropagation(string $domain): array {
             'resolver' => $resolver['name'],
             'ip' => $resolver['ip'],
             'location' => $resolver['location'] ?? '',
+            'type' => $resolver['type'] ?? 'standard',
             'answers' => $ips,
         ];
     }
