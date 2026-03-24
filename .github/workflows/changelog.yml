@@ -55,19 +55,7 @@ jobs:
           # Build the new entry
           ENTRY="## [$SHORT_SHA] - $DATE\n\n"
           ENTRY+="**$COMMIT_MSG**\n\n"
-          ENTRY+="- Branch: \`$BRANCH\`\n"
-          ENTRY+="- Author: $ACTOR\n"
           ENTRY+="- Commit: [\`$SHORT_SHA\`](https://github.com/${{ github.repository }}/commit/$COMMIT_SHA)\n\n"
-
-          if [[ -n "$CHANGED_FILES" ]]; then
-            ENTRY+="### Changed files\n\n"
-            while IFS= read -r file; do
-              # Strip the directory prefix for cleaner display
-              BASENAME=$(echo "$file" | sed "s|$TARGET_DIR/||")
-              ENTRY+="- \`$BASENAME\`\n"
-            done <<< "$CHANGED_FILES"
-            ENTRY+="\n"
-          fi
 
           # Insert the new entry after the header lines in CHANGELOG.md
           if [[ -f "$CHANGELOG" ]]; then
