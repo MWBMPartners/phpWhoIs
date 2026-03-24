@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [a47fe3a] - 2026-03-24T20:59:24Z
+
+**fix: clean subdomain from stale history entries and add timestamps to changelog**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`a47fe3a`](https://github.com/MWBMPartners/phpWhoIs/commit/a47fe3a400e31a079b3c7fe847bd10492726150d)
+
+### Changed files
+
+- `feed.php`
+- `index.php`
+
+
 ## [445793e] - 2026-03-24
 
 **fix: ensure proper formatting in config.php by adding newline at end of file**
