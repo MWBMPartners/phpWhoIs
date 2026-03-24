@@ -988,6 +988,49 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                     var repIcon = data.registrar_reputation.rating === 'warning' ? 'bi-exclamation-triangle-fill' : 'bi-exclamation-circle-fill';
                     html += '<div class="alert ' + repClass + ' mt-2 mb-0 small"><i class="bi ' + repIcon + ' me-1" aria-hidden="true"></i><strong>Registrar Notice:</strong> ' + esc(data.registrar_reputation.reason) + '</div>';
                 }
+
+                // Domain age risk (Issue #95)
+                if (data.domain_age_risk) {
+                    var dar = data.domain_age_risk;
+                    var darClass = dar.risk === 'high' ? 'alert-danger' : (dar.risk === 'medium' ? 'alert-warning' : 'alert-info');
+                    var darIcon = dar.risk === 'high' ? 'bi-exclamation-triangle-fill' : (dar.risk === 'medium' ? 'bi-exclamation-circle' : 'bi-info-circle');
+                    if (dar.risk !== 'low') {
+                        html += '<div class="alert ' + darClass + ' mt-2 mb-0 small"><i class="bi ' + darIcon + ' me-1" aria-hidden="true"></i><strong>Domain Age:</strong> ' + esc(dar.reason) + ' (' + dar.days_old + ' days)</div>';
+                    }
+                }
+
+                // WHOIS privacy (Issue #104)
+                if (data.whois_privacy && data.whois_privacy.privacy_enabled) {
+                    html += '<div class="alert alert-info mt-2 mb-0 small"><i class="bi bi-shield-lock me-1" aria-hidden="true"></i><strong>WHOIS Privacy:</strong> Registrant data is protected (' + esc(data.whois_privacy.indicators.slice(0, 3).join(', ')) + ')</div>';
+                }
+
+                // Hosting risk (Issue #105)
+                if (data.hosting_risk && data.hosting_risk.risk !== 'low') {
+                    var hrClass = data.hosting_risk.risk === 'high' ? 'alert-danger' : 'alert-warning';
+                    html += '<div class="alert ' + hrClass + ' mt-2 mb-0 small"><i class="bi bi-geo-alt me-1" aria-hidden="true"></i><strong>Hosting:</strong> ' + esc(data.hosting_risk.reason) + ' (' + esc(data.hosting_risk.country) + ')</div>';
+                }
+
+                // PhishTank (Issue #98)
+                if (data.phishtank && data.phishtank.is_phish) {
+                    html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-bug me-1" aria-hidden="true"></i><strong>PhishTank:</strong> This domain is flagged as a known phishing site</div>';
+                }
+
+                // URLhaus (Issue #99)
+                if (data.urlhaus && data.urlhaus.urls_total > 0) {
+                    html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-radioactive me-1" aria-hidden="true"></i><strong>URLhaus:</strong> ' + data.urlhaus.urls_total + ' malware URL(s) associated with this domain</div>';
+                }
+
+                // Spamhaus (Issue #100)
+                if (data.spamhaus && data.spamhaus.listed) {
+                    html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-envelope-x me-1" aria-hidden="true"></i><strong>Spamhaus:</strong> IP is listed on ' + data.spamhaus.lists.length + ' blocklist(s): ' + esc(data.spamhaus.lists.map(function(l){ return l.label; }).join(', ')) + '</div>';
+                }
+
+                // AbuseIPDB (Issue #96)
+                if (data.abuseipdb && data.abuseipdb.abuse_score > 0) {
+                    var abuseClass = data.abuseipdb.abuse_score > 50 ? 'alert-danger' : 'alert-warning';
+                    html += '<div class="alert ' + abuseClass + ' mt-2 mb-0 small"><i class="bi bi-flag me-1" aria-hidden="true"></i><strong>AbuseIPDB:</strong> Abuse confidence ' + data.abuseipdb.abuse_score + '%, ' + data.abuseipdb.total_reports + ' report(s)' + (data.abuseipdb.is_tor ? ' — Tor exit node' : '') + '</div>';
+                }
+
                 html += '</div></div>';
                 pf.innerHTML = html;
                 pf.style.display = '';
@@ -1045,6 +1088,18 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 var dkimIcon = es.dkim.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-exclamation-triangle-fill text-warning"></i>';
                 esHtml += '<tr><td class="fw-bold">' + dkimIcon + ' DKIM</td><td>' + (es.dkim.status || 'unknown') + '</td></tr>';
 
+                // MTA-STS (Issue #101)
+                if (data.mta_sts) {
+                    var stsIcon = data.mta_sts.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+                    esHtml += '<tr><td class="fw-bold">' + stsIcon + ' MTA-STS</td><td>' + (data.mta_sts.found ? 'configured' + (data.mta_sts.mode ? ' (' + esc(data.mta_sts.mode) + ')' : '') : 'not configured') + '</td></tr>';
+                }
+
+                // BIMI (Issue #102)
+                if (data.bimi) {
+                    var bimiIcon = data.bimi.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+                    esHtml += '<tr><td class="fw-bold">' + bimiIcon + ' BIMI</td><td>' + (data.bimi.found ? 'configured' + (data.bimi.logo_url ? ' — <a href="' + esc(data.bimi.logo_url) + '" target="_blank" rel="noopener">view logo</a>' : '') : 'not configured') + '</td></tr>';
+                }
+
                 esHtml += '</table></div></div>';
 
                 // HIBP breach data (Issue #65)
@@ -1059,6 +1114,14 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 }
 
                 document.getElementById('emailSecurityPane').innerHTML = esHtml;
+            }
+
+            // DNSSEC (Issue #93) — show in DNS results area
+            if (data.dnssec) {
+                var dsIcon = data.dnssec.signed ? '<i class="bi bi-shield-check text-success me-1"></i>' : '<i class="bi bi-shield-x text-warning me-1"></i>';
+                var dsText = data.dnssec.signed ? 'DNSSEC is enabled' + (data.dnssec.ds_records ? ' (' + data.dnssec.ds_records + ' DS record(s))' : '') : 'DNSSEC is not enabled';
+                var dnsPane = document.getElementById('dnsResultPane');
+                dnsPane.innerHTML += '<div class="alert ' + (data.dnssec.signed ? 'alert-success' : 'alert-warning') + ' mt-2 small">' + dsIcon + '<strong>DNSSEC:</strong> ' + dsText + '</div>';
             }
 
             // SSL/TLS info (Issue #19)
@@ -1076,7 +1139,39 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                     sslHtml += '<tr><td class="fw-bold">Alt Names</td><td>' + ssl.san.map(esc).join(', ') + '</td></tr>';
                 }
                 sslHtml += '</table></div></div>';
+
+                // DANE/TLSA (Issue #103)
+                if (data.dane_tlsa && data.dane_tlsa.found) {
+                    sslHtml += '<div class="card mt-3"><div class="card-header"><strong>DANE/TLSA Records</strong></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Usage</th><th>Selector</th><th>Matching</th><th>Data</th></tr></thead><tbody>';
+                    data.dane_tlsa.records.forEach(function (r) {
+                        sslHtml += '<tr><td>' + r.usage + '</td><td>' + r.selector + '</td><td>' + r.matching + '</td><td><code class="small">' + esc(r.data) + '</code></td></tr>';
+                    });
+                    sslHtml += '</tbody></table></div></div>';
+                }
+
+                // Certificate Transparency (Issue #94)
+                if (data.cert_transparency) {
+                    sslHtml += '<div class="card mt-3"><div class="card-header"><strong>Certificate Transparency</strong> <span class="badge bg-secondary">' + data.cert_transparency.total + ' certificates</span></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Issuer</th><th>Common Name</th><th>Not Before</th><th>Not After</th></tr></thead><tbody>';
+                    data.cert_transparency.recent.forEach(function (c) {
+                        sslHtml += '<tr><td class="small">' + esc(c.issuer) + '</td><td>' + esc(c.common_name) + '</td><td>' + esc(c.not_before) + '</td><td>' + esc(c.not_after) + '</td></tr>';
+                    });
+                    sslHtml += '</tbody></table></div></div>';
+                }
+
                 document.getElementById('sslPane').innerHTML = sslHtml;
+            }
+
+            // Shodan (Issue #97) — show in subdomains/network area
+            if (data.shodan) {
+                var shHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-hdd-network me-1"></i>Exposed Services (Shodan)</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+                shHtml += '<tr><td class="fw-bold">Open Ports</td><td>' + (data.shodan.ports.length ? data.shodan.ports.join(', ') : 'None detected') + '</td></tr>';
+                if (data.shodan.os) shHtml += '<tr><td class="fw-bold">OS</td><td>' + esc(data.shodan.os) + '</td></tr>';
+                if (data.shodan.org) shHtml += '<tr><td class="fw-bold">Organization</td><td>' + esc(data.shodan.org) + '</td></tr>';
+                if (data.shodan.vulns && data.shodan.vulns.length) {
+                    shHtml += '<tr class="table-danger"><td class="fw-bold">Known Vulnerabilities</td><td>' + data.shodan.vulns.map(esc).join(', ') + '</td></tr>';
+                }
+                shHtml += '</table></div></div>';
+                document.getElementById('sslPane').innerHTML += shHtml;
             }
 
             // Subdomains (Issue #46)

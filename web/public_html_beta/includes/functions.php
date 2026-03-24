@@ -1259,3 +1259,438 @@ function checkHibpDomain(string $domain, string $apiKey): ?array {
         ];
     }, $breaches);
 }
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  DNSSEC validation check (Issue #93)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkDnssec(string $domain): array {
+    $result = ['signed' => false, 'ds_records' => 0, 'status' => 'unsigned'];
+
+    // Check for DS records (Delegation Signer) which indicate DNSSEC
+    $ds = @dns_get_record($domain, DNS_ANY);
+    if ($ds) {
+        foreach ($ds as $rec) {
+            if (isset($rec['type']) && strtoupper($rec['type']) === 'DS') {
+                $result['signed'] = true;
+                $result['ds_records']++;
+            }
+        }
+    }
+
+    // Also try DNSKEY query
+    if (!$result['signed']) {
+        $dnskey = @dns_get_record($domain, DNS_ANY);
+        if ($dnskey) {
+            foreach ($dnskey as $rec) {
+                if (isset($rec['type']) && strtoupper($rec['type']) === 'DNSKEY') {
+                    $result['signed'] = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Fallback: use dig if available
+    if (!$result['signed']) {
+        $digOutput = @shell_exec('dig +short DS ' . escapeshellarg($domain) . ' 2>/dev/null');
+        if ($digOutput && trim($digOutput)) {
+            $result['signed'] = true;
+            $result['ds_records'] = count(array_filter(explode("\n", trim($digOutput))));
+        }
+    }
+
+    $result['status'] = $result['signed'] ? 'signed' : 'unsigned';
+    return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Certificate Transparency log lookup (Issue #94)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkCertTransparency(string $domain): ?array {
+    $url = 'https://crt.sh/?q=' . urlencode($domain) . '&output=json&deduplicate=Y';
+
+    $ctx = stream_context_create(['http' => ['timeout' => 5, 'header' => "User-Agent: mwWhoIs\r\n"]]);
+    $response = @file_get_contents($url, false, $ctx);
+    if (!$response) return null;
+
+    $certs = json_decode($response, true);
+    if (!is_array($certs)) return null;
+
+    // Get the 10 most recent
+    usort($certs, function ($a, $b) {
+        return strtotime($b['entry_timestamp'] ?? '0') - strtotime($a['entry_timestamp'] ?? '0');
+    });
+
+    $recent = array_slice($certs, 0, 10);
+    return [
+        'total' => count($certs),
+        'recent' => array_map(function ($c) {
+            return [
+                'issuer'    => $c['issuer_name'] ?? '',
+                'not_before' => $c['not_before'] ?? '',
+                'not_after'  => $c['not_after'] ?? '',
+                'common_name' => $c['common_name'] ?? '',
+            ];
+        }, $recent),
+    ];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Domain age risk scoring (Issue #95)
+// ═══════════════════════════════════════════════════════════════════
+
+function assessDomainAgeRisk(array $parsed): ?array {
+    if (empty($parsed['Creation Date'])) return null;
+
+    try {
+        $created = new DateTime($parsed['Creation Date']);
+        $now = new DateTime();
+        $diff = $now->diff($created);
+        $days = (int)$diff->format('%a');
+
+        $risk = 'low';
+        $reason = 'Domain is well established';
+        if ($days < 30) {
+            $risk = 'high';
+            $reason = 'Domain registered less than 30 days ago — newly registered domains are frequently used for phishing and spam';
+        } elseif ($days < 90) {
+            $risk = 'medium';
+            $reason = 'Domain registered less than 90 days ago';
+        } elseif ($days < 365) {
+            $risk = 'low-medium';
+            $reason = 'Domain is less than 1 year old';
+        }
+
+        return ['risk' => $risk, 'days_old' => $days, 'reason' => $reason];
+    } catch (Exception $e) {
+        return null;
+    }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  AbuseIPDB integration (Issue #96)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkAbuseIPDB(string $ip, string $apiKey): ?array {
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) return null;
+
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => 'https://api.abuseipdb.com/api/v2/check?' . http_build_query(['ipAddress' => $ip, 'maxAgeInDays' => 90]),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 5,
+        CURLOPT_HTTPHEADER => ['Key: ' . $apiKey, 'Accept: application/json'],
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode !== 200 || !$response) return null;
+
+    $data = json_decode($response, true);
+    if (!isset($data['data'])) return null;
+
+    $d = $data['data'];
+    return [
+        'abuse_score'    => $d['abuseConfidenceScore'] ?? 0,
+        'total_reports'  => $d['totalReports'] ?? 0,
+        'country_code'   => $d['countryCode'] ?? '',
+        'isp'            => $d['isp'] ?? '',
+        'is_tor'         => $d['isTor'] ?? false,
+        'last_reported'  => $d['lastReportedAt'] ?? null,
+    ];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Shodan integration (Issue #97)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkShodan(string $ip, string $apiKey): ?array {
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) return null;
+
+    $url = 'https://api.shodan.io/shodan/host/' . urlencode($ip) . '?key=' . urlencode($apiKey) . '&minify=true';
+    $ctx = stream_context_create(['http' => ['timeout' => 5]]);
+    $response = @file_get_contents($url, false, $ctx);
+    if (!$response) return null;
+
+    $data = json_decode($response, true);
+    if (!is_array($data) || isset($data['error'])) return null;
+
+    $ports = $data['ports'] ?? [];
+    sort($ports);
+
+    return [
+        'ports'       => $ports,
+        'os'          => $data['os'] ?? null,
+        'org'         => $data['org'] ?? '',
+        'vulns'       => array_keys($data['vulns'] ?? []),
+        'last_update' => $data['last_update'] ?? '',
+    ];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  PhishTank integration (Issue #98)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkPhishTank(string $domain, string $apiKey): ?array {
+    $url = 'https://checkurl.phishtank.com/checkurl/';
+    $postData = http_build_query([
+        'url' => 'https://' . $domain,
+        'format' => 'json',
+        'app_key' => $apiKey,
+    ]);
+
+    $ctx = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => "Content-Type: application/x-www-form-urlencoded\r\n",
+            'content' => $postData,
+            'timeout' => 5,
+        ],
+    ]);
+    $response = @file_get_contents($url, false, $ctx);
+    if (!$response) return null;
+
+    $data = json_decode($response, true);
+    if (!isset($data['results'])) return null;
+
+    return [
+        'in_database' => (bool)($data['results']['in_database'] ?? false),
+        'is_phish'    => (bool)($data['results']['valid'] ?? false),
+        'verified'    => (bool)($data['results']['verified'] ?? false),
+        'phish_id'    => $data['results']['phish_id'] ?? null,
+    ];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  URLhaus malware check (Issue #99)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkUrlhaus(string $domain): ?array {
+    $url = 'https://urlhaus-api.abuse.ch/v1/host/';
+    $postData = http_build_query(['host' => $domain]);
+
+    $ctx = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => "Content-Type: application/x-www-form-urlencoded\r\n",
+            'content' => $postData,
+            'timeout' => 5,
+        ],
+    ]);
+    $response = @file_get_contents($url, false, $ctx);
+    if (!$response) return null;
+
+    $data = json_decode($response, true);
+    if (!is_array($data)) return null;
+
+    return [
+        'status'       => $data['query_status'] ?? 'unknown',
+        'urls_total'   => (int)($data['urls_online'] ?? 0),
+        'blacklists'   => $data['blacklists'] ?? [],
+        'tags'         => array_slice($data['tags'] ?? [], 0, 10),
+    ];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Spamhaus blocklist check (Issue #100)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkSpamhaus(string $ip): ?array {
+    if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) return null;
+
+    // Reverse IP for DNSBL query
+    $reversed = implode('.', array_reverse(explode('.', $ip)));
+    $zones = [
+        'zen.spamhaus.org' => 'Spamhaus ZEN (combined)',
+        'sbl.spamhaus.org' => 'SBL (Spam)',
+        'xbl.spamhaus.org' => 'XBL (Exploits)',
+        'pbl.spamhaus.org' => 'PBL (Policy)',
+    ];
+
+    $listed = [];
+    foreach ($zones as $zone => $label) {
+        $lookup = $reversed . '.' . $zone;
+        $result = @dns_get_record($lookup, DNS_A);
+        if ($result && count($result) > 0) {
+            $listed[] = ['zone' => $zone, 'label' => $label, 'response' => $result[0]['ip'] ?? ''];
+        }
+    }
+
+    return [
+        'listed' => count($listed) > 0,
+        'lists'  => $listed,
+    ];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  MTA-STS check (Issue #101)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkMtaSts(string $domain): array {
+    $result = ['found' => false, 'record' => null, 'mode' => null];
+
+    // Check _mta-sts TXT record
+    $records = @dns_get_record('_mta-sts.' . $domain, DNS_TXT);
+    if ($records) {
+        foreach ($records as $rec) {
+            if (isset($rec['txt']) && stripos($rec['txt'], 'v=STSv1') !== false) {
+                $result['found'] = true;
+                $result['record'] = $rec['txt'];
+
+                if (stripos($rec['txt'], 'enforce') !== false) {
+                    $result['mode'] = 'enforce';
+                } elseif (stripos($rec['txt'], 'testing') !== false) {
+                    $result['mode'] = 'testing';
+                } elseif (stripos($rec['txt'], 'none') !== false) {
+                    $result['mode'] = 'none';
+                }
+                break;
+            }
+        }
+    }
+
+    return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  BIMI record check (Issue #102)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkBimi(string $domain): array {
+    $result = ['found' => false, 'record' => null, 'logo_url' => null];
+
+    $records = @dns_get_record('default._bimi.' . $domain, DNS_TXT);
+    if ($records) {
+        foreach ($records as $rec) {
+            if (isset($rec['txt']) && stripos($rec['txt'], 'v=BIMI1') !== false) {
+                $result['found'] = true;
+                $result['record'] = $rec['txt'];
+
+                // Extract logo URL
+                if (preg_match('/l=([^;\s]+)/i', $rec['txt'], $m)) {
+                    $result['logo_url'] = trim($m[1]);
+                }
+                break;
+            }
+        }
+    }
+
+    return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  DANE/TLSA record check (Issue #103)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkDaneTlsa(string $domain): array {
+    $result = ['found' => false, 'records' => []];
+
+    // Check _443._tcp.{domain} for TLSA records
+    $host = '_443._tcp.' . $domain;
+
+    // PHP dns_get_record doesn't support TLSA natively, use dig
+    $output = @shell_exec('dig +short TLSA ' . escapeshellarg($host) . ' 2>/dev/null');
+    if ($output && trim($output)) {
+        $lines = array_filter(explode("\n", trim($output)));
+        $result['found'] = true;
+        foreach ($lines as $line) {
+            $parts = preg_split('/\s+/', trim($line), 4);
+            if (count($parts) >= 4) {
+                $result['records'][] = [
+                    'usage'    => (int)$parts[0],
+                    'selector' => (int)$parts[1],
+                    'matching' => (int)$parts[2],
+                    'data'     => substr($parts[3], 0, 32) . '...',
+                ];
+            }
+        }
+    }
+
+    return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  WHOIS privacy detection (Issue #104)
+// ═══════════════════════════════════════════════════════════════════
+
+function detectWhoisPrivacy(string $whoisText, array $parsed): array {
+    $result = ['privacy_enabled' => false, 'indicators' => []];
+
+    $privacyKeywords = [
+        'REDACTED FOR PRIVACY',
+        'Privacy Protection',
+        'WhoisGuard',
+        'Domains By Proxy',
+        'Contact Privacy',
+        'WHOIS PRIVACY',
+        'Identity Protection',
+        'Privacy Service',
+        'Data Protected',
+        'Withheld for Privacy',
+        'Statutory Masking',
+        'GDPR Redacted',
+        'Not Disclosed',
+        'Registration Private',
+    ];
+
+    foreach ($privacyKeywords as $keyword) {
+        if (stripos($whoisText, $keyword) !== false) {
+            $result['privacy_enabled'] = true;
+            $result['indicators'][] = $keyword;
+        }
+    }
+
+    // Check if registrant org looks like a privacy service
+    $org = $parsed['Registrant Org'] ?? ($parsed['Organisation'] ?? '');
+    $privacyOrgs = ['proxy', 'privacy', 'protect', 'guard', 'redacted', 'withheld'];
+    foreach ($privacyOrgs as $term) {
+        if ($org && stripos($org, $term) !== false) {
+            $result['privacy_enabled'] = true;
+            if (!in_array($org, $result['indicators'])) {
+                $result['indicators'][] = 'Registrant: ' . $org;
+            }
+        }
+    }
+
+    return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Hosting country risk assessment (Issue #105)
+// ═══════════════════════════════════════════════════════════════════
+
+function assessHostingRisk(?array $geolocation): ?array {
+    if (!$geolocation || empty($geolocation['country_code'])) return null;
+
+    // Countries frequently flagged in threat intelligence reports
+    $highRisk = ['RU', 'CN', 'KP', 'IR', 'SY', 'CU'];
+    $mediumRisk = ['UA', 'RO', 'BG', 'NG', 'PK', 'BD', 'VN', 'BY'];
+
+    $cc = strtoupper($geolocation['country_code']);
+    $country = $geolocation['country'] ?? $cc;
+
+    if (in_array($cc, $highRisk)) {
+        return ['risk' => 'high', 'country' => $country, 'country_code' => $cc, 'reason' => 'Hosted in a jurisdiction frequently associated with cyber threats'];
+    }
+    if (in_array($cc, $mediumRisk)) {
+        return ['risk' => 'medium', 'country' => $country, 'country_code' => $cc, 'reason' => 'Hosted in a jurisdiction with elevated cyber threat activity'];
+    }
+
+    return ['risk' => 'low', 'country' => $country, 'country_code' => $cc, 'reason' => ''];
+}

@@ -48,6 +48,18 @@ $config = [
         // Get a key from https://haveibeenpwned.com/API/Key
             'hibp_api_key' => '',
 
+        // AbuseIPDB — IP reputation and abuse reports
+        // Get a free key from https://www.abuseipdb.com/api
+            'abuseipdb_api_key' => '',
+
+        // Shodan — exposed services/ports on resolved IP
+        // Get a free key from https://account.shodan.io/
+            'shodan_api_key' => '',
+
+        // PhishTank — known phishing URL database
+        // Get a free key from https://www.phishtank.com/api_info.php
+            'phishtank_api_key' => '',
+
     // ── Website Screenshot ──
     // Set 'screenshot_enabled' to true to show website preview thumbnails.
     // Works without an API key (basic/free tier). Provide an API key to

@@ -224,6 +224,104 @@ if (!$dnt && !$isIpLookup && $domain && !empty($config['screenshot_enabled'])) {
     $screenshotUrl = $screenshotBase . '/width/600/' . urlencode('https://' . $domain);
 }
 
+// DNSSEC check (Issue #93) — no API key needed
+$dnssec = null;
+if (!$isIpLookup && $domain) {
+    $dnssec = checkDnssec($domain);
+}
+
+// Certificate Transparency (Issue #94) — skip if DNT (third-party request)
+$certTransparency = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $certTransparency = checkCertTransparency($domain);
+}
+
+// Domain age risk scoring (Issue #95) — uses existing parsed data
+$domainAgeRisk = null;
+if (!$isIpLookup && !empty($parsed)) {
+    $domainAgeRisk = assessDomainAgeRisk($parsed);
+}
+
+// AbuseIPDB (Issue #96) — only if API key configured; skip if DNT
+$abuseIpDb = null;
+if (!$dnt && !empty($config['abuseipdb_api_key'])) {
+    $checkIp = $isIpLookup ? $domain : null;
+    if (!$checkIp && !empty($dns)) {
+        foreach ($dns as $rec) {
+            if ($rec['type'] === 'A' && !empty($rec['value'])) { $checkIp = $rec['value']; break; }
+        }
+    }
+    if ($checkIp) {
+        $abuseIpDb = checkAbuseIPDB($checkIp, $config['abuseipdb_api_key']);
+    }
+}
+
+// Shodan (Issue #97) — only if API key configured; skip if DNT
+$shodan = null;
+if (!$dnt && !empty($config['shodan_api_key'])) {
+    $checkIp = $isIpLookup ? $domain : null;
+    if (!$checkIp && !empty($dns)) {
+        foreach ($dns as $rec) {
+            if ($rec['type'] === 'A' && !empty($rec['value'])) { $checkIp = $rec['value']; break; }
+        }
+    }
+    if ($checkIp) {
+        $shodan = checkShodan($checkIp, $config['shodan_api_key']);
+    }
+}
+
+// PhishTank (Issue #98) — only if API key configured; skip if DNT
+$phishTank = null;
+if (!$dnt && !$isIpLookup && $domain && !empty($config['phishtank_api_key'])) {
+    $phishTank = checkPhishTank($domain, $config['phishtank_api_key']);
+}
+
+// URLhaus (Issue #99) — free, no API key; skip if DNT
+$urlhaus = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $urlhaus = checkUrlhaus($domain);
+}
+
+// Spamhaus DNSBL (Issue #100) — no API key needed
+$spamhaus = null;
+if (!$isIpLookup && !empty($dns)) {
+    foreach ($dns as $rec) {
+        if ($rec['type'] === 'A' && !empty($rec['value'])) {
+            $spamhaus = checkSpamhaus($rec['value']);
+            break;
+        }
+    }
+} elseif ($isIpLookup) {
+    $spamhaus = checkSpamhaus($domain);
+}
+
+// MTA-STS (Issue #101) — no API key needed
+$mtaSts = null;
+if (!$isIpLookup && $domain) {
+    $mtaSts = checkMtaSts($domain);
+}
+
+// BIMI (Issue #102) — no API key needed
+$bimi = null;
+if (!$isIpLookup && $domain) {
+    $bimi = checkBimi($domain);
+}
+
+// DANE/TLSA (Issue #103) — no API key needed
+$daneTlsa = null;
+if (!$isIpLookup && $domain) {
+    $daneTlsa = checkDaneTlsa($domain);
+}
+
+// WHOIS privacy detection (Issue #104) — uses existing data
+$whoisPrivacy = null;
+if (!$isIpLookup && $whoisText) {
+    $whoisPrivacy = detectWhoisPrivacy($whoisText, $parsed);
+}
+
+// Hosting country risk (Issue #105) — uses existing geolocation data
+$hostingRisk = null;
+
 // Subdomain discovery (Issue #46) — only for domain lookups
 $subdomains = [];
 if (!$isIpLookup && $domain) {
@@ -244,6 +342,9 @@ if (!$dnt) {
         }
     }
 }
+
+// Hosting country risk (Issue #105) — computed after geolocation
+$hostingRisk = assessHostingRisk($geolocation);
 
 if ($jsonFormat) {
     header('Access-Control-Allow-Origin: *');
@@ -267,6 +368,19 @@ if ($jsonFormat) {
         'virustotal' => $virusTotal,
         'screenshot_url' => $screenshotUrl,
         'hibp' => $hibp,
+        'dnssec' => $dnssec,
+        'cert_transparency' => $certTransparency,
+        'domain_age_risk' => $domainAgeRisk,
+        'abuseipdb' => $abuseIpDb,
+        'shodan' => $shodan,
+        'phishtank' => $phishTank,
+        'urlhaus' => $urlhaus,
+        'spamhaus' => $spamhaus,
+        'mta_sts' => $mtaSts,
+        'bimi' => $bimi,
+        'dane_tlsa' => $daneTlsa,
+        'whois_privacy' => $whoisPrivacy,
+        'hosting_risk' => $hostingRisk,
         'dnt' => $dnt,
     ];
     if ($reverseDns) {
@@ -296,6 +410,19 @@ if ($jsonFormat) {
         'virustotal' => $virusTotal,
         'screenshot_url' => $screenshotUrl,
         'hibp' => $hibp,
+        'dnssec' => $dnssec,
+        'cert_transparency' => $certTransparency,
+        'domain_age_risk' => $domainAgeRisk,
+        'abuseipdb' => $abuseIpDb,
+        'shodan' => $shodan,
+        'phishtank' => $phishTank,
+        'urlhaus' => $urlhaus,
+        'spamhaus' => $spamhaus,
+        'mta_sts' => $mtaSts,
+        'bimi' => $bimi,
+        'dane_tlsa' => $daneTlsa,
+        'whois_privacy' => $whoisPrivacy,
+        'hosting_risk' => $hostingRisk,
         'dnt' => $dnt,
     ];
     if ($reverseDns) {
