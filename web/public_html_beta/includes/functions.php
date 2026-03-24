@@ -2224,58 +2224,118 @@ function checkDnsPropagation(string $domain): array {
 // ═══════════════════════════════════════════════════════════════════
 
 function calculateSecurityScore(array $data): array {
-    $checks = 0;
-    $passed = 0;
+    $details = [];
 
     // HTTPS (via SSL info)
-    $checks++;
-    if (!empty($data['ssl'])) $passed++;
+    $httpsPass = !empty($data['ssl']);
+    $details[] = [
+        'name' => 'HTTPS / SSL',
+        'status' => $httpsPass ? 'pass' : 'fail',
+        'info' => $httpsPass ? 'Valid SSL certificate detected' : 'No SSL certificate found',
+        'recommendation' => $httpsPass ? null : 'Install an SSL/TLS certificate and enforce HTTPS',
+    ];
 
     // HSTS
-    $checks++;
+    $hstsPass = false;
     if (!empty($data['http_headers'])) {
         foreach ($data['http_headers']['headers'] ?? [] as $h) {
-            if ($h['header'] === 'HSTS' && $h['present']) { $passed++; break; }
+            if ($h['header'] === 'HSTS' && $h['present']) { $hstsPass = true; break; }
         }
     }
+    $details[] = [
+        'name' => 'HSTS',
+        'status' => $hstsPass ? 'pass' : 'fail',
+        'info' => $hstsPass ? 'Strict-Transport-Security header present' : 'HSTS header not found',
+        'recommendation' => $hstsPass ? null : 'Add a Strict-Transport-Security header to enforce HTTPS connections',
+    ];
 
     // DNSSEC
-    $checks++;
-    if (!empty($data['dnssec']['signed'])) $passed++;
+    $dnssecPass = !empty($data['dnssec']['signed']);
+    $details[] = [
+        'name' => 'DNSSEC',
+        'status' => $dnssecPass ? 'pass' : 'fail',
+        'info' => $dnssecPass ? 'DNSSEC signatures verified' : 'DNSSEC not enabled',
+        'recommendation' => $dnssecPass ? null : 'Enable DNSSEC with your DNS provider to protect against DNS spoofing',
+    ];
 
     // SPF
-    $checks++;
-    if (!empty($data['email_security']['spf']['found'])) $passed++;
+    $spfPass = !empty($data['email_security']['spf']['found']);
+    $details[] = [
+        'name' => 'SPF',
+        'status' => $spfPass ? 'pass' : 'fail',
+        'info' => $spfPass ? 'SPF record found' : 'No SPF record',
+        'recommendation' => $spfPass ? null : 'Add an SPF TXT record to specify authorised mail servers',
+    ];
 
     // DMARC
-    $checks++;
-    if (!empty($data['email_security']['dmarc']['found'])) $passed++;
+    $dmarcPass = !empty($data['email_security']['dmarc']['found']);
+    $details[] = [
+        'name' => 'DMARC',
+        'status' => $dmarcPass ? 'pass' : 'fail',
+        'info' => $dmarcPass ? 'DMARC policy found' : 'No DMARC policy',
+        'recommendation' => $dmarcPass ? null : 'Add a DMARC TXT record to protect against email spoofing',
+    ];
 
     // DKIM
-    $checks++;
-    if (!empty($data['email_security']['dkim']['found'])) $passed++;
+    $dkimPass = !empty($data['email_security']['dkim']['found']);
+    $details[] = [
+        'name' => 'DKIM',
+        'status' => $dkimPass ? 'pass' : 'warn',
+        'info' => $dkimPass ? 'DKIM selector found' : 'DKIM not detected (common selectors checked)',
+        'recommendation' => $dkimPass ? null : 'Configure DKIM signing with your email provider',
+    ];
 
     // MTA-STS
-    $checks++;
-    if (!empty($data['mta_sts']['found'])) $passed++;
+    $mtaStsPass = !empty($data['mta_sts']['found']);
+    $details[] = [
+        'name' => 'MTA-STS',
+        'status' => $mtaStsPass ? 'pass' : 'warn',
+        'info' => $mtaStsPass ? 'MTA-STS policy published' : 'No MTA-STS policy',
+        'recommendation' => $mtaStsPass ? null : 'Publish an MTA-STS policy to enforce TLS for inbound email',
+    ];
 
     // TLS 1.2+ only (no 1.0/1.1)
-    $checks++;
-    if (!empty($data['tls_audit']) && empty($data['tls_audit']['insecure'])) $passed++;
+    $tlsPass = !empty($data['tls_audit']) && empty($data['tls_audit']['insecure']);
+    $details[] = [
+        'name' => 'TLS Version',
+        'status' => $tlsPass ? 'pass' : 'fail',
+        'info' => $tlsPass ? 'Only TLS 1.2+ supported' : 'Insecure TLS versions (1.0/1.1) accepted',
+        'recommendation' => $tlsPass ? null : 'Disable TLS 1.0 and 1.1 on your web server',
+    ];
 
     // Not on blocklists
-    $checks++;
-    if (empty($data['spamhaus']['listed'])) $passed++;
+    $blPass = empty($data['spamhaus']['listed']);
+    $details[] = [
+        'name' => 'Blocklist',
+        'status' => $blPass ? 'pass' : 'fail',
+        'info' => $blPass ? 'Not listed on Spamhaus' : 'Listed on Spamhaus blocklist',
+        'recommendation' => $blPass ? null : 'Investigate and resolve the blocklist listing at spamhaus.org',
+    ];
 
     // CAA records
-    $checks++;
-    if (!empty($data['caa_records']['found'])) $passed++;
+    $caaPass = !empty($data['caa_records']['found']);
+    $details[] = [
+        'name' => 'CAA Records',
+        'status' => $caaPass ? 'pass' : 'warn',
+        'info' => $caaPass ? 'CAA records restrict certificate issuance' : 'No CAA records found',
+        'recommendation' => $caaPass ? null : 'Add CAA DNS records to control which CAs can issue certificates',
+    ];
 
     // No malware/phishing
-    $checks++;
-    if (empty($data['urlhaus']['urls_total']) || $data['urlhaus']['urls_total'] === 0) $passed++;
+    $malwarePass = empty($data['urlhaus']['urls_total']) || $data['urlhaus']['urls_total'] === 0;
+    $details[] = [
+        'name' => 'Malware / Phishing',
+        'status' => $malwarePass ? 'pass' : 'fail',
+        'info' => $malwarePass ? 'No known malware URLs' : 'Malware URLs associated with this domain',
+        'recommendation' => $malwarePass ? null : 'Scan your site for compromised files and remove malicious content',
+    ];
 
-    $pct = $checks > 0 ? round(($passed / $checks) * 100) : 0;
+    $passed = 0;
+    foreach ($details as $d) {
+        if ($d['status'] === 'pass') $passed++;
+    }
+    $total = count($details);
+    $pct = $total > 0 ? round(($passed / $total) * 100) : 0;
     $grade = 'F';
     if ($pct >= 90) $grade = 'A';
     elseif ($pct >= 75) $grade = 'B';
@@ -2283,7 +2343,7 @@ function calculateSecurityScore(array $data): array {
     elseif ($pct >= 45) $grade = 'D';
     elseif ($pct >= 30) $grade = 'E';
 
-    return ['grade' => $grade, 'score' => $pct, 'passed' => $passed, 'total' => $checks];
+    return ['grade' => $grade, 'score' => $pct, 'passed' => $passed, 'total' => $total, 'details' => $details];
 }
 
 

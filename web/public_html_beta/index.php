@@ -13,7 +13,7 @@ header("X-Content-Type-Options: nosniff");
 header("X-Frame-Options: DENY");
 header("X-XSS-Protection: 1; mode=block");
 header("Referrer-Policy: strict-origin-when-cross-origin");
-header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net; img-src 'self' data: https://image.thum.io https://api.qrserver.com https://www.google.com; connect-src 'self'");
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net; img-src 'self' data: https://image.thum.io https://api.qrserver.com https://*.gstatic.com; connect-src 'self'");
 
 // ─── Config ───
 $config = [];
@@ -297,6 +297,7 @@ if ($_showPortfolioIcon): ?>
             <li class="nav-item" role="presentation"><a class="nav-link" href="#" data-tab="email" role="tab" aria-selected="false" id="rtab-email" aria-controls="emailSecurityPane">Email Security</a></li>
             <li class="nav-item" role="presentation"><a class="nav-link" href="#" data-tab="ssl" role="tab" aria-selected="false" id="rtab-ssl" aria-controls="sslPane">SSL/TLS</a></li>
             <li class="nav-item" role="presentation"><a class="nav-link" href="#" data-tab="subdomains" role="tab" aria-selected="false" id="rtab-subdomains" aria-controls="subdomainsPane">Subdomains</a></li>
+            <li class="nav-item" role="presentation"><a class="nav-link" href="#" data-tab="security" role="tab" aria-selected="false" id="rtab-security" aria-controls="securityPane">Security</a></li>
         </ul>
 
         <div id="whoisResultPane" role="tabpanel" aria-labelledby="rtab-whois"><div id="result"></div></div>
@@ -304,6 +305,7 @@ if ($_showPortfolioIcon): ?>
         <div id="emailSecurityPane" role="tabpanel" aria-labelledby="rtab-email" style="display:none;"></div>
         <div id="sslPane" role="tabpanel" aria-labelledby="rtab-ssl" style="display:none;"></div>
         <div id="subdomainsPane" role="tabpanel" aria-labelledby="rtab-subdomains" style="display:none;"></div>
+        <div id="securityPane" role="tabpanel" aria-labelledby="rtab-security" style="display:none;"></div>
 
         <div id="actionButtons" class="mt-2 d-flex gap-2 flex-wrap" style="display:none !important;">
             <button class="btn btn-secondary btn-sm" id="toggleViewBtn">Show Raw Whois</button>
@@ -386,7 +388,7 @@ if ($_showPortfolioIcon): ?>
         function registrarFavicon(urlTemplate) {
             try {
                 var host = new URL(urlTemplate.replace('{domain}', 'example.com')).hostname;
-                return 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host) + '&sz=16';
+                return 'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://' + encodeURIComponent(host) + '&size=16';
             } catch (e) { return ''; }
         }
 
@@ -765,7 +767,7 @@ if ($_showPortfolioIcon): ?>
         document.getElementById('whoisForm').addEventListener('submit', function (e) {
             e.preventDefault();
             var d = document.getElementById('domain').value.trim();
-            if (d) { setValidation('', false); triggerLookup(d); updateURL(d); }
+            if (d) { setValidation('', false); triggerLookup(d); }
         });
 
         // ── Bulk form submit ──
@@ -916,10 +918,16 @@ if ($_showPortfolioIcon): ?>
                 .then(function (data) {
                     showLoading(false);
                     if (data.error) { showError(data.error); return; }
+                    // Use the cleaned domain from the backend (Issue #177)
+                    if (data.domain) {
+                        currentDomain = data.domain;
+                        domainInput.value = data.domain;
+                        updateURL(data.domain);
+                    }
                     rawWhoisText = data.whois || '';
                     lastLookupData = data;
                     displayResults(data);
-                    saveToHistory(domain, data);
+                    saveToHistory(currentDomain, data);
                 })
                 .catch(function (err) { showLoading(false); showError('Lookup failed: ' + err.message); });
         }
@@ -1041,6 +1049,19 @@ if ($_showPortfolioIcon): ?>
                 avBadge.innerHTML = '<div class="alert alert-success d-flex align-items-center justify-content-between flex-wrap gap-2">' +
                     '<div><i class="bi bi-check-circle-fill me-2"></i><strong>' + esc(currentDomain) + '</strong> appears to be available!</div>' +
                     '<div class="d-flex gap-1 flex-wrap">' + regButtons + '</div></div>';
+                avBadge.style.display = '';
+                // Hide all result sections for available/unregistered domains (Issue #174)
+                document.getElementById('dataSourceBadge').style.display = 'none';
+                document.getElementById('parsedFields').style.display = 'none';
+                document.getElementById('resultTabs').style.display = 'none';
+                document.getElementById('whoisResultPane').style.display = 'none';
+                document.getElementById('dnsResultPane').style.display = 'none';
+                document.getElementById('emailSecurityPane').style.display = 'none';
+                document.getElementById('sslPane').style.display = 'none';
+                document.getElementById('subdomainsPane').style.display = 'none';
+                document.getElementById('securityPane').style.display = 'none';
+                document.getElementById('actionButtons').style.cssText = 'display:none !important';
+                return;
             } else {
                 var watchBtn = ' <button class="btn btn-outline-secondary btn-sm ms-auto watchDomainBtn" data-domain="' + esc(currentDomain) + '" aria-label="Watch for expiry"><i class="bi bi-eye"></i></button>';
                 avBadge.innerHTML = '<div class="alert alert-info d-flex align-items-center">' +
@@ -1418,7 +1439,7 @@ if ($_showPortfolioIcon): ?>
                 });
             }
 
-            // Security Score (Issue #128)
+            // Security Score (Issue #128, #175)
             if (data.security_score) {
                 var ss = data.security_score;
                 var ssColor = ss.grade <= 'B' ? 'success' : (ss.grade <= 'D' ? 'warning' : 'danger');
@@ -1450,6 +1471,36 @@ if ($_showPortfolioIcon): ?>
                     '<div class="progress mt-1" style="height:6px;width:200px"><div class="progress-bar bg-' + ssColor + '" style="width:' + ss.score + '%"></div></div>' + sparkline + '</div></div></div>';
                 document.getElementById('parsedFields').innerHTML = ssHtml + document.getElementById('parsedFields').innerHTML;
                 document.getElementById('parsedFields').style.display = '';
+
+                // Security details tab (Issue #175)
+                if (ss.details && ss.details.length) {
+                    document.getElementById('resultTabs').style.display = '';
+                    var secHtml = '<div class="card"><div class="card-header d-flex align-items-center justify-content-between">' +
+                        '<strong><i class="bi bi-shield-check me-1"></i>Security Checks</strong>' +
+                        '<span class="badge bg-' + ssColor + '">' + ss.grade + ' — ' + ss.score + '%</span></div>' +
+                        '<div class="card-body"><table class="table table-sm mb-0">';
+                    secHtml += '<thead><tr><th>Check</th><th>Status</th><th>Details</th></tr></thead><tbody>';
+                    ss.details.forEach(function (d) {
+                        var icon, badge;
+                        if (d.status === 'pass') {
+                            icon = '<i class="bi bi-check-circle-fill text-success"></i>';
+                            badge = '<span class="badge bg-success">Pass</span>';
+                        } else if (d.status === 'warn') {
+                            icon = '<i class="bi bi-exclamation-triangle-fill text-warning"></i>';
+                            badge = '<span class="badge bg-warning text-dark">Warning</span>';
+                        } else {
+                            icon = '<i class="bi bi-x-circle-fill text-danger"></i>';
+                            badge = '<span class="badge bg-danger">Fail</span>';
+                        }
+                        secHtml += '<tr><td class="fw-bold">' + icon + ' ' + esc(d.name) + '</td><td>' + badge + '</td><td>' + esc(d.info);
+                        if (d.recommendation) {
+                            secHtml += '<br><small class="text-muted"><i class="bi bi-lightbulb me-1"></i>' + esc(d.recommendation) + '</small>';
+                        }
+                        secHtml += '</td></tr>';
+                    });
+                    secHtml += '</tbody></table></div></div>';
+                    document.getElementById('securityPane').innerHTML = secHtml;
+                }
             }
 
             // Tech Stack (Issue #124)
@@ -1568,6 +1619,7 @@ if ($_showPortfolioIcon): ?>
                 document.getElementById('emailSecurityPane').style.display = t === 'email' ? '' : 'none';
                 document.getElementById('sslPane').style.display = t === 'ssl' ? '' : 'none';
                 document.getElementById('subdomainsPane').style.display = t === 'subdomains' ? '' : 'none';
+                document.getElementById('securityPane').style.display = t === 'security' ? '' : 'none';
             });
         });
 
