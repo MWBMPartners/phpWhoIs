@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [8ce9d07] - 2026-03-24T21:17:31Z
+
+**feat: move DNS propagation resolvers to config and expand to 16 servers**
+
+- Commit: [`8ce9d07`](https://github.com/MWBMPartners/phpWhoIs/commit/8ce9d07eea32977d575b8accd5c5e2f1d5ff5ccf)
+
+
 ## [deb800a] - 2026-03-24T21:13:43Z
 
 **fix: wrap security checks table in table-responsive div**
