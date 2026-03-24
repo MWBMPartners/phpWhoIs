@@ -1,7 +1,7 @@
 {
-    "name": "WHOIS Lookup",
-    "short_name": "WhoIs",
-    "description": "Free domain WHOIS and RDAP lookup tool",
+    "name": "DomainCheckr",
+    "short_name": "DomainCheckr",
+    "description": "Free domain name checker and s WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.",
     "start_url": "/",
     "display": "standalone",
     "background_color": "#ffffff",

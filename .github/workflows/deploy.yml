@@ -120,6 +120,26 @@ jobs:
             echo "Injected build info into infoAppVer.php - ${SHORT_SHA} @ ${COMMIT_DATE}"
           fi
 
+      - name: Sync manifest.json from infoAppVer.php
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          SOURCE_DIR="${{ steps.target.outputs.source_dir }}"
+          VERFILE="${SOURCE_DIR}includes/infoAppVer.php"
+          MANIFEST="${SOURCE_DIR}manifest.json"
+          if [[ -f "$VERFILE" && -f "$MANIFEST" ]]; then
+            APP_NAME=$(grep -oP '\["Name"\] = "\K[^"]+' "$VERFILE" | head -1)
+            APP_DESC=$(grep -oP '\["Synopsis"\] = "\K[^"]+' "$VERFILE")
+            if [[ -n "$APP_NAME" ]]; then
+              sed -i "s|\"name\": \"[^\"]*\"|\"name\": \"${APP_NAME}\"|" "$MANIFEST"
+              sed -i "s|\"short_name\": \"[^\"]*\"|\"short_name\": \"${APP_NAME}\"|" "$MANIFEST"
+              echo "Manifest name set to: ${APP_NAME}"
+            fi
+            if [[ -n "$APP_DESC" ]]; then
+              sed -i "s|\"description\": \"[^\"]*\"|\"description\": \"${APP_DESC}\"|" "$MANIFEST"
+              echo "Manifest description synced from infoAppVer.php"
+            fi
+          fi
+
       - name: Install lftp
         if: steps.changes.outputs.has_changes == 'true'
         run: sudo apt-get install -y lftp
