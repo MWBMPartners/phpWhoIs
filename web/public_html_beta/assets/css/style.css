@@ -1,6 +1,7 @@
 /* ─── Registrar dropdown z-index ─── */
-#availabilityBadge .dropdown-menu {
-    z-index: 1050;
+#availabilityBadge {
+    position: relative;
+    z-index: 10;
 }
 
 /* ─── Skip to content link ─── */
