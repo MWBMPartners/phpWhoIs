@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [e1aac1e] - 2026-03-24T21:43:23Z
+
+**feat: add opt-in auto-refresh for DNS propagation via AJAX**
+
+- Commit: [`e1aac1e`](https://github.com/MWBMPartners/phpWhoIs/commit/e1aac1e4083fc7ebe0ee19ce0dd184abd5980a6a)
+
+
 ## [0bcbe4a] - 2026-03-24T21:40:17Z
 
 **feat: add South African DNS resolvers for Africa coverage**
