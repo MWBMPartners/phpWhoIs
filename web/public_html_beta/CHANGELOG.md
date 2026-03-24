@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [4102f35] - 2026-03-24
+
+**fix: PWA install banner dismiss button overlapping install button**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`4102f35`](https://github.com/MWBMPartners/phpWhoIs/commit/4102f3545dfc6bf617932f92d81f66a3d2c5e7a5)
+
+### Changed files
+
+- `index.php`
+
+
 ## [0da5eff] - 2026-03-24
 
 **fix: gate manifest.json and service worker to production only**
