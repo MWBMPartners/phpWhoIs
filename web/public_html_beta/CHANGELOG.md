@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [62a627c] - 2026-03-24
+
+**docs: comprehensive OpenAPI spec rewrite with all 50+ response fields**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`62a627c`](https://github.com/MWBMPartners/phpWhoIs/commit/62a627ceec044fc48a6cf665d0ba3199e2c67998)
+
+### Changed files
+
+- `assets/api/openapi.yaml`
+
+
 ## [0fdc202] - 2026-03-24
 
 **feat: add min-height property to subpage and result containers for better overflow handling**
