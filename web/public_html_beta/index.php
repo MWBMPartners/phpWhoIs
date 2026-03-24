@@ -1692,11 +1692,11 @@ if ($_showPortfolioIcon): ?>
             // DNS Propagation (Issue #126)
             if (data.dns_propagation) {
                 var dp = data.dns_propagation;
-                var dpHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-globe me-1"></i>DNS Propagation</strong>' + (dp.consistent ? ' <span class="badge bg-success">Consistent</span>' : ' <span class="badge bg-warning">Inconsistent</span>') + '</div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Resolver</th><th>IP</th><th>Answer</th></tr></thead><tbody>';
+                var dpHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-globe me-1"></i>DNS Propagation</strong>' + (dp.consistent ? ' <span class="badge bg-success">Consistent</span>' : ' <span class="badge bg-warning">Inconsistent</span>') + ' <small class="text-muted">(' + dp.resolvers.length + ' servers)</small></div><div class="card-body"><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Resolver</th><th>Location</th><th>IP</th><th>Answer</th></tr></thead><tbody>';
                 dp.resolvers.forEach(function (r) {
-                    dpHtml += '<tr><td class="fw-bold">' + esc(r.resolver) + '</td><td><code>' + esc(r.ip) + '</code></td><td>' + (r.answers.length ? r.answers.map(esc).join(', ') : '<span class="text-muted">No answer</span>') + '</td></tr>';
+                    dpHtml += '<tr><td class="fw-bold">' + esc(r.resolver) + '</td><td>' + (r.location ? '<small>' + esc(r.location) + '</small>' : '') + '</td><td><code>' + esc(r.ip) + '</code></td><td>' + (r.answers.length ? r.answers.map(esc).join(', ') : '<span class="text-muted">No answer</span>') + '</td></tr>';
                 });
-                dpHtml += '</tbody></table></div></div>';
+                dpHtml += '</tbody></table></div></div></div>';
                 document.getElementById('dnsResultPane').innerHTML += dpHtml;
             }
 

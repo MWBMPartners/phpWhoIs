@@ -83,4 +83,39 @@ $config = [
     // Mask personal contact info (email, phone, address) in displayed WHOIS results.
     // Useful for GDPR-conscious deployments. Does not affect the raw WHOIS data.
         'mask_whois_contacts' => false,
+
+    // ── DNS Propagation Resolvers ──
+    // Public DNS servers used for propagation checks.
+    // Set 'enabled' to false to skip a resolver without removing it.
+    // Location is informational — shown in the UI to indicate geographic spread.
+        'dns_resolvers' => [
+            // ── Global / Anycast ──
+            ['enabled' => true,  'name' => 'Google',          'ip' => '8.8.8.8',         'location' => 'Global'],
+            ['enabled' => true,  'name' => 'Google (2)',       'ip' => '8.8.4.4',         'location' => 'Global'],
+            ['enabled' => true,  'name' => 'Cloudflare',      'ip' => '1.1.1.1',         'location' => 'Global'],
+            ['enabled' => true,  'name' => 'Cloudflare (2)',   'ip' => '1.0.0.1',         'location' => 'Global'],
+            ['enabled' => true,  'name' => 'Quad9',           'ip' => '9.9.9.9',         'location' => 'Global'],
+            ['enabled' => true,  'name' => 'Quad9 (2)',        'ip' => '149.112.112.112', 'location' => 'Global'],
+            ['enabled' => true,  'name' => 'OpenDNS',         'ip' => '208.67.222.222',  'location' => 'Global'],
+            ['enabled' => true,  'name' => 'OpenDNS (2)',      'ip' => '208.67.220.220',  'location' => 'Global'],
+
+            // ── North America ──
+            ['enabled' => true,  'name' => 'Comodo Secure',   'ip' => '8.26.56.26',      'location' => 'North America'],
+            ['enabled' => true,  'name' => 'Neustar',         'ip' => '64.6.64.6',       'location' => 'North America'],
+            ['enabled' => true,  'name' => 'Level3',          'ip' => '4.2.2.1',         'location' => 'North America'],
+
+            // ── Europe ──
+            ['enabled' => true,  'name' => 'DNS.WATCH',       'ip' => '84.200.69.80',    'location' => 'Europe'],
+            ['enabled' => true,  'name' => 'Freenom World',   'ip' => '80.80.80.80',     'location' => 'Europe'],
+            ['enabled' => true,  'name' => 'UncensoredDNS',   'ip' => '91.239.100.100',  'location' => 'Europe'],
+
+            // ── Asia-Pacific ──
+            ['enabled' => true,  'name' => 'Ali DNS',         'ip' => '223.5.5.5',       'location' => 'Asia-Pacific'],
+            ['enabled' => true,  'name' => 'Yandex',          'ip' => '77.88.8.8',       'location' => 'Asia-Pacific'],
+
+            // ── Filtered / Family-safe ──
+            ['enabled' => false, 'name' => 'CleanBrowsing',   'ip' => '185.228.168.9',   'location' => 'Global'],
+            ['enabled' => false, 'name' => 'AdGuard',         'ip' => '94.140.14.14',    'location' => 'Global'],
+            ['enabled' => false, 'name' => 'OpenDNS Family',  'ip' => '208.67.222.123',  'location' => 'Global'],
+        ],
 ];

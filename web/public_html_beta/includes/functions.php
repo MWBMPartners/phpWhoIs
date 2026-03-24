@@ -2314,18 +2314,21 @@ function analyseRobotsTxt(string $domain): ?array {
 // ═══════════════════════════════════════════════════════════════════
 
 function checkDnsPropagation(string $domain): array {
-    $resolvers = [
-        'Google' => '8.8.8.8',
-        'Cloudflare' => '1.1.1.1',
-        'OpenDNS' => '208.67.222.222',
-        'Quad9' => '9.9.9.9',
-    ];
+    global $config;
+
+    $resolvers = $config['dns_resolvers'] ?? [];
 
     $results = [];
-    foreach ($resolvers as $name => $ip) {
+    foreach ($resolvers as $resolver) {
+        if (empty($resolver['enabled'])) {
+            continue;
+        }
+        $name = $resolver['name'];
+        $ip = $resolver['ip'];
+        $location = $resolver['location'] ?? '';
         $output = @shell_exec('dig @' . escapeshellarg($ip) . ' +short A ' . escapeshellarg($domain) . ' 2>/dev/null');
         $ips = $output ? array_filter(array_map('trim', explode("\n", trim($output)))) : [];
-        $results[] = ['resolver' => $name, 'ip' => $ip, 'answers' => $ips];
+        $results[] = ['resolver' => $name, 'ip' => $ip, 'location' => $location, 'answers' => $ips];
     }
 
     // Check consistency
