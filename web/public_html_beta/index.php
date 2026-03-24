@@ -13,7 +13,7 @@ header("X-Content-Type-Options: nosniff");
 header("X-Frame-Options: DENY");
 header("X-XSS-Protection: 1; mode=block");
 header("Referrer-Policy: strict-origin-when-cross-origin");
-header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net; img-src 'self' data: https://image.thum.io https://api.qrserver.com; connect-src 'self'");
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net; img-src 'self' data: https://image.thum.io https://api.qrserver.com https://www.google.com; connect-src 'self'");
 
 // ─── Config ───
 $config = [];
@@ -359,6 +359,7 @@ if ($_showPortfolioIcon): ?>
     <script>
     document.addEventListener('DOMContentLoaded', function () {
         var CSRF = '<?php echo htmlspecialchars($csrfToken); ?>';
+        var browserDnt = navigator.doNotTrack === '1' || window.doNotTrack === '1';
         var REGISTRARS = <?php
             // New format: 'registrars' array — filter to enabled only
             if (!empty($config['registrars'])) {
@@ -380,6 +381,20 @@ if ($_showPortfolioIcon): ?>
         ?>;
 
         // Build registration button(s) — single = direct link, multiple = dropdown
+        function registrarFavicon(urlTemplate) {
+            try {
+                var host = new URL(urlTemplate.replace('{domain}', 'example.com')).hostname;
+                return 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host) + '&sz=16';
+            } catch (e) { return ''; }
+        }
+
+        function registrarIcon(r) {
+            if (browserDnt) return '<i class="bi bi-box-arrow-up-right me-2" aria-hidden="true"></i>';
+            var src = registrarFavicon(r.url_template);
+            if (!src) return '<i class="bi bi-box-arrow-up-right me-2" aria-hidden="true"></i>';
+            return '<img src="' + esc(src) + '" width="16" height="16" alt="" class="me-2" style="vertical-align:text-bottom" onerror="this.replaceWith(Object.assign(document.createElement(\'i\'),{className:\'bi bi-box-arrow-up-right me-2\',ariaHidden:\'true\'}))">';
+        }
+
         function buildRegisterButtons(domain) {
             if (!REGISTRARS.length) return '';
             var encodedDomain = encodeURIComponent(domain);
@@ -388,7 +403,7 @@ if ($_showPortfolioIcon): ?>
                 var r = REGISTRARS[0];
                 var url = r.url_template.replace('{domain}', encodedDomain);
                 var target = r.open_in_new_tab ? ' target="_blank" rel="noopener noreferrer"' : '';
-                return '<a href="' + url + '"' + target + ' class="btn btn-success btn-sm"><i class="bi bi-cart-plus me-1" aria-hidden="true"></i>Register at ' + esc(r.name) + '</a>';
+                return '<a href="' + url + '"' + target + ' class="btn btn-success btn-sm">' + registrarIcon(r) + 'Register at ' + esc(r.name) + '</a>';
             }
 
             // Multiple registrars — dropdown
@@ -402,7 +417,7 @@ if ($_showPortfolioIcon): ?>
             REGISTRARS.forEach(function (r) {
                 var url = r.url_template.replace('{domain}', encodedDomain);
                 var target = r.open_in_new_tab ? ' target="_blank" rel="noopener noreferrer"' : '';
-                html += '<li><a class="dropdown-item" href="' + url + '"' + target + ' role="menuitem"><i class="bi bi-box-arrow-up-right me-2"></i>' + esc(r.name) + '</a></li>';
+                html += '<li><a class="dropdown-item" href="' + url + '"' + target + ' role="menuitem">' + registrarIcon(r) + esc(r.name) + '</a></li>';
             });
             html += '</ul></div>';
             return html;
@@ -1666,7 +1681,6 @@ if ($_showPortfolioIcon): ?>
         });
 
         // ── QR code (Issue #50) ──
-        var browserDnt = navigator.doNotTrack === '1' || window.doNotTrack === '1';
         document.getElementById('qrCodeBtn').addEventListener('click', function () {
             var shareUrl = window.location.origin + window.location.pathname + '?domain=' + encodeURIComponent(currentDomain);
             if (browserDnt) {
