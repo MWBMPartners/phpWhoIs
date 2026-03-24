@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [7a0fd4f] - 2026-03-24
+
+**feat: make domain suggestions on-demand via button click (#164)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`7a0fd4f`](https://github.com/MWBMPartners/phpWhoIs/commit/7a0fd4fa91a8096263b2e346c6126d641ad83103)
+
+### Changed files
+
+- `index.php`
+- `lookup.php`
+
+
 ## [3cffbe1] - 2026-03-24
 
 **fix: remove broken SRI hashes that prevented page loading (#140)**
