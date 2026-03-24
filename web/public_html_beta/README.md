@@ -55,10 +55,15 @@ PHP-based domain WHOIS/RDAP lookup tool with DNS records, availability detection
 - PWA support (offline capable, Add to Home Screen)
 - Client-side domain validation
 - Print-friendly stylesheet
-- JSON API (`?format=json`) with API key support and rate limit display
+- Domain portfolio dashboard with watch list management
+- JSON API (`?format=json`) with API key support, rate limit headers, and quota display
 - Admin dashboard with usage stats and webhook testing
 - Domain monitoring via webhooks
+- Domain ownership verification via DNS TXT record
 - Do Not Track (DNT) support — respects browser DNT signal
+- Content Security Policy (CSP) and Subresource Integrity (SRI)
+- JSON-LD structured data for SEO
+- WHOIS contact masking option for GDPR compliance
 - Privacy Policy and Terms of Service pages
 - Multiple configurable domain registrars (single button or dropdown)
 - CSRF protection, rate limiting, input validation
