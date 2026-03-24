@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [8838c4e] - 2026-03-24T21:38:15Z
+
+**feat: split DNS resolvers to own config file, add country flags and expand to 77 servers**
+
+- Commit: [`8838c4e`](https://github.com/MWBMPartners/phpWhoIs/commit/8838c4e51aad985f67983ed4a096212bda0bac47)
+
+
 ## [79dcee8] - 2026-03-24T21:28:29Z
 
 **feat: add type field to DNS resolvers with icons for security/family filters**
