@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [7d6568e] - 2026-03-24
+
+**fix: adjust z-index and position for availability badge dropdown**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`7d6568e`](https://github.com/MWBMPartners/phpWhoIs/commit/7d6568e7bb7c4d5338ec22e03102694dd72bf13c)
+
+### Changed files
+
+- `assets/css/style.css`
+
+
 ## [099368d] - 2026-03-24
 
 **feat: add z-index for registrar dropdown and adjust button group markup**
