@@ -156,7 +156,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <!-- PWA install banner — production only (Issue #170) -->
     <div id="pwaInstallBanner" class="alert alert-primary d-flex align-items-center gap-2 m-0 py-2 px-3 rounded-0 small" style="display:none;" role="alert">
         <i class="bi bi-download" aria-hidden="true"></i>
-        <span>Install <strong><?php echo htmlspecialchars($pageTitle); ?></strong> for quick access</span>
+        <span id="pwaInstallMsg">Install <strong><?php echo htmlspecialchars($pageTitle); ?></strong> for quick access</span>
         <div class="ms-auto d-flex align-items-center gap-2 flex-shrink-0">
             <button class="btn btn-primary btn-sm" id="pwaInstallBtn">Install</button>
             <button type="button" class="btn-close" id="pwaInstallDismiss" aria-label="Dismiss"></button>
@@ -2363,32 +2363,46 @@ if ($_showPortfolioIcon): ?>
         var banner = document.getElementById('pwaInstallBanner');
         var installBtn = document.getElementById('pwaInstallBtn');
         var dismissBtn = document.getElementById('pwaInstallDismiss');
+        var installMsg = document.getElementById('pwaInstallMsg');
 
-        if (window.matchMedia('(display-mode: standalone)').matches) {
+        if (!banner || !installBtn || !dismissBtn) return;
+
+        // Already installed as PWA
+        if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
             return;
         }
 
+        // Dismissed within last 7 days
         var dismissed = localStorage.getItem('pwaInstallDismissed');
         if (dismissed && (Date.now() - parseInt(dismissed)) < 7 * 24 * 60 * 60 * 1000) {
             return;
         }
 
-        window.addEventListener('beforeinstallprompt', function (e) {
-            e.preventDefault();
-            deferredPrompt = e;
-            banner.style.display = 'flex';
-        });
+        // Detect iOS (Safari, Chrome, Edge on iOS all use WebKit)
+        var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-        installBtn.addEventListener('click', function () {
-            if (!deferredPrompt) {
-                return;
-            }
-            deferredPrompt.prompt();
-            deferredPrompt.userChoice.then(function (result) {
-                banner.style.display = 'none';
-                deferredPrompt = null;
+        if (isIOS) {
+            // iOS: show instruction banner (no beforeinstallprompt support)
+            installMsg.innerHTML = 'To install, tap <i class="bi bi-box-arrow-up"></i> <strong>Share</strong> then <strong>Add to Home Screen</strong>';
+            installBtn.style.display = 'none';
+            banner.style.display = 'flex';
+        } else {
+            // Chrome/Edge/etc: use beforeinstallprompt
+            window.addEventListener('beforeinstallprompt', function (e) {
+                e.preventDefault();
+                deferredPrompt = e;
+                banner.style.display = 'flex';
             });
-        });
+
+            installBtn.addEventListener('click', function () {
+                if (!deferredPrompt) return;
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(function () {
+                    banner.style.display = 'none';
+                    deferredPrompt = null;
+                });
+            });
+        }
 
         dismissBtn.addEventListener('click', function () {
             banner.style.display = 'none';
