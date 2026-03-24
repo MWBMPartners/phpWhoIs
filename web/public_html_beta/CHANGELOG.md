@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [3cffbe1] - 2026-03-24
+
+**fix: remove broken SRI hashes that prevented page loading (#140)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`3cffbe1`](https://github.com/MWBMPartners/phpWhoIs/commit/3cffbe1c8d5bead4fb4ba007ab6a4acb4660fd38)
+
+### Changed files
+
+- `index.php`
+
+
 ## [62a627c] - 2026-03-24
 
 **docs: comprehensive OpenAPI spec rewrite with all 50+ response fields**
