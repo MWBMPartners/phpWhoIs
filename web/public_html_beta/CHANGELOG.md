@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [be32c48] - 2026-03-24
+
+**feat: add XSL stylesheet for RSS feed and update footer link to open in new tab**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`be32c48`](https://github.com/MWBMPartners/phpWhoIs/commit/be32c489c47c6c9c10967465a0b7fe3a1bca2ffb)
+
+### Changed files
+
+- `feed.php`
+- `feed.xsl`
+- `includes/footer.php`
+
+
 ## [4102f35] - 2026-03-24
 
 **fix: PWA install banner dismiss button overlapping install button**
