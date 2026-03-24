@@ -121,6 +121,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <link rel="icon" type="image/x-icon" href="assets/images/favicon.ico">
     <link rel="icon" type="image/gif" href="assets/images/favicon.gif">
     <link rel="apple-touch-icon" href="assets/images/favicon.png">
+    <link rel="alternate" type="application/rss+xml" title="<?php echo htmlspecialchars($pageTitle); ?> — Domain Changes" href="feed">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0d6efd">
     <script type="application/ld+json">
@@ -243,6 +244,9 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 <button class="btn btn-sm btn-link text-muted p-0" id="clearHistory" title="Clear history" aria-label="Clear lookup history">
                     <i class="bi bi-x-circle" aria-hidden="true"></i>
                 </button>
+                <a href="portfolio" class="btn btn-sm btn-link text-muted p-0 ms-1" title="Domain Portfolio" aria-label="Domain Portfolio">
+                    <i class="bi bi-collection" aria-hidden="true"></i>
+                </a>
             </div>
         </div>
     </header>

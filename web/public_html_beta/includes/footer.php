@@ -28,7 +28,7 @@ $_footerTitle = isset($appName) ? $appName : 'WHOIS Lookup';
     <footer class="footer">
         <div class="footer-row">
             <div class="footer-left">
-                <a href="docs" class="footer-link">API Documentation</a><br>
+                <a href="docs" class="footer-link">API Documentation</a> | <a href="portfolio" class="footer-link">Portfolio</a> | <a href="feed" class="footer-link" title="RSS Feed"><i class="bi bi-rss" aria-hidden="true"></i> RSS</a><br>
                 <a href="privacy" class="footer-link">Privacy Policy</a> | <a href="terms" class="footer-link">Terms of Service</a>
             </div>
             <div class="footer-right">
