@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [63eeace] - 2026-03-24
+
+**feat: add CloudFlare as a registrar and update Namecheap and GoDaddy configurations**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`63eeace`](https://github.com/MWBMPartners/phpWhoIs/commit/63eeacee7d7570045524f0ec13b992cc9889af63)
+
+### Changed files
+
+- `includes/config.php`
+
+
 ## [d510cba] - 2026-03-24
 
 **fix: update content type header for RSS feed to application/xml**
