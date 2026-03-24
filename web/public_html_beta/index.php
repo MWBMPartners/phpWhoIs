@@ -13,6 +13,7 @@ header("X-Content-Type-Options: nosniff");
 header("X-Frame-Options: DENY");
 header("X-XSS-Protection: 1; mode=block");
 header("Referrer-Policy: strict-origin-when-cross-origin");
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net; img-src 'self' data: https://image.thum.io https://api.qrserver.com; connect-src 'self'");
 
 // ─── Config ───
 $config = [];
@@ -122,9 +123,21 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <link rel="apple-touch-icon" href="assets/images/favicon.png">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0d6efd">
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "<?php echo htmlspecialchars($pageTitle); ?>",
+        "description": "<?php echo htmlspecialchars($pageDescription); ?>",
+        "url": "<?php echo htmlspecialchars(strtok($pageUrl, '?')); ?>",
+        "applicationCategory": "UtilityApplication",
+        "operatingSystem": "Any",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "GBP" }
+    }
+    </script>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-KyZXEAg3QhqLMpG8r+8fhAXLRk2vvoC2f3B09zVXn8CA5QIVfZOJ3BCsw2P0p/We" crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
     <link rel="stylesheet" href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'style.css'); ?>">
 </head>
 <body>
@@ -315,7 +328,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <!-- Footer -->
     <?php $appName = $pageTitle; require __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'footer.php'; ?>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
     <script>
     document.addEventListener('DOMContentLoaded', function () {
         var CSRF = '<?php echo htmlspecialchars($csrfToken); ?>';
@@ -1343,10 +1356,32 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             if (data.security_score) {
                 var ss = data.security_score;
                 var ssColor = ss.grade <= 'B' ? 'success' : (ss.grade <= 'D' ? 'warning' : 'danger');
+
+                // Store score history (Issue #138)
+                var scoreHistory = {};
+                try { scoreHistory = JSON.parse(localStorage.getItem('securityScoreHistory') || '{}'); } catch(e) {}
+                if (!scoreHistory[currentDomain]) scoreHistory[currentDomain] = [];
+                scoreHistory[currentDomain].push({ ts: Date.now(), grade: ss.grade, score: ss.score });
+                if (scoreHistory[currentDomain].length > 20) scoreHistory[currentDomain] = scoreHistory[currentDomain].slice(-20);
+                localStorage.setItem('securityScoreHistory', JSON.stringify(scoreHistory));
+
+                // Build sparkline from history
+                var history = scoreHistory[currentDomain] || [];
+                var sparkline = '';
+                if (history.length > 1) {
+                    sparkline = '<div class="d-flex align-items-end gap-1 mt-1" style="height:20px;" title="Score history">';
+                    history.forEach(function (h) {
+                        var barH = Math.max(2, Math.round(h.score / 5));
+                        var barC = h.score >= 75 ? '#198754' : (h.score >= 45 ? '#ffc107' : '#dc3545');
+                        sparkline += '<div style="width:4px;height:' + barH + 'px;background:' + barC + ';border-radius:1px;"></div>';
+                    });
+                    sparkline += '</div>';
+                }
+
                 var ssHtml = '<div class="card mb-3"><div class="card-body d-flex align-items-center gap-3">' +
                     '<div class="text-center" style="min-width:60px"><span class="display-5 fw-bold text-' + ssColor + '">' + ss.grade + '</span><br><small class="text-muted">' + ss.score + '%</small></div>' +
                     '<div><strong>Security Score</strong><br><small class="text-muted">' + ss.passed + ' of ' + ss.total + ' checks passed</small>' +
-                    '<div class="progress mt-1" style="height:6px;width:200px"><div class="progress-bar bg-' + ssColor + '" style="width:' + ss.score + '%"></div></div></div></div></div>';
+                    '<div class="progress mt-1" style="height:6px;width:200px"><div class="progress-bar bg-' + ssColor + '" style="width:' + ss.score + '%"></div></div>' + sparkline + '</div></div></div>';
                 document.getElementById('parsedFields').innerHTML = ssHtml + document.getElementById('parsedFields').innerHTML;
                 document.getElementById('parsedFields').style.display = '';
             }

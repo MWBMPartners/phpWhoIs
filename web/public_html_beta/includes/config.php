@@ -67,4 +67,9 @@ $config = [
         // Leave 'screenshot_api_key' empty ('') for basic usage.
             'screenshot_enabled' => true,
             'screenshot_api_key' => '',
+
+    // ── Privacy & Compliance ──
+    // Mask personal contact info (email, phone, address) in displayed WHOIS results.
+    // Useful for GDPR-conscious deployments. Does not affect the raw WHOIS data.
+        'mask_whois_contacts' => false,
 ];

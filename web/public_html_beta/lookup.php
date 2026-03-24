@@ -99,9 +99,13 @@ if (!checkRateLimit() || !checkIpRateLimit()) {
     sendError('Rate limit exceeded. Please wait before trying again.', 429);
 }
 
-// Rate limit quota info (Issue #118)
+// Rate limit quota info (Issue #118) + HTTP headers (Issue #142)
 $rateLimitUsed = isset($_SESSION['rate_limit']['count']) ? $_SESSION['rate_limit']['count'] : 0;
 $rateLimitRemaining = max(0, $rateLimit - $rateLimitUsed);
+$rateLimitReset = isset($_SESSION['rate_limit']['start']) ? ($_SESSION['rate_limit']['start'] + RATE_LIMIT_WINDOW) : (time() + RATE_LIMIT_WINDOW);
+header('X-RateLimit-Limit: ' . $rateLimit);
+header('X-RateLimit-Remaining: ' . $rateLimitRemaining);
+header('X-RateLimit-Reset: ' . $rateLimitReset);
 
 // Update TLD data (IANA + second-level suffixes, throttled to once per day)
 updateTldDataIfNeeded();
@@ -465,6 +469,12 @@ if (!$isIpLookup && $domain) {
     ]);
 }
 
+// Domain verification token (Issue #136)
+$verificationToken = null;
+if (!$isIpLookup && $domain && session_id()) {
+    $verificationToken = generateVerificationToken($domain, session_id());
+}
+
 if ($jsonFormat) {
     header('Access-Control-Allow-Origin: *');
     header('Access-Control-Allow-Methods: POST');
@@ -516,6 +526,7 @@ if ($jsonFormat) {
         'dns_propagation' => $dnsPropagation,
         'multi_dnsbl' => $multiDnsbl,
         'security_score' => $securityScore,
+        'verification_token' => $verificationToken,
         'rate_limit' => ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit],
         'dnt' => $dnt,
     ];
@@ -527,6 +538,11 @@ if ($jsonFormat) {
     $whoisOutput = '';
     if ($whoisText) {
         $whoisOutput = $whoisText;
+        // WHOIS contact masking (Issue #137)
+        if (!empty($config['mask_whois_contacts'])) {
+            $whoisOutput = preg_replace('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', '[email redacted]', $whoisOutput);
+            $whoisOutput = preg_replace('/\+?[0-9][\d\s.()-]{7,}/', '[phone redacted]', $whoisOutput);
+        }
     }
 
     $response = [
@@ -575,6 +591,7 @@ if ($jsonFormat) {
         'dns_propagation' => $dnsPropagation,
         'multi_dnsbl' => $multiDnsbl,
         'security_score' => $securityScore,
+        'verification_token' => $verificationToken,
         'rate_limit' => ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit],
         'dnt' => $dnt,
     ];
