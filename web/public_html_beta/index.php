@@ -381,6 +381,8 @@ if ($_showPortfolioIcon): ?>
         ?>;
 
         // Build registration button(s) — single = direct link, multiple = dropdown
+        var fallbackIcon = '<i class="bi bi-box-arrow-up-right me-2" aria-hidden="true"></i>';
+
         function registrarFavicon(urlTemplate) {
             try {
                 var host = new URL(urlTemplate.replace('{domain}', 'example.com')).hostname;
@@ -389,10 +391,10 @@ if ($_showPortfolioIcon): ?>
         }
 
         function registrarIcon(r) {
-            if (browserDnt) return '<i class="bi bi-box-arrow-up-right me-2" aria-hidden="true"></i>';
+            if (browserDnt) return fallbackIcon;
             var src = registrarFavicon(r.url_template);
-            if (!src) return '<i class="bi bi-box-arrow-up-right me-2" aria-hidden="true"></i>';
-            return '<img src="' + esc(src) + '" width="16" height="16" alt="" class="me-2" style="vertical-align:text-bottom" onerror="this.replaceWith(Object.assign(document.createElement(\'i\'),{className:\'bi bi-box-arrow-up-right me-2\',ariaHidden:\'true\'}))">';
+            if (!src) return fallbackIcon;
+            return '<img src="' + src + '" width="16" height="16" alt="" class="me-2" style="vertical-align:text-bottom" onerror="this.style.display=\'none\'">';
         }
 
         function buildRegisterButtons(domain) {
@@ -407,7 +409,7 @@ if ($_showPortfolioIcon): ?>
             }
 
             // Multiple registrars — dropdown
-            var html = '<div class="btn-group">';
+            var html = '<div class="btn-group dropstart">';
             var first = REGISTRARS[0];
             var firstUrl = first.url_template.replace('{domain}', encodedDomain);
             var firstTarget = first.open_in_new_tab ? ' target="_blank" rel="noopener noreferrer"' : '';
