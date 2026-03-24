@@ -2358,6 +2358,7 @@ function checkDnsPropagation(string $domain): array {
         @unlink($tmpFiles[$i]);
         $ips = $output ? array_filter(array_map('trim', explode("\n", trim($output)))) : [];
         $results[] = [
+            'id' => $resolver['id'] ?? $i,
             'resolver' => $resolver['name'],
             'ip' => $resolver['ip'],
             'location' => $resolver['location'] ?? '',
