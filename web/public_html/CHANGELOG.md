@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [a201d44] - 2026-03-24T22:55:05Z
+
+**build: promote beta to live — sync public_html with public_html_beta**
+
+- Commit: [`a201d44`](https://github.com/MWBMPartners/phpWhoIs/commit/a201d44fad3f0eb2272ad5c250fe4c556b32e112)
+
+
 ## [39e068d] - 2026-03-24T22:30:26Z
 
 **feat: enable security and family DNS resolvers with improved icons**
