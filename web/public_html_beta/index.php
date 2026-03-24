@@ -122,7 +122,9 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <link rel="icon" type="image/gif" href="assets/images/favicon.gif">
     <link rel="apple-touch-icon" href="assets/images/favicon.png">
     <link rel="alternate" type="application/rss+xml" title="<?php echo htmlspecialchars($pageTitle); ?> — Domain Changes" href="feed">
+<?php if (empty($app["Application"]["Version"]["Development"]["Status"])): ?>
     <link rel="manifest" href="manifest.json">
+<?php endif; ?>
     <meta name="theme-color" content="#0d6efd">
     <script type="application/ld+json">
     {
@@ -1813,10 +1815,12 @@ if ($_showPortfolioIcon): ?>
         });
     });
 
-    // ── PWA Service Worker registration (Issue #25) ──
+    // ── PWA Service Worker registration — production only (Issue #25) ──
+    <?php if (empty($app["Application"]["Version"]["Development"]["Status"])): ?>
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js').catch(function () {});
     }
+    <?php endif; ?>
 
     // ── PWA install prompt — production only (Issue #170) ──
     <?php if (empty($app["Application"]["Version"]["Development"]["Status"])): ?>
