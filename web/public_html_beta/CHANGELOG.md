@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [5eb9f12] - 2026-03-24
+
+**refactor: modernise codebase for PHP 8.5 with 8.4 backward compat (#165)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`5eb9f12`](https://github.com/MWBMPartners/phpWhoIs/commit/5eb9f128e5660ed05e01100f92c0b7427915aefb)
+
+### Changed files
+
+- `health.php`
+- `includes/functions.php`
+- `includes/infoAppVer.php`
+
+
 ## [7a0fd4f] - 2026-03-24
 
 **feat: make domain suggestions on-demand via button click (#164)**
