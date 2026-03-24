@@ -4,9 +4,8 @@
  */
 
 if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
-    require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php';
+    require_once(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php');
 }
-header_remove('X-Powered-By');
 
 $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
     ? $app["Application"]["Name"]
@@ -22,6 +21,11 @@ $vendorName = isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Ap
 $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) && $app["Application"]["Vendor"]["Parent"]["Website"]["URL"]
     ? $app["Application"]["Vendor"]["Parent"]["Website"]["URL"]
     : '#';
+?>
+<?php
+    if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'pre-header.php')) {
+        require_once(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'pre-header.php');
+    }
 ?>
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">

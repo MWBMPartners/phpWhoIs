@@ -61,10 +61,10 @@ $config = [
             'phishtank_api_key' => '',
 
     // ── Website Screenshot ──
-    // Set 'screenshot_enabled' to true to show website preview thumbnails.
-    // Works without an API key (basic/free tier). Provide an API key to
-    // unlock higher resolution, rate limits, or premium features.
-    // Leave 'screenshot_api_key' empty ('') for basic usage.
-        'screenshot_enabled' => true,
-        'screenshot_api_key' => '',
+        // Set 'screenshot_enabled' to true to show website preview thumbnails.
+        // Works without an API key (basic/free tier). Provide an API key to
+        // unlock higher resolution, rate limits, or premium features.
+        // Leave 'screenshot_api_key' empty ('') for basic usage.
+            'screenshot_enabled' => true,
+            'screenshot_api_key' => '',
 ];
