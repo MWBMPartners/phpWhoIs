@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [1f2dfa9] - 2026-03-24
+
+**fix: PWA install banner dismiss button overlapping install button**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`1f2dfa9`](https://github.com/MWBMPartners/phpWhoIs/commit/1f2dfa9be046a63fc8342963e54dca78ffa68ece)
+
+### Changed files
+
+- `index.php`
+
+
 ## [08c715e] - 2026-03-24
 
 **fix: restrict PWA install prompt to production builds only**
