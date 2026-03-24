@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [cd58be2] - 2026-03-24T22:20:45Z
+
+**feat: replace theme dropdown with Settings panel (Issue #181)**
+
+- Commit: [`cd58be2`](https://github.com/MWBMPartners/phpWhoIs/commit/cd58be231dfaa5823b95e7523e09bce43b131996)
+
+
 ## [35413e7] - 2026-03-24T22:08:20Z
 
 **feat: add URL params to control UI visibility (hideSecScore, hideDomainSummary, Only)**
