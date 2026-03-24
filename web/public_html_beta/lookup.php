@@ -44,6 +44,24 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 
 
 
 // ═══════════════════════════════════════════════════════════════════
+//  On-demand domain suggestions endpoint (Issue #164)
+// ═══════════════════════════════════════════════════════════════════
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['suggest']) && $_GET['suggest'] === '1') {
+    $suggestDomain = isset($_POST['domain']) ? trim((string)$_POST['domain']) : '';
+    $suggestDomain = sanitizeDomainInput($suggestDomain);
+    if ($suggestDomain && isValidDomain($suggestDomain)) {
+        header('Content-Type: application/json');
+        echo json_encode(['suggestions' => suggestAlternativeDomains($suggestDomain)]);
+    } else {
+        header('Content-Type: application/json');
+        echo json_encode(['suggestions' => []]);
+    }
+    exit;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  Main request handler
 // ═══════════════════════════════════════════════════════════════════
 
@@ -453,10 +471,8 @@ if (!$dnt) {
 // Hosting country risk (Issue #105) — computed after geolocation
 $hostingRisk = assessHostingRisk($geolocation);
 
-// Domain suggestions (Issue #116) — only for registered/taken domains
-if (!$isIpLookup && $domain && $availability === 'registered') {
-    $domainSuggestions = suggestAlternativeDomains($domain);
-}
+// Domain suggestions (Issue #116/#164) — now on-demand only, triggered by separate request
+// Automatic suggestions removed to speed up main lookup response
 
 // Security score (Issue #128) — aggregated after all checks
 $securityScore = null;

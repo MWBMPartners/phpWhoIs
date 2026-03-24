@@ -1342,14 +1342,36 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 document.getElementById('subdomainsPane').innerHTML += riHtml;
             }
 
-            // Domain Suggestions (Issue #116)
-            if (data.domain_suggestions && data.domain_suggestions.length > 0) {
-                var sgHtml = '<div class="card mt-2"><div class="card-header"><strong><i class="bi bi-lightbulb me-1"></i>Available Alternatives</strong></div><div class="card-body"><div class="d-flex flex-wrap gap-2">';
-                data.domain_suggestions.forEach(function (d) {
-                    sgHtml += '<a href="?domain=' + encodeURIComponent(d) + '" class="btn btn-outline-success btn-sm">' + esc(d) + '</a>';
+            // Domain Suggestions — on-demand (Issue #164)
+            if (data.availability === 'registered' || data.availability === 'unknown') {
+                var sgBtnHtml = '<div class="mt-2" id="suggestContainer"><button class="btn btn-outline-primary btn-sm" id="suggestBtn"><i class="bi bi-lightbulb me-1"></i>Suggest Alternatives</button></div>';
+                document.getElementById('availabilityBadge').innerHTML += sgBtnHtml;
+                document.getElementById('suggestBtn').addEventListener('click', function () {
+                    var btn = this;
+                    btn.disabled = true;
+                    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Checking alternatives...';
+                    var fd = new FormData();
+                    fd.append('domain', currentDomain);
+                    fetch('lookup?suggest=1', { method: 'POST', body: fd })
+                        .then(function (r) { return r.json(); })
+                        .then(function (result) {
+                            var container = document.getElementById('suggestContainer');
+                            if (result.suggestions && result.suggestions.length > 0) {
+                                var html = '<div class="card mt-2"><div class="card-header"><strong><i class="bi bi-lightbulb me-1"></i>Available Alternatives</strong></div><div class="card-body"><div class="d-flex flex-wrap gap-2">';
+                                result.suggestions.forEach(function (d) {
+                                    html += '<a href="?domain=' + encodeURIComponent(d) + '" class="btn btn-outline-success btn-sm">' + esc(d) + '</a>';
+                                });
+                                html += '</div></div></div>';
+                                container.innerHTML = html;
+                            } else {
+                                container.innerHTML = '<div class="alert alert-info mt-2 small"><i class="bi bi-info-circle me-1"></i>No available alternatives found for common TLDs.</div>';
+                            }
+                        })
+                        .catch(function () {
+                            btn.disabled = false;
+                            btn.innerHTML = '<i class="bi bi-lightbulb me-1"></i>Suggest Alternatives';
+                        });
                 });
-                sgHtml += '</div></div></div>';
-                document.getElementById('availabilityBadge').innerHTML += sgHtml;
             }
 
             // Security Score (Issue #128)
