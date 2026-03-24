@@ -3,6 +3,27 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [c715e56] - 2026-03-24
+
+**fix: expand shorthand JS/PHP notation to full multiline, fix multiple UI bugs**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`c715e56`](https://github.com/MWBMPartners/phpWhoIs/commit/c715e5637f328a3c801ce959d892dc3f5928dc2d)
+
+### Changed files
+
+- `admin.php`
+- `feed-watchlist.php`
+- `feed.php`
+- `includes/footer.php`
+- `includes/functions.php`
+- `index.php`
+- `portfolio.php`
+- `privacy.php`
+- `terms.php`
+
+
 ## [4234935] - 2026-03-24
 
 **feat: enhance security score calculation and display details in UI**
