@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [0bcbe4a] - 2026-03-24T21:40:17Z
+
+**feat: add South African DNS resolvers for Africa coverage**
+
+- Commit: [`0bcbe4a`](https://github.com/MWBMPartners/phpWhoIs/commit/0bcbe4ab6b0860638f89fc23f14fe4a1e1be7ef4)
+
+
 ## [8838c4e] - 2026-03-24T21:38:15Z
 
 **feat: split DNS resolvers to own config file, add country flags and expand to 77 servers**
