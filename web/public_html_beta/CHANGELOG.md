@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [39e068d] - 2026-03-24T22:30:26Z
+
+**feat: enable security and family DNS resolvers with improved icons**
+
+- Commit: [`39e068d`](https://github.com/MWBMPartners/phpWhoIs/commit/39e068d3cd22b392d44a280aa1944a2f490e9822)
+
+
 ## [cd58be2] - 2026-03-24T22:20:45Z
 
 **feat: replace theme dropdown with Settings panel (Issue #181)**
