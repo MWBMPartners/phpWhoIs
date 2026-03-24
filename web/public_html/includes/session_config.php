@@ -4,6 +4,9 @@
  * Included by both index.php and lookup.php to ensure consistent session handling.
  */
 
+// Hide PHP from response headers
+header_remove('X-Powered-By');
+
 // Session hardening
 ini_set('session.use_strict_mode', 1);
 ini_set('session.use_only_cookies', 1);

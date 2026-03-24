@@ -1,21 +1,21 @@
 <?php
 	//Application
-		$app["Application"]["ID"] = "Ltd.MWBMPartners.Whois";
-		$app["Application"]["Name"] = "WHOIS Lookup";
+		$app["Application"]["ID"] = "Ltd.MWBMPartners.DomainCheckr";
+		$app["Application"]["Name"] = "DomainCheckr";
 		$app["Application"]["Website"]["URL"] = NULL;
-		$app["Application"]["Description"]["Synopsis"] = "Free domain WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.";
-		$app["Application"]["Description"]["Keywords"] = "Free domain WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.";
+		$app["Application"]["Description"]["Synopsis"] = "Free domain name checker and s WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.";
+		$app["Application"]["Description"]["Keywords"] = "Domain name, Domain name registration, Whois, RDAP, DNS Records, Domain availability, Registrar information, Expiry date, Name servers, Contact information, IP address lookup, Bulk domain lookup, Domain history, Domain ownership, Domain status, Free whois lookup, Online whois tool";
 
 		//Version
-			$app["Application"]["Version"]["Number"] = "1.17.2";
+			$app["Application"]["Version"]["Number"] = "1.48.0";
 			$app["Application"]["Version"]["Name"] = NULL;
 			
 			// Environment-based override (failsafe)
 			//If running from a non-beta directory, clear the dev status
-				if (strpos(__DIR__, 'public_html_dev') !== false){
+				if (str_contains(__DIR__, 'public_html_dev')){
 					$app["Application"]["Version"]["Development"]["Status"] = "Alpha";
 				}
-				elseif (strpos(__DIR__, 'public_html_beta') !== false){
+				elseif (str_contains(__DIR__, 'public_html_beta')){
 					$app["Application"]["Version"]["Development"]["Status"] = "Beta";
 				}
 				else{

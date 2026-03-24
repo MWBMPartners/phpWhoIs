@@ -2,21 +2,33 @@ openapi: 3.0.3
 info:
   title: mwWhoIs API
   description: |
-    Domain WHOIS/RDAP lookup API providing domain registration, availability,
-    DNS records, email security, SSL/TLS certificate, and IP geolocation data.
+    Comprehensive domain intelligence API providing WHOIS/RDAP lookups, DNS records,
+    SSL/TLS certificates, email security, security assessments, and much more.
 
     ## Authentication
     - **Web (default):** Requires a CSRF token from the session (`csrf_token` POST field).
-    - **JSON API (`?format=json`):** No CSRF required. CORS enabled (`Access-Control-Allow-Origin: *`).
+    - **JSON API (`?format=json`):** No CSRF required. CORS enabled.
+    - **API Key:** Send `X-API-Key` header for authenticated access with configurable rate limits.
 
     ## Rate Limiting
-    - **30 requests per 60-second window** per session and per IP address.
+    - **Default:** 30 requests per 60-second window per session and per IP address.
+    - **API Key users:** Configurable per-key limits (up to 300+/min for premium tiers).
+    - **Headers:** `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` included in all responses.
     - Exceeding the limit returns HTTP 429.
 
     ## Caching
     - Results are cached for **15 minutes** (900 seconds).
     - Cached responses include `"cached": true`.
-  version: "1.15"
+
+    ## Do Not Track (DNT)
+    - When `DNT: 1` header is sent, third-party lookups (geolocation, screenshots, Safe Browsing, VirusTotal, HIBP, AbuseIPDB, Shodan, PhishTank, cert transparency, reverse IP, tech stack, robots.txt) are skipped.
+    - Response includes `"dnt": true` and server sends `Tk: N`.
+
+    ## Security
+    - Content Security Policy (CSP) on all pages
+    - Subresource Integrity (SRI) on CDN assets
+    - WHOIS contact masking available for GDPR compliance
+  version: "1.24"
   contact:
     name: MWBM Partners Ltd
   license:
@@ -27,27 +39,31 @@ servers:
     description: Current server
 
 paths:
-  /lookup.php:
+  /lookup:
     post:
       operationId: domainLookup
-      summary: Perform a domain or IP lookup
+      summary: Perform a comprehensive domain or IP lookup
       description: |
-        Looks up WHOIS/RDAP data, DNS records, email security (SPF/DMARC/DKIM),
-        SSL/TLS certificate info, and IP geolocation for a domain or IP address.
+        Returns WHOIS/RDAP data, DNS records, SSL/TLS info, email security (SPF/DMARC/DKIM/MTA-STS/BIMI),
+        DNSSEC status, security assessments (Safe Browsing, VirusTotal, PhishTank, URLhaus, Spamhaus, AbuseIPDB),
+        HTTP security headers audit, TLS version audit, technology stack detection, and much more.
       parameters:
         - name: format
           in: query
-          description: Output format. Use `json` for raw JSON with CORS support and no CSRF requirement.
           schema:
             type: string
             enum: [json]
         - name: source
           in: query
-          description: Preferred data source. Overridden by POST `source` field if provided.
           schema:
             type: string
             enum: [rdap, whois]
             default: rdap
+        - name: X-API-Key
+          in: header
+          description: Optional API key for authenticated access with higher rate limits.
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -58,160 +74,74 @@ paths:
               properties:
                 domain:
                   type: string
-                  description: Domain name or IPv4/IPv6 address to look up. Max 253 characters.
-                  example: example.com
+                  description: Domain name or IP address to look up.
                   maxLength: 253
                 csrf_token:
                   type: string
-                  description: CSRF token from session. Required unless `?format=json`.
-                  pattern: "^[a-f0-9]{64}$"
-                source:
-                  type: string
-                  description: Preferred data source.
-                  enum: [rdap, whois]
-                  default: rdap
-          multipart/form-data:
-            schema:
-              type: object
-              required: [domain]
-              properties:
-                domain:
-                  type: string
-                  maxLength: 253
-                csrf_token:
-                  type: string
+                  description: CSRF token. Required unless using ?format=json or X-API-Key.
                 source:
                   type: string
                   enum: [rdap, whois]
       responses:
         "200":
           description: Successful lookup
+          headers:
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+              description: Maximum requests per window.
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+              description: Requests remaining in current window.
+            X-RateLimit-Reset:
+              schema:
+                type: integer
+              description: Unix timestamp when the rate limit resets.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/LookupResponse"
-              examples:
-                registered:
-                  summary: Registered domain
-                  value:
-                    domain: example.com
-                    is_ip: false
-                    availability: registered
-                    data_source: rdap
-                    whois: "Domain Name: EXAMPLE.COM\nRegistrar: Example Registrar..."
-                    cached: false
-                    parsed:
-                      Domain Name: EXAMPLE.COM
-                      Registrar: Example Registrar Inc.
-                      Creation Date: "1995-08-14"
-                      Expiry Date: "2025-08-13"
-                      Domain Age: "29 years, 7 months"
-                      Expires In: "142 days"
-                      Name Servers:
-                        - ns1.example.com
-                        - ns2.example.com
-                    dns:
-                      - type: A
-                        value: 93.184.216.34
-                      - type: MX
-                        value: mail.example.com
-                        priority: 10
-                    email_security:
-                      spf:
-                        found: true
-                        record: "v=spf1 -all"
-                        status: configured
-                      dmarc:
-                        found: true
-                        record: "v=DMARC1; p=reject"
-                        status: "strict (reject)"
-                      dkim:
-                        found: false
-                        status: "not found (checked common selectors)"
-                    ssl:
-                      subject: "*.example.com"
-                      issuer: DigiCert Inc
-                      valid_from: "2024-01-30T00:00:00Z"
-                      valid_to: "2025-03-01T23:59:59Z"
-                      serial: "0A1B2C3D4E5F"
-                      expires_in: "142 days"
-                      expired: false
-                      san:
-                        - "*.example.com"
-                        - example.com
-                    geolocation: null
-                available:
-                  summary: Available domain
-                  value:
-                    domain: not-registered-example123.com
-                    is_ip: false
-                    availability: available
-                    data_source: whois
-                    whois: "No match for \"NOT-REGISTERED-EXAMPLE123.COM\"."
-                    cached: false
-                    parsed: {}
-                    dns: []
-                    email_security:
-                      spf:
-                        found: false
-                        record: null
-                        status: missing
-                      dmarc:
-                        found: false
-                        record: null
-                        status: missing
-                      dkim:
-                        found: false
-                        status: unknown
-                    ssl: null
-                    geolocation: null
         "400":
           description: Invalid input
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-              example:
-                error: "Invalid domain name."
+        "401":
+          description: Invalid API key
         "403":
-          description: CSRF validation failed (non-JSON requests only)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                error: "Invalid request. Please refresh the page and try again."
+          description: CSRF validation failed
         "405":
-          description: Method not allowed (only POST is accepted)
+          description: Method not allowed (POST only)
         "413":
           description: Request body exceeds 1,024 bytes
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                error: "Request too large."
         "429":
-          description: Rate limit exceeded (30 requests per 60 seconds)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                error: "Rate limit exceeded. Please wait before trying again."
+          description: Rate limit exceeded
 
-  /health.php:
+  /health:
     get:
       operationId: healthCheck
       summary: Health check endpoint
-      description: Returns system health status including PHP, cURL, whois binary, sessions, cache, and TLD data.
       responses:
         "200":
-          description: Health check result
+          description: Health status
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
+
+  /feed:
+    get:
+      operationId: rssFeed
+      summary: RSS feed of watched domain changes
+      responses:
+        "200":
+          description: RSS 2.0 feed
+          content:
+            application/rss+xml:
+              schema:
+                type: string
 
 components:
   schemas:
@@ -220,172 +150,345 @@ components:
       properties:
         domain:
           type: string
-          description: Normalised domain name or IP address.
         is_ip:
           type: boolean
-          description: True if the input was an IP address.
         availability:
           type: string
           enum: [registered, available, unknown, "n/a"]
-          description: Domain availability status. "n/a" for IP lookups.
         data_source:
           type: string
           enum: [rdap, whois]
-          description: Data source used for the lookup.
         whois:
           type: string
-          description: Raw WHOIS/RDAP response text (HTML-escaped in default mode, raw in JSON mode).
+          description: WHOIS text (HTML-escaped in default mode).
         raw:
           type: string
-          description: Raw WHOIS response text (JSON mode only).
+          description: Raw WHOIS text (JSON mode only).
         cached:
           type: boolean
-          description: True if the result was served from cache.
+        dnt:
+          type: boolean
         parsed:
-          $ref: "#/components/schemas/ParsedFields"
+          type: object
+          description: Parsed WHOIS fields (Domain Name, Registrar, dates, Name Servers, etc.)
         dns:
           type: array
           items:
-            $ref: "#/components/schemas/DnsRecord"
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [A, AAAA, MX, NS, TXT, CNAME]
+              value:
+                type: string
+              priority:
+                type: integer
         reverse_dns:
           type: string
-          description: Reverse DNS hostname (IP lookups only).
+          nullable: true
+          description: PTR hostname (IP lookups only).
         email_security:
-          $ref: "#/components/schemas/EmailSecurity"
+          type: object
+          description: SPF, DMARC, DKIM check results.
+          properties:
+            spf:
+              type: object
+              properties:
+                found: { type: boolean }
+                record: { type: string, nullable: true }
+                status: { type: string }
+            dmarc:
+              type: object
+              properties:
+                found: { type: boolean }
+                record: { type: string, nullable: true }
+                status: { type: string }
+            dkim:
+              type: object
+              properties:
+                found: { type: boolean }
+                selector: { type: string }
+                status: { type: string }
         ssl:
-          $ref: "#/components/schemas/SslInfo"
+          type: object
+          nullable: true
+          description: SSL/TLS certificate information.
         geolocation:
-          $ref: "#/components/schemas/Geolocation"
-
-    ParsedFields:
-      type: object
-      description: Parsed WHOIS fields. Empty object if unavailable.
-      properties:
-        Domain Name:
+          type: object
+          nullable: true
+          description: IP geolocation (country, city, ISP, AS).
+        subdomains:
+          type: array
+          items:
+            type: object
+            properties:
+              subdomain: { type: string }
+              ip: { type: string }
+        registrar_reputation:
+          type: object
+          nullable: true
+        safe_browsing:
+          type: object
+          nullable: true
+          description: Google Safe Browsing check (requires API key).
+        virustotal:
+          type: object
+          nullable: true
+          description: VirusTotal domain reputation (requires API key).
+        screenshot_url:
           type: string
-        Registrar:
-          type: string
-        Creation Date:
-          type: string
-        Expiry Date:
-          type: string
-        Updated Date:
-          type: string
-        Registrant Org:
-          type: string
-        Registrant Country:
-          type: string
-        Status:
+          nullable: true
+        hibp:
+          type: array
+          nullable: true
+          description: Have I Been Pwned breach data (requires API key).
+        dnssec:
+          type: object
+          nullable: true
+          properties:
+            signed: { type: boolean }
+            ds_records: { type: integer }
+            status: { type: string }
+        cert_transparency:
+          type: object
+          nullable: true
+          description: Certificate Transparency log from crt.sh.
+          properties:
+            total: { type: integer }
+            recent:
+              type: array
+              items:
+                type: object
+        domain_age_risk:
+          type: object
+          nullable: true
+          properties:
+            risk: { type: string, enum: [low, low-medium, medium, high] }
+            days_old: { type: integer }
+            reason: { type: string }
+        abuseipdb:
+          type: object
+          nullable: true
+          description: AbuseIPDB reputation (requires API key).
+        shodan:
+          type: object
+          nullable: true
+          description: Shodan exposed services (requires API key).
+        phishtank:
+          type: object
+          nullable: true
+          description: PhishTank phishing check (requires API key).
+        urlhaus:
+          type: object
+          nullable: true
+          description: URLhaus malware URL check (free, no key).
+        spamhaus:
+          type: object
+          nullable: true
+          description: Spamhaus DNSBL check.
+        multi_dnsbl:
+          type: object
+          nullable: true
+          description: Multi-DNSBL check (8 blocklists).
+          properties:
+            ip: { type: string }
+            listed: { type: boolean }
+            total_checked: { type: integer }
+            lists:
+              type: array
+              items:
+                type: object
+                properties:
+                  zone: { type: string }
+                  label: { type: string }
+        mta_sts:
+          type: object
+          nullable: true
+          properties:
+            found: { type: boolean }
+            record: { type: string, nullable: true }
+            mode: { type: string, nullable: true }
+        bimi:
+          type: object
+          nullable: true
+          properties:
+            found: { type: boolean }
+            record: { type: string, nullable: true }
+            logo_url: { type: string, nullable: true }
+        dane_tlsa:
+          type: object
+          nullable: true
+          properties:
+            found: { type: boolean }
+            records: { type: array }
+        whois_privacy:
+          type: object
+          nullable: true
+          properties:
+            privacy_enabled: { type: boolean }
+            indicators: { type: array, items: { type: string } }
+        hosting_risk:
+          type: object
+          nullable: true
+          properties:
+            risk: { type: string, enum: [low, medium, high] }
+            country: { type: string }
+            country_code: { type: string }
+            reason: { type: string }
+        http_headers:
+          type: object
+          nullable: true
+          description: HTTP security headers audit with A-F grade.
+          properties:
+            grade: { type: string }
+            pass: { type: integer }
+            total: { type: integer }
+            headers:
+              type: array
+              items:
+                type: object
+                properties:
+                  header: { type: string }
+                  description: { type: string }
+                  present: { type: boolean }
+                  value: { type: string, nullable: true }
+        redirect_chain:
+          type: object
+          nullable: true
+          description: HTTP redirect chain analysis.
+          properties:
+            chain:
+              type: array
+              items:
+                type: object
+                properties:
+                  url: { type: string }
+                  status: { type: integer }
+            hops: { type: integer }
+            http_to_https: { type: boolean }
+            suspicious: { type: boolean }
+        tls_audit:
+          type: object
+          nullable: true
+          description: TLS version and cipher suite audit.
+          properties:
+            versions:
+              type: object
+              description: Map of TLS version to support boolean.
+            cipher: { type: string, nullable: true }
+            protocol: { type: string, nullable: true }
+            insecure: { type: boolean }
+        caa_records:
+          type: object
+          nullable: true
+          properties:
+            found: { type: boolean }
+            records:
+              type: array
+              items:
+                type: object
+                properties:
+                  flag: { type: integer }
+                  tag: { type: string }
+                  value: { type: string }
+        smtp_security:
+          type: object
+          nullable: true
+          properties:
+            mx_host: { type: string }
+            banner: { type: string, nullable: true }
+            starttls: { type: boolean }
+            reachable: { type: boolean }
+        reverse_ip:
+          type: object
+          nullable: true
+          description: Reverse IP lookup (shared hosting).
+          properties:
+            ip: { type: string }
+            count: { type: integer }
+            domains: { type: array, items: { type: string } }
+        http_versions:
+          type: object
+          nullable: true
+          properties:
+            http2: { type: boolean }
+            http3: { type: boolean }
+            protocol: { type: string, nullable: true }
+        ipv6:
+          type: object
+          nullable: true
+          properties:
+            has_aaaa: { type: boolean }
+            aaaa_records: { type: array, items: { type: string } }
+        response_times:
+          type: object
+          nullable: true
+          properties:
+            dns_ms: { type: integer, nullable: true }
+            ttfb_ms: { type: integer, nullable: true }
+            total_ms: { type: integer, nullable: true }
+        ns_diversity:
+          type: object
+          nullable: true
+          properties:
+            nameservers: { type: array }
+            unique_networks: { type: integer }
+            diverse: { type: boolean }
+            warning: { type: string, nullable: true }
+        domain_suggestions:
           type: array
           items:
             type: string
-        Name Servers:
+          description: Available alternative domains (registered domains only).
+        tech_stack:
           type: array
+          nullable: true
           items:
-            type: string
-        Domain Age:
+            type: object
+            properties:
+              category: { type: string }
+              name: { type: string }
+        robots_txt:
+          type: object
+          nullable: true
+          properties:
+            robots_found: { type: boolean }
+            sitemap_found: { type: boolean }
+            disallowed: { type: array, items: { type: string } }
+            sitemaps: { type: array, items: { type: string } }
+            crawl_delay: { type: integer, nullable: true }
+        dns_propagation:
+          type: object
+          nullable: true
+          properties:
+            resolvers:
+              type: array
+              items:
+                type: object
+                properties:
+                  resolver: { type: string }
+                  ip: { type: string }
+                  answers: { type: array, items: { type: string } }
+            consistent: { type: boolean }
+        security_score:
+          type: object
+          nullable: true
+          description: Aggregated security score (A-F grade, 12 checks).
+          properties:
+            grade: { type: string }
+            score: { type: integer }
+            passed: { type: integer }
+            total: { type: integer }
+        verification_token:
           type: string
-          description: "Human-readable age, e.g. '2 years, 3 months'."
-        Expires In:
-          type: string
-          description: "Days until expiry, e.g. '123 days'."
-
-    DnsRecord:
-      type: object
-      required: [type, value]
-      properties:
-        type:
-          type: string
-          enum: [A, AAAA, MX, NS, TXT, CNAME]
-        value:
-          type: string
-        priority:
-          type: integer
-          description: MX record priority (MX records only).
-
-    EmailSecurity:
-      type: object
-      description: Email security check results (domain lookups only).
-      properties:
-        spf:
+          nullable: true
+          description: DNS TXT verification token for domain ownership proof.
+        rate_limit:
           type: object
           properties:
-            found:
-              type: boolean
-            record:
-              type: string
-              nullable: true
-            status:
-              type: string
-              enum: [missing, configured]
-        dmarc:
-          type: object
-          properties:
-            found:
-              type: boolean
-            record:
-              type: string
-              nullable: true
-            status:
-              type: string
-              enum: [missing, configured, "strict (reject)", "moderate (quarantine)", "monitor only (none)"]
-        dkim:
-          type: object
-          properties:
-            found:
-              type: boolean
-            selector:
-              type: string
-            status:
-              type: string
-
-    SslInfo:
-      type: object
-      nullable: true
-      description: SSL/TLS certificate info. Null if unavailable.
-      properties:
-        subject:
-          type: string
-        issuer:
-          type: string
-        valid_from:
-          type: string
-          format: date-time
-        valid_to:
-          type: string
-          format: date-time
-        serial:
-          type: string
-        expires_in:
-          type: string
-          description: "Human-readable, e.g. '123 days'."
-        expired:
-          type: boolean
-        san:
-          type: array
-          items:
-            type: string
-
-    Geolocation:
-      type: object
-      nullable: true
-      description: IP geolocation info. Null if unavailable.
-      properties:
-        country:
-          type: string
-        country_code:
-          type: string
-          description: ISO 3166-1 alpha-2 code.
-        region:
-          type: string
-        city:
-          type: string
-        isp:
-          type: string
-        org:
-          type: string
-        as:
-          type: string
+            used: { type: integer }
+            remaining: { type: integer }
+            limit: { type: integer }
 
     ErrorResponse:
       type: object
@@ -410,59 +513,3 @@ components:
           format: date-time
         checks:
           type: object
-          properties:
-            php:
-              type: object
-              properties:
-                status:
-                  type: string
-                version:
-                  type: string
-            curl:
-              type: object
-              properties:
-                status:
-                  type: string
-                detail:
-                  type: string
-            whois:
-              type: object
-              properties:
-                status:
-                  type: string
-                detail:
-                  type: string
-            sessions:
-              type: object
-              properties:
-                status:
-                  type: string
-                detail:
-                  type: string
-            cache:
-              type: object
-              properties:
-                status:
-                  type: string
-                detail:
-                  type: string
-                cached_entries:
-                  type: integer
-            tld_data:
-              type: object
-              properties:
-                status:
-                  type: string
-                tlds_file:
-                  type: string
-                suffixes_file:
-                  type: string
-            error_log:
-              type: object
-              properties:
-                status:
-                  type: string
-                path:
-                  type: string
-                exists:
-                  type: boolean

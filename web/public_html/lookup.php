@@ -31,12 +31,34 @@ define('RATE_LIMIT_WINDOW', 60);
 define('MAX_DOMAIN_LENGTH', 253);
 define('MAX_POST_SIZE', 1024);
 
+// ─── Do Not Track (Issue #85) ───
+$dnt = (isset($_SERVER['HTTP_DNT']) && $_SERVER['HTTP_DNT'] === '1');
+header($dnt ? 'Tk: N' : 'Tk: ?');
+
 // ─── Load config & functions ───
 $config = [];
 if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php')) {
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php';
 }
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  On-demand domain suggestions endpoint (Issue #164)
+// ═══════════════════════════════════════════════════════════════════
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['suggest']) && $_GET['suggest'] === '1') {
+    $suggestDomain = isset($_POST['domain']) ? trim((string)$_POST['domain']) : '';
+    $suggestDomain = sanitizeDomainInput($suggestDomain);
+    if ($suggestDomain && isValidDomain($suggestDomain)) {
+        header('Content-Type: application/json');
+        echo json_encode(['suggestions' => suggestAlternativeDomains($suggestDomain)]);
+    } else {
+        header('Content-Type: application/json');
+        echo json_encode(['suggestions' => []]);
+    }
+    exit;
+}
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -95,6 +117,14 @@ if (!checkRateLimit() || !checkIpRateLimit()) {
     sendError('Rate limit exceeded. Please wait before trying again.', 429);
 }
 
+// Rate limit quota info (Issue #118) + HTTP headers (Issue #142)
+$rateLimitUsed = isset($_SESSION['rate_limit']['count']) ? $_SESSION['rate_limit']['count'] : 0;
+$rateLimitRemaining = max(0, $rateLimit - $rateLimitUsed);
+$rateLimitReset = isset($_SESSION['rate_limit']['start']) ? ($_SESSION['rate_limit']['start'] + RATE_LIMIT_WINDOW) : (time() + RATE_LIMIT_WINDOW);
+header('X-RateLimit-Limit: ' . $rateLimit);
+header('X-RateLimit-Remaining: ' . $rateLimitRemaining);
+header('X-RateLimit-Reset: ' . $rateLimitReset);
+
 // Update TLD data (IANA + second-level suffixes, throttled to once per day)
 updateTldDataIfNeeded();
 
@@ -102,6 +132,17 @@ updateTldDataIfNeeded();
 $rawDomainInput = '';
 if (isset($_POST['domain'])) {
     $rawDomainInput = trim((string)$_POST['domain']);
+}
+
+// DNS propagation-only refresh (lightweight, skips full lookup)
+if (!empty($_POST['dns_propagation_only'])) {
+    $domain = sanitizeDomainInput($rawDomainInput);
+    if (!$domain || !isValidDomain($domain)) {
+        sendError('Invalid domain name.');
+    }
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['dns_propagation' => checkDnsPropagation($domain)]);
+    exit;
 }
 
 // ─── Check if input is an IP address (Issue #45) ───
@@ -135,7 +176,7 @@ if ($isIpLookup) {
     $dataSource = 'whois';
 
     if ($fromCache) {
-        trackLookup('cache_hit', $domain);
+        if (!$dnt) trackLookup('cache_hit', $domain);
     }
 
     // Try RDAP first (unless source=whois or cached)
@@ -144,7 +185,7 @@ if ($isIpLookup) {
         if ($rdap) {
             $dataSource = 'rdap';
             $whoisText = formatRdapResponse($rdap);
-            trackLookup('rdap', $domain);
+            if (!$dnt) trackLookup('rdap', $domain);
         }
     }
 
@@ -152,7 +193,7 @@ if ($isIpLookup) {
     if (!$whoisText) {
         $whoisText = shell_exec("whois " . escapeshellarg($domain) . " 2>&1");
         $dataSource = 'whois';
-        trackLookup('whois', $domain);
+        if (!$dnt) trackLookup('whois', $domain);
     }
 
     // Cache result
@@ -192,28 +233,229 @@ if (!empty($parsed['Registrar'])) {
     $registrarReputation = checkRegistrarReputation($parsed['Registrar']);
 }
 
-// Google Safe Browsing (Issue #52) — only if API key configured
+// Google Safe Browsing (Issue #52) — only if API key configured; skip if DNT
 $safeBrowsing = null;
-if (!$isIpLookup && $domain && !empty($config['safe_browsing_api_key'])) {
+if (!$dnt && !$isIpLookup && $domain && !empty($config['safe_browsing_api_key'])) {
     $safeBrowsing = checkSafeBrowsing($domain, $config['safe_browsing_api_key']);
 }
 
-// VirusTotal (Issue #53) — only if API key configured
+// VirusTotal (Issue #53) — only if API key configured; skip if DNT
 $virusTotal = null;
-if (!$isIpLookup && $domain && !empty($config['virustotal_api_key'])) {
+if (!$dnt && !$isIpLookup && $domain && !empty($config['virustotal_api_key'])) {
     $virusTotal = checkVirusTotal($domain, $config['virustotal_api_key']);
 }
 
-// Have I Been Pwned (Issue #65) — only if API key configured
+// Have I Been Pwned (Issue #65) — only if API key configured; skip if DNT
 $hibp = null;
-if (!$isIpLookup && $domain && !empty($config['hibp_api_key'])) {
+if (!$dnt && !$isIpLookup && $domain && !empty($config['hibp_api_key'])) {
     $hibp = checkHibpDomain($domain, $config['hibp_api_key']);
 }
 
-// Screenshot URL (Issue #55) — generate if enabled
+// Screenshot URL (Issue #55) — generate if enabled; skip if DNT
 $screenshotUrl = null;
-if (!$isIpLookup && $domain && !empty($config['screenshot_enabled'])) {
-    $screenshotUrl = 'https://image.thum.io/get/width/600/' . urlencode('https://' . $domain);
+if (!$dnt && !$isIpLookup && $domain && !empty($config['screenshot_enabled'])) {
+    $screenshotBase = 'https://image.thum.io/get';
+    if (!empty($config['screenshot_api_key'])) {
+        $screenshotBase .= '/auth/' . urlencode($config['screenshot_api_key']);
+    }
+    $screenshotUrl = $screenshotBase . '/width/600/' . urlencode('https://' . $domain);
+}
+
+// DNSSEC check (Issue #93) — no API key needed
+$dnssec = null;
+if (!$isIpLookup && $domain) {
+    $dnssec = checkDnssec($domain);
+}
+
+// Certificate Transparency (Issue #94) — skip if DNT (third-party request)
+$certTransparency = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $certTransparency = checkCertTransparency($domain);
+}
+
+// Domain age risk scoring (Issue #95) — uses existing parsed data
+$domainAgeRisk = null;
+if (!$isIpLookup && !empty($parsed)) {
+    $domainAgeRisk = assessDomainAgeRisk($parsed);
+}
+
+// AbuseIPDB (Issue #96) — only if API key configured; skip if DNT
+$abuseIpDb = null;
+if (!$dnt && !empty($config['abuseipdb_api_key'])) {
+    $checkIp = $isIpLookup ? $domain : null;
+    if (!$checkIp && !empty($dns)) {
+        foreach ($dns as $rec) {
+            if ($rec['type'] === 'A' && !empty($rec['value'])) { $checkIp = $rec['value']; break; }
+        }
+    }
+    if ($checkIp) {
+        $abuseIpDb = checkAbuseIPDB($checkIp, $config['abuseipdb_api_key']);
+    }
+}
+
+// Shodan (Issue #97) — only if API key configured; skip if DNT
+$shodan = null;
+if (!$dnt && !empty($config['shodan_api_key'])) {
+    $checkIp = $isIpLookup ? $domain : null;
+    if (!$checkIp && !empty($dns)) {
+        foreach ($dns as $rec) {
+            if ($rec['type'] === 'A' && !empty($rec['value'])) { $checkIp = $rec['value']; break; }
+        }
+    }
+    if ($checkIp) {
+        $shodan = checkShodan($checkIp, $config['shodan_api_key']);
+    }
+}
+
+// PhishTank (Issue #98) — only if API key configured; skip if DNT
+$phishTank = null;
+if (!$dnt && !$isIpLookup && $domain && !empty($config['phishtank_api_key'])) {
+    $phishTank = checkPhishTank($domain, $config['phishtank_api_key']);
+}
+
+// URLhaus (Issue #99) — free, no API key; skip if DNT
+$urlhaus = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $urlhaus = checkUrlhaus($domain);
+}
+
+// Spamhaus DNSBL (Issue #100) — no API key needed
+$spamhaus = null;
+if (!$isIpLookup && !empty($dns)) {
+    foreach ($dns as $rec) {
+        if ($rec['type'] === 'A' && !empty($rec['value'])) {
+            $spamhaus = checkSpamhaus($rec['value']);
+            break;
+        }
+    }
+} elseif ($isIpLookup) {
+    $spamhaus = checkSpamhaus($domain);
+}
+
+// MTA-STS (Issue #101) — no API key needed
+$mtaSts = null;
+if (!$isIpLookup && $domain) {
+    $mtaSts = checkMtaSts($domain);
+}
+
+// BIMI (Issue #102) — no API key needed
+$bimi = null;
+if (!$isIpLookup && $domain) {
+    $bimi = checkBimi($domain);
+}
+
+// DANE/TLSA (Issue #103) — no API key needed
+$daneTlsa = null;
+if (!$isIpLookup && $domain) {
+    $daneTlsa = checkDaneTlsa($domain);
+}
+
+// WHOIS privacy detection (Issue #104) — uses existing data
+$whoisPrivacy = null;
+if (!$isIpLookup && $whoisText) {
+    $whoisPrivacy = detectWhoisPrivacy($whoisText, $parsed);
+}
+
+// Hosting country risk (Issue #105) — uses existing geolocation data
+$hostingRisk = null;
+
+// HTTP security headers audit (Issue #106) — skip if DNT
+$httpHeaders = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $httpHeaders = auditHttpHeaders($domain);
+}
+
+// Redirect chain (Issue #107) — skip if DNT
+$redirectChain = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $redirectChain = detectRedirectChain($domain);
+}
+
+// TLS audit (Issue #108) — skip if DNT
+$tlsAudit = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $tlsAudit = auditTlsVersions($domain);
+}
+
+// CAA records (Issue #109) — no API key needed
+$caaRecords = null;
+if (!$isIpLookup && $domain) {
+    $caaRecords = checkCaaRecords($domain);
+}
+
+// SMTP security (Issue #110) — no API key needed
+$smtpSecurity = null;
+if (!$isIpLookup && $domain) {
+    $smtpSecurity = checkSmtpSecurity($domain);
+}
+
+// Reverse IP (Issue #111) — skip if DNT (third-party API)
+$reverseIp = null;
+if (!$dnt && !empty($dns)) {
+    foreach ($dns as $rec) {
+        if ($rec['type'] === 'A' && !empty($rec['value'])) {
+            $reverseIp = reverseIpLookup($rec['value']);
+            break;
+        }
+    }
+}
+
+// HTTP version check (Issue #112) — skip if DNT
+$httpVersions = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $httpVersions = checkHttpVersions($domain);
+}
+
+// IPv6 readiness (Issue #113) — no API key needed
+$ipv6 = null;
+if (!$isIpLookup && $domain) {
+    $ipv6 = checkIpv6Readiness($domain);
+}
+
+// Response times (Issue #114) — skip if DNT
+$responseTimes = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $responseTimes = measureResponseTimes($domain);
+}
+
+// NS diversity (Issue #115) — no API key needed
+$nsDiversity = null;
+if (!$isIpLookup && $domain) {
+    $nsDiversity = checkNsDiversity($domain);
+}
+
+// Domain suggestions (Issue #116) — only for registered/unavailable domains
+$domainSuggestions = [];
+
+// Technology stack detection (Issue #124) — skip if DNT
+$techStack = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $techStack = detectTechStack($domain);
+}
+
+// Robots.txt & sitemap analysis (Issue #125) — skip if DNT
+$robotsTxt = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $robotsTxt = analyseRobotsTxt($domain);
+}
+
+// DNS propagation (Issue #126)
+$dnsPropagation = null;
+if (!$isIpLookup && $domain) {
+    $dnsPropagation = checkDnsPropagation($domain);
+}
+
+// Multi-DNSBL (Issue #133) — replaces single Spamhaus check
+$multiDnsbl = null;
+if (!empty($dns)) {
+    foreach ($dns as $rec) {
+        if ($rec['type'] === 'A' && !empty($rec['value'])) {
+            $multiDnsbl = checkMultiDnsbl($rec['value']);
+            break;
+        }
+    }
+} elseif ($isIpLookup) {
+    $multiDnsbl = checkMultiDnsbl($domain);
 }
 
 // Subdomain discovery (Issue #46) — only for domain lookups
@@ -222,17 +464,42 @@ if (!$isIpLookup && $domain) {
     $subdomains = discoverSubdomains($domain);
 }
 
-// IP geolocation (Issue #18) — for first A record, or for IP lookups
+// IP geolocation (Issue #18) — for first A record, or for IP lookups; skip if DNT
 $geolocation = null;
-if ($isIpLookup) {
-    $geolocation = getIpGeolocation($domain);
-} elseif (!empty($dns)) {
-    foreach ($dns as $record) {
-        if ($record['type'] === 'A' && !empty($record['value'])) {
-            $geolocation = getIpGeolocation($record['value']);
-            break;
+if (!$dnt) {
+    if ($isIpLookup) {
+        $geolocation = getIpGeolocation($domain);
+    } elseif (!empty($dns)) {
+        foreach ($dns as $record) {
+            if ($record['type'] === 'A' && !empty($record['value'])) {
+                $geolocation = getIpGeolocation($record['value']);
+                break;
+            }
         }
     }
+}
+
+// Hosting country risk (Issue #105) — computed after geolocation
+$hostingRisk = assessHostingRisk($geolocation);
+
+// Domain suggestions (Issue #116/#164) — now on-demand only, triggered by separate request
+// Automatic suggestions removed to speed up main lookup response
+
+// Security score (Issue #128) — aggregated after all checks
+$securityScore = null;
+if (!$isIpLookup && $domain) {
+    $securityScore = calculateSecurityScore([
+        'ssl' => $sslInfo, 'http_headers' => $httpHeaders, 'dnssec' => $dnssec,
+        'email_security' => $emailSecurity, 'mta_sts' => $mtaSts,
+        'tls_audit' => $tlsAudit, 'spamhaus' => $spamhaus,
+        'caa_records' => $caaRecords, 'urlhaus' => $urlhaus,
+    ]);
+}
+
+// Domain verification token (Issue #136)
+$verificationToken = null;
+if (!$isIpLookup && $domain && session_id()) {
+    $verificationToken = generateVerificationToken($domain, session_id());
 }
 
 if ($jsonFormat) {
@@ -257,6 +524,38 @@ if ($jsonFormat) {
         'virustotal' => $virusTotal,
         'screenshot_url' => $screenshotUrl,
         'hibp' => $hibp,
+        'dnssec' => $dnssec,
+        'cert_transparency' => $certTransparency,
+        'domain_age_risk' => $domainAgeRisk,
+        'abuseipdb' => $abuseIpDb,
+        'shodan' => $shodan,
+        'phishtank' => $phishTank,
+        'urlhaus' => $urlhaus,
+        'spamhaus' => $spamhaus,
+        'mta_sts' => $mtaSts,
+        'bimi' => $bimi,
+        'dane_tlsa' => $daneTlsa,
+        'whois_privacy' => $whoisPrivacy,
+        'hosting_risk' => $hostingRisk,
+        'http_headers' => $httpHeaders,
+        'redirect_chain' => $redirectChain,
+        'tls_audit' => $tlsAudit,
+        'caa_records' => $caaRecords,
+        'smtp_security' => $smtpSecurity,
+        'reverse_ip' => $reverseIp,
+        'http_versions' => $httpVersions,
+        'ipv6' => $ipv6,
+        'response_times' => $responseTimes,
+        'ns_diversity' => $nsDiversity,
+        'domain_suggestions' => $domainSuggestions,
+        'tech_stack' => $techStack,
+        'robots_txt' => $robotsTxt,
+        'dns_propagation' => $dnsPropagation,
+        'multi_dnsbl' => $multiDnsbl,
+        'security_score' => $securityScore,
+        'verification_token' => $verificationToken,
+        'rate_limit' => ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit],
+        'dnt' => $dnt,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;
@@ -266,6 +565,11 @@ if ($jsonFormat) {
     $whoisOutput = '';
     if ($whoisText) {
         $whoisOutput = $whoisText;
+        // WHOIS contact masking (Issue #137)
+        if (!empty($config['mask_whois_contacts'])) {
+            $whoisOutput = preg_replace('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', '[email redacted]', $whoisOutput);
+            $whoisOutput = preg_replace('/\+?[0-9][\d\s.()-]{7,}/', '[phone redacted]', $whoisOutput);
+        }
     }
 
     $response = [
@@ -285,6 +589,38 @@ if ($jsonFormat) {
         'virustotal' => $virusTotal,
         'screenshot_url' => $screenshotUrl,
         'hibp' => $hibp,
+        'dnssec' => $dnssec,
+        'cert_transparency' => $certTransparency,
+        'domain_age_risk' => $domainAgeRisk,
+        'abuseipdb' => $abuseIpDb,
+        'shodan' => $shodan,
+        'phishtank' => $phishTank,
+        'urlhaus' => $urlhaus,
+        'spamhaus' => $spamhaus,
+        'mta_sts' => $mtaSts,
+        'bimi' => $bimi,
+        'dane_tlsa' => $daneTlsa,
+        'whois_privacy' => $whoisPrivacy,
+        'hosting_risk' => $hostingRisk,
+        'http_headers' => $httpHeaders,
+        'redirect_chain' => $redirectChain,
+        'tls_audit' => $tlsAudit,
+        'caa_records' => $caaRecords,
+        'smtp_security' => $smtpSecurity,
+        'reverse_ip' => $reverseIp,
+        'http_versions' => $httpVersions,
+        'ipv6' => $ipv6,
+        'response_times' => $responseTimes,
+        'ns_diversity' => $nsDiversity,
+        'domain_suggestions' => $domainSuggestions,
+        'tech_stack' => $techStack,
+        'robots_txt' => $robotsTxt,
+        'dns_propagation' => $dnsPropagation,
+        'multi_dnsbl' => $multiDnsbl,
+        'security_score' => $securityScore,
+        'verification_token' => $verificationToken,
+        'rate_limit' => ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit],
+        'dnt' => $dnt,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;
