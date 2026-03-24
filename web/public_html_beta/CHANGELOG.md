@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [2af4648] - 2026-03-24
+
+**feat: conditionally display Portfolio link in footer and history bar (#171)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`2af4648`](https://github.com/MWBMPartners/phpWhoIs/commit/2af46480f79644953e038a27625eb3db5688bf3e)
+
+### Changed files
+
+- `includes/config.php`
+- `includes/footer.php`
+- `index.php`
+
+
 ## [1f2dfa9] - 2026-03-24
 
 **fix: PWA install banner dismiss button overlapping install button**
