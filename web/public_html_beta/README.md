@@ -33,7 +33,12 @@ PHP-based domain WHOIS/RDAP lookup tool with DNS records, availability detection
 - Domain age risk scoring
 - WHOIS privacy detection
 - Hosting country risk assessment
-- Spamhaus, URLhaus, PhishTank, AbuseIPDB, Shodan, VirusTotal, Safe Browsing integration
+- Multi-DNSBL check (Spamhaus, Barracuda, SpamCop, SORBS, UCEPROTECT, CBL, SpamRATS, Mailspike)
+- URLhaus, PhishTank, AbuseIPDB, Shodan, VirusTotal, Safe Browsing integration
+- Technology stack detection (CMS, frameworks, CDNs, analytics)
+- Robots.txt and sitemap.xml analysis
+- DNS propagation checker (Google, Cloudflare, OpenDNS, Quad9)
+- Aggregated security score (A-F grade, 12-check matrix)
 - Bulk domain lookup with progress indicator and file import
 - Domain comparison (side-by-side)
 - Domain name suggestions for unavailable domains
@@ -41,7 +46,8 @@ PHP-based domain WHOIS/RDAP lookup tool with DNS records, availability detection
 - Export results as JSON/CSV/PDF
 - Share lookup results via URL
 - Lookup history & change timeline (localStorage)
-- Domain expiry watch list with notifications
+- Domain expiry watch list with notifications and ICS calendar export
+- RSS feed for watched domain changes
 - Copy to clipboard / download as .txt
 - Dark mode, light mode, colourblind-safe theme
 - Multi-language support (English, Spanish, French, German)
