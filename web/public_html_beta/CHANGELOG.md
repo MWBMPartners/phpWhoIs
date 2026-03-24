@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [2906c0f] - 2026-03-24
+
+**chore: remove unnecessary closing bracket in config.php**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`2906c0f`](https://github.com/MWBMPartners/phpWhoIs/commit/2906c0f18376a9eebea9384b89ea0e069a3d23fc)
+
+### Changed files
+
+- `includes/config.php`
+
+
 ## [bd134ab] - 2026-03-24
 
 **feat: enhance content security policy and add DNT handling for registrar icons**
