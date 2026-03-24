@@ -606,14 +606,43 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 var diff = (exp - new Date()) / (1000 * 60 * 60 * 24);
                 return diff > 0 && diff <= 30;
             });
+            // Check for expired/dropped domains that may now be available (Issue #129)
+            var expired = list.filter(function (w) {
+                if (!w.expiry) return false;
+                return new Date(w.expiry) < new Date();
+            });
+            if (expired.length > 0) {
+                var expBanner = document.createElement('div');
+                expBanner.className = 'alert alert-success alert-dismissible fade show m-2';
+                expBanner.setAttribute('role', 'alert');
+                expBanner.innerHTML = '<i class="bi bi-star-fill me-2"></i><strong>' + expired.length + ' watched domain(s) may have expired and could be available:</strong> ' +
+                    expired.map(function (w) { return '<a href="?domain=' + encodeURIComponent(w.domain) + '">' + esc(w.domain) + '</a>'; }).join(', ') +
+                    '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+                document.body.insertBefore(expBanner, document.body.firstChild);
+            }
             if (warnings.length > 0) {
                 var banner = document.createElement('div');
                 banner.className = 'alert alert-warning alert-dismissible fade show m-2';
                 banner.setAttribute('role', 'alert');
                 banner.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-2"></i><strong>' + warnings.length + ' watched domain(s) expiring within 30 days:</strong> ' +
                     warnings.map(function (w) { return '<a href="?domain=' + encodeURIComponent(w.domain) + '">' + esc(w.domain) + '</a>'; }).join(', ') +
+                    ' <button class="btn btn-sm btn-outline-warning ms-2" id="exportIcsBtn"><i class="bi bi-calendar-event me-1"></i>Export to Calendar</button>' +
                     '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
                 document.body.insertBefore(banner, document.body.firstChild);
+                document.getElementById('exportIcsBtn').addEventListener('click', function () {
+                    var ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//mwWhoIs//EN\r\n';
+                    warnings.forEach(function (w) {
+                        var exp = new Date(w.expiry);
+                        var dtStr = exp.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+                        ics += 'BEGIN:VEVENT\r\nDTSTART:' + dtStr + '\r\nDTEND:' + dtStr + '\r\nSUMMARY:Domain expiry: ' + w.domain + '\r\nDESCRIPTION:The domain ' + w.domain + ' expires on ' + exp.toLocaleDateString() + '\r\nEND:VEVENT\r\n';
+                    });
+                    ics += 'END:VCALENDAR';
+                    var a = document.createElement('a');
+                    a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
+                    a.download = 'domain-expiry.ics';
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                });
             }
         })();
 
@@ -1308,6 +1337,64 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 });
                 sgHtml += '</div></div></div>';
                 document.getElementById('availabilityBadge').innerHTML += sgHtml;
+            }
+
+            // Security Score (Issue #128)
+            if (data.security_score) {
+                var ss = data.security_score;
+                var ssColor = ss.grade <= 'B' ? 'success' : (ss.grade <= 'D' ? 'warning' : 'danger');
+                var ssHtml = '<div class="card mb-3"><div class="card-body d-flex align-items-center gap-3">' +
+                    '<div class="text-center" style="min-width:60px"><span class="display-5 fw-bold text-' + ssColor + '">' + ss.grade + '</span><br><small class="text-muted">' + ss.score + '%</small></div>' +
+                    '<div><strong>Security Score</strong><br><small class="text-muted">' + ss.passed + ' of ' + ss.total + ' checks passed</small>' +
+                    '<div class="progress mt-1" style="height:6px;width:200px"><div class="progress-bar bg-' + ssColor + '" style="width:' + ss.score + '%"></div></div></div></div></div>';
+                document.getElementById('parsedFields').innerHTML = ssHtml + document.getElementById('parsedFields').innerHTML;
+                document.getElementById('parsedFields').style.display = '';
+            }
+
+            // Tech Stack (Issue #124)
+            if (data.tech_stack && data.tech_stack.length > 0) {
+                var tsHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-stack me-1"></i>Technology Stack</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+                data.tech_stack.forEach(function (t) {
+                    tsHtml += '<tr><td class="fw-bold">' + esc(t.category) + '</td><td>' + esc(t.name) + '</td></tr>';
+                });
+                tsHtml += '</table></div></div>';
+                document.getElementById('subdomainsPane').innerHTML += tsHtml;
+            }
+
+            // Robots.txt (Issue #125)
+            if (data.robots_txt) {
+                var rb = data.robots_txt;
+                var rbHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-robot me-1"></i>Robots.txt & Sitemap</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+                rbHtml += '<tr><td class="fw-bold">robots.txt</td><td>' + (rb.robots_found ? '<i class="bi bi-check-circle text-success"></i> Found' : '<i class="bi bi-x-circle text-muted"></i> Not found') + '</td></tr>';
+                rbHtml += '<tr><td class="fw-bold">sitemap.xml</td><td>' + (rb.sitemap_found ? '<i class="bi bi-check-circle text-success"></i> Found' : '<i class="bi bi-x-circle text-muted"></i> Not found') + '</td></tr>';
+                if (rb.disallowed.length) rbHtml += '<tr><td class="fw-bold">Disallowed paths</td><td><code class="small">' + rb.disallowed.slice(0, 10).map(esc).join('</code>, <code class="small">') + '</code>' + (rb.disallowed.length > 10 ? ' ...' : '') + '</td></tr>';
+                if (rb.crawl_delay) rbHtml += '<tr><td class="fw-bold">Crawl delay</td><td>' + rb.crawl_delay + 's</td></tr>';
+                rbHtml += '</table></div></div>';
+                document.getElementById('subdomainsPane').innerHTML += rbHtml;
+            }
+
+            // DNS Propagation (Issue #126)
+            if (data.dns_propagation) {
+                var dp = data.dns_propagation;
+                var dpHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-globe me-1"></i>DNS Propagation</strong>' + (dp.consistent ? ' <span class="badge bg-success">Consistent</span>' : ' <span class="badge bg-warning">Inconsistent</span>') + '</div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Resolver</th><th>IP</th><th>Answer</th></tr></thead><tbody>';
+                dp.resolvers.forEach(function (r) {
+                    dpHtml += '<tr><td class="fw-bold">' + esc(r.resolver) + '</td><td><code>' + esc(r.ip) + '</code></td><td>' + (r.answers.length ? r.answers.map(esc).join(', ') : '<span class="text-muted">No answer</span>') + '</td></tr>';
+                });
+                dpHtml += '</tbody></table></div></div>';
+                document.getElementById('dnsResultPane').innerHTML += dpHtml;
+            }
+
+            // Multi-DNSBL (Issue #133)
+            if (data.multi_dnsbl) {
+                var db = data.multi_dnsbl;
+                var dbHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-exclamation me-1"></i>Blocklist Check</strong> <span class="badge ' + (db.listed ? 'bg-danger' : 'bg-success') + '">' + (db.listed ? db.lists.length + ' listed' : 'Clean') + '</span> <small class="text-muted">(' + db.total_checked + ' lists checked)</small></div>';
+                if (db.listed) {
+                    dbHtml += '<div class="card-body"><table class="table table-sm mb-0 table-danger">';
+                    db.lists.forEach(function (l) { dbHtml += '<tr><td>' + esc(l.label) + '</td><td><code class="small">' + esc(l.zone) + '</code></td></tr>'; });
+                    dbHtml += '</table></div>';
+                }
+                dbHtml += '</div>';
+                document.getElementById('emailSecurityPane').innerHTML += dbHtml;
             }
 
             // Subdomains (Issue #46)

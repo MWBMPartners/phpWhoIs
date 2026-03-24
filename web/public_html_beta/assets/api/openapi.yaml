@@ -20,7 +20,7 @@ info:
     ## Do Not Track (DNT)
     - When the `DNT: 1` header is sent, optional third-party lookups (geolocation, screenshots, Safe Browsing, VirusTotal, HIBP) are skipped and usage statistics are not recorded.
     - The response includes `"dnt": true` and the server responds with `Tk: N`.
-  version: "1.17"
+  version: "1.22"
   contact:
     name: MWBM Partners Ltd
   license:

@@ -2097,3 +2097,222 @@ function suggestAlternativeDomains(string $domain): array {
 
     return $suggestions;
 }
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Technology stack detection (Issue #124)
+// ═══════════════════════════════════════════════════════════════════
+
+function detectTechStack(string $domain): ?array {
+    $ctx = stream_context_create(['http' => ['timeout' => 5, 'method' => 'GET', 'header' => "User-Agent: mwWhoIs\r\n", 'follow_location' => 1, 'max_redirects' => 3], 'ssl' => ['verify_peer' => false]]);
+    $html = @file_get_contents('https://' . $domain, false, $ctx);
+    $headers = [];
+    if (isset($http_response_header)) {
+        foreach ($http_response_header as $h) {
+            $parts = explode(':', $h, 2);
+            if (count($parts) === 2) $headers[strtolower(trim($parts[0]))] = trim($parts[1]);
+        }
+    }
+
+    $techs = [];
+
+    // Server
+    if (!empty($headers['server'])) $techs[] = ['category' => 'Server', 'name' => $headers['server']];
+    if (!empty($headers['x-powered-by'])) $techs[] = ['category' => 'Framework', 'name' => $headers['x-powered-by']];
+
+    if ($html) {
+        // CMS detection
+        if (stripos($html, 'wp-content') !== false || stripos($html, 'wordpress') !== false) $techs[] = ['category' => 'CMS', 'name' => 'WordPress'];
+        elseif (stripos($html, 'Joomla') !== false) $techs[] = ['category' => 'CMS', 'name' => 'Joomla'];
+        elseif (stripos($html, 'Drupal') !== false) $techs[] = ['category' => 'CMS', 'name' => 'Drupal'];
+        elseif (stripos($html, 'shopify') !== false) $techs[] = ['category' => 'CMS', 'name' => 'Shopify'];
+        elseif (stripos($html, 'squarespace') !== false) $techs[] = ['category' => 'CMS', 'name' => 'Squarespace'];
+        elseif (stripos($html, 'wix.com') !== false) $techs[] = ['category' => 'CMS', 'name' => 'Wix'];
+
+        // JS frameworks
+        if (stripos($html, 'react') !== false || stripos($html, '__NEXT_DATA__') !== false) $techs[] = ['category' => 'JS Framework', 'name' => 'React'];
+        if (stripos($html, 'vue') !== false && stripos($html, 'data-v-') !== false) $techs[] = ['category' => 'JS Framework', 'name' => 'Vue.js'];
+        if (stripos($html, 'angular') !== false || stripos($html, 'ng-') !== false) $techs[] = ['category' => 'JS Framework', 'name' => 'Angular'];
+
+        // CDN
+        if (stripos($html, 'cloudflare') !== false || !empty($headers['cf-ray'])) $techs[] = ['category' => 'CDN', 'name' => 'Cloudflare'];
+        if (stripos($html, 'cdn.jsdelivr.net') !== false) $techs[] = ['category' => 'CDN', 'name' => 'jsDelivr'];
+        if (stripos($html, 'cloudfront') !== false) $techs[] = ['category' => 'CDN', 'name' => 'CloudFront'];
+        if (stripos($html, 'akamai') !== false) $techs[] = ['category' => 'CDN', 'name' => 'Akamai'];
+
+        // Analytics
+        if (stripos($html, 'google-analytics') !== false || stripos($html, 'gtag') !== false || stripos($html, 'GA-') !== false) $techs[] = ['category' => 'Analytics', 'name' => 'Google Analytics'];
+        if (stripos($html, 'matomo') !== false || stripos($html, 'piwik') !== false) $techs[] = ['category' => 'Analytics', 'name' => 'Matomo'];
+
+        // Meta generator
+        if (preg_match('/<meta[^>]+name=["\']generator["\'][^>]+content=["\']([^"\']+)/i', $html, $m)) {
+            $techs[] = ['category' => 'Generator', 'name' => $m[1]];
+        }
+    }
+
+    return count($techs) > 0 ? $techs : null;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Robots.txt & sitemap.xml analysis (Issue #125)
+// ═══════════════════════════════════════════════════════════════════
+
+function analyseRobotsTxt(string $domain): ?array {
+    $result = ['robots_found' => false, 'sitemap_found' => false, 'disallowed' => [], 'sitemaps' => [], 'crawl_delay' => null];
+    $ctx = stream_context_create(['http' => ['timeout' => 5, 'header' => "User-Agent: mwWhoIs\r\n"], 'ssl' => ['verify_peer' => false]]);
+
+    $robots = @file_get_contents('https://' . $domain . '/robots.txt', false, $ctx);
+    if ($robots && stripos($robots, '<html') === false) {
+        $result['robots_found'] = true;
+        foreach (explode("\n", $robots) as $line) {
+            $line = trim($line);
+            if (stripos($line, 'Disallow:') === 0) {
+                $path = trim(substr($line, 9));
+                if ($path) $result['disallowed'][] = $path;
+            } elseif (stripos($line, 'Sitemap:') === 0) {
+                $result['sitemaps'][] = trim(substr($line, 8));
+            } elseif (stripos($line, 'Crawl-delay:') === 0) {
+                $result['crawl_delay'] = (int)trim(substr($line, 12));
+            }
+        }
+        $result['disallowed'] = array_slice(array_unique($result['disallowed']), 0, 20);
+    }
+
+    // Check sitemap.xml
+    $sitemapHeaders = @get_headers('https://' . $domain . '/sitemap.xml', true, $ctx);
+    if ($sitemapHeaders && isset($sitemapHeaders[0]) && strpos($sitemapHeaders[0], '200') !== false) {
+        $result['sitemap_found'] = true;
+        if (!in_array('https://' . $domain . '/sitemap.xml', $result['sitemaps'])) {
+            $result['sitemaps'][] = 'https://' . $domain . '/sitemap.xml';
+        }
+    }
+
+    return ($result['robots_found'] || $result['sitemap_found']) ? $result : null;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  DNS propagation checker (Issue #126)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkDnsPropagation(string $domain): array {
+    $resolvers = [
+        'Google' => '8.8.8.8',
+        'Cloudflare' => '1.1.1.1',
+        'OpenDNS' => '208.67.222.222',
+        'Quad9' => '9.9.9.9',
+    ];
+
+    $results = [];
+    foreach ($resolvers as $name => $ip) {
+        $output = @shell_exec('dig @' . escapeshellarg($ip) . ' +short A ' . escapeshellarg($domain) . ' 2>/dev/null');
+        $ips = $output ? array_filter(array_map('trim', explode("\n", trim($output)))) : [];
+        $results[] = ['resolver' => $name, 'ip' => $ip, 'answers' => $ips];
+    }
+
+    // Check consistency
+    $allAnswers = array_map(function ($r) { return implode(',', $r['answers']); }, $results);
+    $consistent = count(array_unique($allAnswers)) <= 1;
+
+    return ['resolvers' => $results, 'consistent' => $consistent];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Security score aggregation (Issue #128)
+// ═══════════════════════════════════════════════════════════════════
+
+function calculateSecurityScore(array $data): array {
+    $checks = 0;
+    $passed = 0;
+
+    // HTTPS (via SSL info)
+    $checks++;
+    if (!empty($data['ssl'])) $passed++;
+
+    // HSTS
+    $checks++;
+    if (!empty($data['http_headers'])) {
+        foreach ($data['http_headers']['headers'] ?? [] as $h) {
+            if ($h['header'] === 'HSTS' && $h['present']) { $passed++; break; }
+        }
+    }
+
+    // DNSSEC
+    $checks++;
+    if (!empty($data['dnssec']['signed'])) $passed++;
+
+    // SPF
+    $checks++;
+    if (!empty($data['email_security']['spf']['found'])) $passed++;
+
+    // DMARC
+    $checks++;
+    if (!empty($data['email_security']['dmarc']['found'])) $passed++;
+
+    // DKIM
+    $checks++;
+    if (!empty($data['email_security']['dkim']['found'])) $passed++;
+
+    // MTA-STS
+    $checks++;
+    if (!empty($data['mta_sts']['found'])) $passed++;
+
+    // TLS 1.2+ only (no 1.0/1.1)
+    $checks++;
+    if (!empty($data['tls_audit']) && empty($data['tls_audit']['insecure'])) $passed++;
+
+    // Not on blocklists
+    $checks++;
+    if (empty($data['spamhaus']['listed'])) $passed++;
+
+    // CAA records
+    $checks++;
+    if (!empty($data['caa_records']['found'])) $passed++;
+
+    // No malware/phishing
+    $checks++;
+    if (empty($data['urlhaus']['urls_total']) || $data['urlhaus']['urls_total'] === 0) $passed++;
+
+    $pct = $checks > 0 ? round(($passed / $checks) * 100) : 0;
+    $grade = 'F';
+    if ($pct >= 90) $grade = 'A';
+    elseif ($pct >= 75) $grade = 'B';
+    elseif ($pct >= 60) $grade = 'C';
+    elseif ($pct >= 45) $grade = 'D';
+    elseif ($pct >= 30) $grade = 'E';
+
+    return ['grade' => $grade, 'score' => $pct, 'passed' => $passed, 'total' => $checks];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Multi-DNSBL check (Issue #133)
+// ═══════════════════════════════════════════════════════════════════
+
+function checkMultiDnsbl(string $ip): array {
+    if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) return ['listed' => false, 'lists' => []];
+
+    $reversed = implode('.', array_reverse(explode('.', $ip)));
+    $zones = [
+        'zen.spamhaus.org' => 'Spamhaus ZEN',
+        'b.barracudacentral.org' => 'Barracuda',
+        'bl.spamcop.net' => 'SpamCop',
+        'dnsbl.sorbs.net' => 'SORBS',
+        'dnsbl-1.uceprotect.net' => 'UCEPROTECT L1',
+        'cbl.abuseat.org' => 'CBL',
+        'dyna.spamrats.com' => 'SpamRATS',
+        'bl.mailspike.net' => 'Mailspike',
+    ];
+
+    $listed = [];
+    foreach ($zones as $zone => $label) {
+        $result = @dns_get_record($reversed . '.' . $zone, DNS_A);
+        if ($result && count($result) > 0) {
+            $listed[] = ['zone' => $zone, 'label' => $label];
+        }
+    }
+
+    return ['ip' => $ip, 'listed' => count($listed) > 0, 'total_checked' => count($zones), 'lists' => $listed];
+}

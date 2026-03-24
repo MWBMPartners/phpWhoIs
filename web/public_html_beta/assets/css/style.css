@@ -306,10 +306,18 @@ pre {
 }
 
 /* ─── Result tabs (WHOIS / DNS) ─── */
+#resultTabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+
 #resultTabs .nav-link {
     border-radius: 8px;
     font-size: 0.85rem;
     padding: 6px 16px;
+    white-space: nowrap;
 }
 
 /* ─── Fade-in animation ─── */

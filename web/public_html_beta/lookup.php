@@ -394,6 +394,37 @@ if (!$isIpLookup && $domain) {
 // Domain suggestions (Issue #116) — only for registered/unavailable domains
 $domainSuggestions = [];
 
+// Technology stack detection (Issue #124) — skip if DNT
+$techStack = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $techStack = detectTechStack($domain);
+}
+
+// Robots.txt & sitemap analysis (Issue #125) — skip if DNT
+$robotsTxt = null;
+if (!$dnt && !$isIpLookup && $domain) {
+    $robotsTxt = analyseRobotsTxt($domain);
+}
+
+// DNS propagation (Issue #126)
+$dnsPropagation = null;
+if (!$isIpLookup && $domain) {
+    $dnsPropagation = checkDnsPropagation($domain);
+}
+
+// Multi-DNSBL (Issue #133) — replaces single Spamhaus check
+$multiDnsbl = null;
+if (!empty($dns)) {
+    foreach ($dns as $rec) {
+        if ($rec['type'] === 'A' && !empty($rec['value'])) {
+            $multiDnsbl = checkMultiDnsbl($rec['value']);
+            break;
+        }
+    }
+} elseif ($isIpLookup) {
+    $multiDnsbl = checkMultiDnsbl($domain);
+}
+
 // Subdomain discovery (Issue #46) — only for domain lookups
 $subdomains = [];
 if (!$isIpLookup && $domain) {
@@ -421,6 +452,17 @@ $hostingRisk = assessHostingRisk($geolocation);
 // Domain suggestions (Issue #116) — only for registered/taken domains
 if (!$isIpLookup && $domain && $availability === 'registered') {
     $domainSuggestions = suggestAlternativeDomains($domain);
+}
+
+// Security score (Issue #128) — aggregated after all checks
+$securityScore = null;
+if (!$isIpLookup && $domain) {
+    $securityScore = calculateSecurityScore([
+        'ssl' => $sslInfo, 'http_headers' => $httpHeaders, 'dnssec' => $dnssec,
+        'email_security' => $emailSecurity, 'mta_sts' => $mtaSts,
+        'tls_audit' => $tlsAudit, 'spamhaus' => $spamhaus,
+        'caa_records' => $caaRecords, 'urlhaus' => $urlhaus,
+    ]);
 }
 
 if ($jsonFormat) {
@@ -469,6 +511,11 @@ if ($jsonFormat) {
         'response_times' => $responseTimes,
         'ns_diversity' => $nsDiversity,
         'domain_suggestions' => $domainSuggestions,
+        'tech_stack' => $techStack,
+        'robots_txt' => $robotsTxt,
+        'dns_propagation' => $dnsPropagation,
+        'multi_dnsbl' => $multiDnsbl,
+        'security_score' => $securityScore,
         'rate_limit' => ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit],
         'dnt' => $dnt,
     ];
@@ -523,6 +570,11 @@ if ($jsonFormat) {
         'response_times' => $responseTimes,
         'ns_diversity' => $nsDiversity,
         'domain_suggestions' => $domainSuggestions,
+        'tech_stack' => $techStack,
+        'robots_txt' => $robotsTxt,
+        'dns_propagation' => $dnsPropagation,
+        'multi_dnsbl' => $multiDnsbl,
+        'security_score' => $securityScore,
         'rate_limit' => ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit],
         'dnt' => $dnt,
     ];
