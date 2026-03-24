@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [c65bd4e] - 2026-03-24
+
+**feat: implement 13 security enhancement features (#93-#105)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`c65bd4e`](https://github.com/MWBMPartners/phpWhoIs/commit/c65bd4e11352b1119c75a407f6edb0bf425407b8)
+
+### Changed files
+
+- `includes/config.php`
+- `includes/functions.php`
+- `index.php`
+- `lookup.php`
+
+
 ## [0afdf33] - 2026-03-24
 
 **refactor: clean up config — API keys active when set, screenshot key support**
