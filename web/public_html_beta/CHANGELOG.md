@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [099368d] - 2026-03-24
+
+**feat: add z-index for registrar dropdown and adjust button group markup**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`099368d`](https://github.com/MWBMPartners/phpWhoIs/commit/099368dea7d58a87b5e647abd23dcc15fa87865a)
+
+### Changed files
+
+- `assets/css/style.css`
+- `index.php`
+
+
 ## [1681fa1] - 2026-03-24
 
 **feat: add fallback icon for registrar buttons and update icon handling**
