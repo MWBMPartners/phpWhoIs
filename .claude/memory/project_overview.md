@@ -1,23 +1,49 @@
 ---
-name: mwWhoIs project overview
-description: PHP-based WHOIS lookup tool - architecture, deployment structure, and current state (v0.2.590 Beta)
+name: DomainCheckr (mwWhoIs) project overview
+description: PHP domain WHOIS/RDAP lookup tool — architecture, tech stack, deployment, and current feature set (v1.22+ Beta)
 type: project
 ---
 
-mwWhoIs is a PHP/jQuery WHOIS lookup tool (v0.2.590 Beta) by MWBM Partners Ltd / MWservices.
+# DomainCheckr Project Overview
 
-**Architecture:**
-- Frontend: Bootstrap 4.5.2, jQuery AJAX, formatted/raw toggle views
-- Backend: PHP `shell_exec('whois')`, Mozilla Public Suffix List for domain extraction
-- Files: `index.php` (UI), `lookup.php` (backend), `infoAppVer.php` (version metadata), `style.css`, `public_suffix_list.dat`
+**DomainCheckr** (repo: mwWhoIs/phpWhoIs) is a PHP web application by MWBM Partners Ltd for domain WHOIS/RDAP lookups, DNS analysis, and security checks.
 
-**Deployment structure under `web/`:**
-- `public_html/` — production (currently identical to beta)
-- `public_html_beta/` — beta build (active development target)
-- `public_html_dev/`, `public_html_landing/`, `public_html_redir/`, `private_html/` — empty, for future use
+**Tech Stack:**
 
-**Framework integration:** References WebMS shared framework (`_functions/all.php`, `_libraries/`, etc.), supports `?dev` and `?debug` URL params.
+- Frontend: Bootstrap 5.3, vanilla JS (no jQuery/frameworks), Bootstrap Icons
+- Backend: PHP 7.4+, RDAP-first with WHOIS fallback, cURL for external APIs
+- Caching: Redis → Memcached → file-based fallback (15min TTL)
+- Rate limiting: Dual session + IP-based (30 req/60s default, configurable per API key tier)
+- Security: CSRF tokens, input sanitisation, CSP headers, session hardening, DNT support
 
-**Why:** Understanding the full layout avoids confusion between the multiple public_html directories.
+**Directory Structure:**
 
-**How to apply:** Always make changes in `public_html_beta/` first. Production (`public_html/`) gets updated only when user promotes beta.
+- `web/public_html_beta/` — active development (Beta)
+- `web/public_html_beta/includes/` — PHP includes (config, functions, session, footer, version)
+- `web/public_html_beta/assets/` — CSS, images, API spec
+- `web/public_html_beta/lang/` — i18n JSON files (en, es, fr, de)
+- `web/public_html/` — production (synced from beta on promotion)
+- `tests/` — PHPUnit tests
+- `.github/workflows/` — CI/CD (deploy, version-bump, changelog, test)
+
+**Key Features (as of 2026-03-24):**
+
+- WHOIS/RDAP lookups with parsed domain summary cards
+- DNS records, SSL/TLS cert info, email security (SPF/DMARC/DKIM)
+- Subdomain discovery, IP geolocation, website screenshot previews
+- Bulk lookup with CSV/JSON export, side-by-side domain comparison
+- WHOIS history timeline (localStorage snapshots with change diffs)
+- 4 themes (light/dark/colourblind/auto), 4 languages (EN/ES/FR/DE)
+- OpenAPI 3.0 spec + Swagger UI docs page
+- Admin dashboard, API key system, domain monitoring cron
+- Domain ownership verification (DNS TXT), registrar reputation flagging
+- Google Safe Browsing, VirusTotal, HIBP integrations (require API keys)
+- QR code sharing, Wayback Machine link, PWA support
+- Privacy Policy, Terms of Service pages with DNT support
+- WCAG 2.1 AA compliant, W3C HTML5 validated
+
+**Deployment:** Automated via GitHub Actions SFTP on push to beta/main. Semantic versioning auto-incremented from commit prefixes (feat: → minor, fix: → patch).
+
+**Why:** Understanding the full architecture and feature set ensures accurate work on any part of the codebase.
+
+**How to apply:** Always make changes in `public_html_beta/` first. The app name is now "DomainCheckr" (renamed from mwWhoIs). PHP includes use `includes/` subdirectory. Assets are in `assets/css/`, `assets/images/`, `assets/api/`.
