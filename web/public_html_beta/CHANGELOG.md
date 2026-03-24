@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [445793e] - 2026-03-24
+
+**fix: ensure proper formatting in config.php by adding newline at end of file**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`445793e`](https://github.com/MWBMPartners/phpWhoIs/commit/445793e23da91aeb32a7b649e56ba32bfe4c732c)
+
+### Changed files
+
+- `includes/config.php`
+
+
 ## [ada8b8b] - 2026-03-24
 
 **fix: clean stale full-URL entries from recent history on page load (#177)**
