@@ -263,6 +263,9 @@ if ($_showPortfolioIcon): ?>
                     <i class="bi bi-collection" aria-hidden="true"></i>
                 </a>
 <?php endif; ?>
+                <a href="feed-watchlist" class="btn btn-sm btn-link text-muted p-0 ms-1" id="historyWatchlistFeed" title="Watchlist RSS Feed" aria-label="Watchlist RSS Feed" style="display:none;">
+                    <i class="bi bi-rss" aria-hidden="true"></i>
+                </a>
             </div>
         </div>
     </header>

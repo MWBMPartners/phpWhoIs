@@ -51,7 +51,7 @@ $_showApiDocs = !empty($_SESSION['logged_in'])
     <footer class="footer">
         <div class="footer-row">
             <div class="footer-left">
-                <?php if ($_showApiDocs): ?><a href="docs" class="footer-link">API Documentation</a> | <?php endif; ?><?php if ($_showPortfolio): ?><span id="footerPortfolioLink" style="display:none;"><a href="portfolio" class="footer-link">Portfolio</a> | </span><?php endif; ?><a href="feed" class="footer-link" title="RSS Feed"><i class="bi bi-rss" aria-hidden="true"></i> RSS</a><br>
+                <?php if ($_showApiDocs): ?><a href="docs" class="footer-link">API Documentation</a> | <?php endif; ?><?php if ($_showPortfolio): ?><span id="footerPortfolioLink" style="display:none;"><a href="portfolio" class="footer-link">Portfolio</a> | </span><?php endif; ?><span id="footerWatchlistFeed" style="display:none;"><a href="feed-watchlist" class="footer-link" title="Watched Domains RSS Feed"><i class="bi bi-rss" aria-hidden="true"></i> Watchlist Feed</a> | </span>
                 <a href="privacy" class="footer-link">Privacy Policy</a> | <a href="terms" class="footer-link">Terms of Service</a>
             </div>
             <div class="footer-right">
@@ -59,7 +59,7 @@ $_showApiDocs = !empty($_SESSION['logged_in'])
                     echo htmlspecialchars($_footerTitle);
 
                     if (isset($app["Application"]["Version"]["Number"]) && $app["Application"]["Version"]["Number"]){
-                        echo " v" . htmlspecialchars($app["Application"]["Version"]["Number"]);
+                        echo ' <a href="feed" class="footer-link" title="Changelog RSS Feed">v' . htmlspecialchars($app["Application"]["Version"]["Number"]) . '</a>';
 
                         if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["SHA"]["Short"])){
                             echo ' <span style="font-size: 0.8em">(<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" rel="noopener noreferrer" class="footer-commit">';
@@ -78,8 +78,13 @@ $_showApiDocs = !empty($_SESSION['logged_in'])
             </div>
         </div>
     </footer>
-<?php if ($_showPortfolio): ?>
     <script>
-    (function(){try{var w=JSON.parse(localStorage.getItem('watchedDomains')||'[]');if(w.length){var fl=document.getElementById('footerPortfolioLink');if(fl)fl.style.display='';var hl=document.getElementById('historyPortfolioLink');if(hl)hl.style.display='';}}catch(e){}})();
-    </script>
+    (function(){try{var w=JSON.parse(localStorage.getItem('watchedDomains')||'[]');if(w.length){
+<?php if ($_showPortfolio): ?>
+        var fl=document.getElementById('footerPortfolioLink');if(fl)fl.style.display='';
+        var hl=document.getElementById('historyPortfolioLink');if(hl)hl.style.display='';
 <?php endif; ?>
+        var wf=document.getElementById('footerWatchlistFeed');if(wf)wf.style.display='';
+        var hwf=document.getElementById('historyWatchlistFeed');if(hwf)hwf.style.display='';
+    }}catch(e){}})();
+    </script>
