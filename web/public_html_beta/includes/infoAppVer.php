@@ -7,7 +7,7 @@
 		$app["Application"]["Description"]["Keywords"] = "Domain name, Domain name registration, Whois, RDAP, DNS Records, Domain availability, Registrar information, Expiry date, Name servers, Contact information, IP address lookup, Bulk domain lookup, Domain history, Domain ownership, Domain status, Free whois lookup, Online whois tool";
 
 		//Version
-			$app["Application"]["Version"]["Number"] = "1.22.0";
+			$app["Application"]["Version"]["Number"] = "1.22.1";
 			$app["Application"]["Version"]["Name"] = NULL;
 			
 			// Environment-based override (failsafe)
