@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [0afdf33] - 2026-03-24
+
+**refactor: clean up config — API keys active when set, screenshot key support**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`0afdf33`](https://github.com/MWBMPartners/phpWhoIs/commit/0afdf33c1ad5b6160e0ea417cd8f1e5420583a8b)
+
+### Changed files
+
+- `includes/config.php`
+- `lookup.php`
+
+
 ## [e9d5a58] - 2026-03-23
 
 **fix: fixed header with scrollable content on subpages, shared footer**
