@@ -254,9 +254,11 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 <button class="btn btn-sm btn-link text-muted p-0" id="clearHistory" title="Clear history" aria-label="Clear lookup history">
                     <i class="bi bi-x-circle" aria-hidden="true"></i>
                 </button>
-                <a href="portfolio" class="btn btn-sm btn-link text-muted p-0 ms-1" title="Domain Portfolio" aria-label="Domain Portfolio">
+<?php if (!empty($config['portfolio_enabled'])): ?>
+                <a href="portfolio" class="btn btn-sm btn-link text-muted p-0 ms-1" id="historyPortfolioLink" title="Domain Portfolio" aria-label="Domain Portfolio" style="display:none;">
                     <i class="bi bi-collection" aria-hidden="true"></i>
                 </a>
+<?php endif; ?>
             </div>
         </div>
     </header>

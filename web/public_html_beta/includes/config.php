@@ -68,6 +68,12 @@ $config = [
             'screenshot_enabled' => true,
             'screenshot_api_key' => '',
 
+    // ── Portfolio ──
+    // Show the Domain Portfolio link in the footer and history bar.
+    // The link is only displayed when enabled here AND the user has watched
+    // domains in their browser (localStorage). Set to false to hide it entirely.
+        'portfolio_enabled' => true,
+
     // ── Privacy & Compliance ──
     // Mask personal contact info (email, phone, address) in displayed WHOIS results.
     // Useful for GDPR-conscious deployments. Does not affect the raw WHOIS data.

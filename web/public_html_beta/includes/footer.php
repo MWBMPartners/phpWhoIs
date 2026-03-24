@@ -4,6 +4,15 @@
  * Expects $app array and $appName to be set by the calling page.
  */
 
+// Load config if not already available (needed for portfolio_enabled check)
+if (!isset($config)) {
+    $config = [];
+    $_configPath = __DIR__ . DIRECTORY_SEPARATOR . 'config.php';
+    if (file_exists($_configPath)) {
+        require_once $_configPath;
+    }
+}
+
 // Copyright helper
 if (isset($app["Application"]["Copyright"]["Year"]["Start"])
     && is_numeric($app["Application"]["Copyright"]["Year"]["Start"])
@@ -28,7 +37,7 @@ $_footerTitle = isset($appName) ? $appName : 'WHOIS Lookup';
     <footer class="footer">
         <div class="footer-row">
             <div class="footer-left">
-                <a href="docs" class="footer-link">API Documentation</a> | <a href="portfolio" class="footer-link">Portfolio</a> | <a href="feed" class="footer-link" title="RSS Feed"><i class="bi bi-rss" aria-hidden="true"></i> RSS</a><br>
+                <a href="docs" class="footer-link">API Documentation</a><?php if (!empty($config['portfolio_enabled'])): ?><span id="footerPortfolioLink" style="display:none;"> | <a href="portfolio" class="footer-link">Portfolio</a></span><?php endif; ?> | <a href="feed" class="footer-link" title="RSS Feed"><i class="bi bi-rss" aria-hidden="true"></i> RSS</a><br>
                 <a href="privacy" class="footer-link">Privacy Policy</a> | <a href="terms" class="footer-link">Terms of Service</a>
             </div>
             <div class="footer-right">
@@ -55,3 +64,8 @@ $_footerTitle = isset($appName) ? $appName : 'WHOIS Lookup';
             </div>
         </div>
     </footer>
+<?php if (!empty($config['portfolio_enabled'])): ?>
+    <script>
+    (function(){try{var w=JSON.parse(localStorage.getItem('watchedDomains')||'[]');if(w.length){var fl=document.getElementById('footerPortfolioLink');if(fl)fl.style.display='';var hl=document.getElementById('historyPortfolioLink');if(hl)hl.style.display='';}}catch(e){}})();
+    </script>
+<?php endif; ?>
