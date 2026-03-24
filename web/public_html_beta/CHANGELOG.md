@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [1681fa1] - 2026-03-24
+
+**feat: add fallback icon for registrar buttons and update icon handling**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`1681fa1`](https://github.com/MWBMPartners/phpWhoIs/commit/1681fa1daa4b7ff5a777e0d7709ced7876f36b64)
+
+### Changed files
+
+- `index.php`
+
+
 ## [2906c0f] - 2026-03-24
 
 **chore: remove unnecessary closing bracket in config.php**
