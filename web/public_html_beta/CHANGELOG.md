@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [13d1c3a] - 2026-03-24T21:23:08Z
+
+**feat: add unique IDs to DNS resolvers, clean names, expand parental control servers**
+
+- Commit: [`13d1c3a`](https://github.com/MWBMPartners/phpWhoIs/commit/13d1c3a2a189f3c486325212c182148ba3358fdf)
+
+
 ## [e253326] - 2026-03-24T21:20:10Z
 
 **feat: expand DNS propagation to 37 public resolvers across 6 regions**
