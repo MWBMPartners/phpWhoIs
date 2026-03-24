@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [a01f94e] - 2026-03-24T23:11:09Z
+
+**fix: PWA install banner on iOS — show share instructions instead of broken button**
+
+- Commit: [`a01f94e`](https://github.com/MWBMPartners/phpWhoIs/commit/a01f94edd9c33121529c04be55542e0d220a1faf)
+
+
 ## [39e068d] - 2026-03-24T22:30:26Z
 
 **feat: enable security and family DNS resolvers with improved icons**
