@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [4c0cbb6] - 2026-03-24
+
+**feat: add auth gate for Portfolio link, ready for user accounts (#171)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`4c0cbb6`](https://github.com/MWBMPartners/phpWhoIs/commit/4c0cbb6985186eec6ddfe00c7bd1d7058b90378f)
+
+### Changed files
+
+- `includes/footer.php`
+- `index.php`
+
+
 ## [2af4648] - 2026-03-24
 
 **feat: conditionally display Portfolio link in footer and history bar (#171)**
