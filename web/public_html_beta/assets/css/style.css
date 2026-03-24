@@ -38,10 +38,12 @@ body {
 
 /* Subpage scrollable content area (fixed header + scrollable body + fixed footer) */
 .subpage-content {
-    flex: 1;
+    flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+    padding-bottom: 60px;
 }
 
 /* ─── Fixed header ─── */
