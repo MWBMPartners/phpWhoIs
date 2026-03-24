@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [deb800a] - 2026-03-24T21:13:43Z
+
+**fix: wrap security checks table in table-responsive div**
+
+- Commit: [`deb800a`](https://github.com/MWBMPartners/phpWhoIs/commit/deb800aff4e35dd5d1e81bf882b09e53428d2e5c)
+
+
 ## [9419bfc] - 2026-03-24T21:09:48Z
 
 **feat: add fix guide links to security checks for failed/warning items**
