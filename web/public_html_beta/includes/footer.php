@@ -34,18 +34,24 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
 
 $_footerTitle = isset($appName) ? $appName : 'WHOIS Lookup';
 
-// Portfolio visibility: requires config enabled + user logged in (Issue #171)
-// $_SESSION['logged_in'] will be set by the user account system (Issue #163).
-// Until #163 is implemented this evaluates to false, keeping the link hidden
-// for unauthenticated visitors. Once #163 lands, authenticated users who also
-// have watched domains in localStorage will see the Portfolio link.
+// ── Conditional footer link visibility ──
+// Both flags below depend on the user account system (Issue #163).
+// Until #163 is implemented, $_SESSION['logged_in'] and $_SESSION['is_developer']
+// are never set, so these links stay hidden for all visitors.
+
+// Portfolio: requires config enabled + logged in + watched domains in localStorage (Issue #171)
 $_showPortfolio = !empty($config['portfolio_enabled'])
     && !empty($_SESSION['logged_in']);
+
+// API Documentation: requires logged in + developer account (Issue #172)
+// A developer account is a prerequisite for API key issuance.
+$_showApiDocs = !empty($_SESSION['logged_in'])
+    && !empty($_SESSION['is_developer']);
 ?>
     <footer class="footer">
         <div class="footer-row">
             <div class="footer-left">
-                <a href="docs" class="footer-link">API Documentation</a><?php if ($_showPortfolio): ?><span id="footerPortfolioLink" style="display:none;"> | <a href="portfolio" class="footer-link">Portfolio</a></span><?php endif; ?> | <a href="feed" class="footer-link" title="RSS Feed"><i class="bi bi-rss" aria-hidden="true"></i> RSS</a><br>
+                <?php if ($_showApiDocs): ?><a href="docs" class="footer-link">API Documentation</a> | <?php endif; ?><?php if ($_showPortfolio): ?><span id="footerPortfolioLink" style="display:none;"><a href="portfolio" class="footer-link">Portfolio</a> | </span><?php endif; ?><a href="feed" class="footer-link" title="RSS Feed"><i class="bi bi-rss" aria-hidden="true"></i> RSS</a><br>
                 <a href="privacy" class="footer-link">Privacy Policy</a> | <a href="terms" class="footer-link">Terms of Service</a>
             </div>
             <div class="footer-right">

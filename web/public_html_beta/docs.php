@@ -1,7 +1,22 @@
 <?php
 /**
  * mwWhoIs - API Documentation (Swagger UI)
+ *
+ * Access restricted to logged-in users with a Developer account (Issue #172).
+ * Until the user account system (#163) is implemented, this page is
+ * accessible to everyone. Once #163 lands, uncomment the access gate below.
  */
+
+// ─── Session (needed for access control) ───
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'session_config.php';
+
+// ─── Access gate: logged-in developer accounts only (Issue #172) ───
+// Uncomment the block below once the user account system (#163) is live:
+// if (empty($_SESSION['logged_in']) || empty($_SESSION['is_developer'])) {
+//     http_response_code(403);
+//     header('Location: /');
+//     exit;
+// }
 
 // ─── App version info ───
 if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
