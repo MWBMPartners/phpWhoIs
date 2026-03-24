@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [5b845ee] - 2026-03-24T21:48:16Z
+
+**fix: relabel Anycast to Global and sort DNS resolvers by location/name/IP**
+
+- Commit: [`5b845ee`](https://github.com/MWBMPartners/phpWhoIs/commit/5b845ee731016b3629469a0524056c1ca7555a24)
+
+
 ## [e1aac1e] - 2026-03-24T21:43:23Z
 
 **feat: add opt-in auto-refresh for DNS propagation via AJAX**
