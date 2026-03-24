@@ -115,7 +115,7 @@ Body: domain=example.com
 
 ## Requirements
 
-- PHP 7.4+
+- PHP 8.4+
 - `curl` extension (recommended for RDAP)
 - `whois` system command
 - `session` support

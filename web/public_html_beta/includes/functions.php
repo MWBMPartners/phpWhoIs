@@ -401,12 +401,12 @@ function extractSecondLevelSuffixes(string $pslContent): array {
             break;
         }
 
-        if (!$inIcann || $line === '' || strpos($line, '//') === 0) {
+        if (!$inIcann || $line === '' || str_starts_with($line, '//')) {
             continue;
         }
 
         // Only keep multi-part entries (contain a dot) — skip wildcard/negation entries
-        if (strpos($line, '.') !== false && strpos($line, '*') !== 0 && strpos($line, '!') !== 0) {
+        if (str_contains($line, '.')  && !str_starts_with($line, '*') && !str_starts_with($line, '!')) {
             $suffixes[] = strtolower($line);
         }
     }
@@ -457,7 +457,7 @@ function extractRegistrableDomain(string $domain): string {
  * Check if input is an IP address (v4 or v6).
  */
 function isIpAddress(string $input): bool {
-    return filter_var($input, FILTER_VALIDATE_IP) !== false;
+    return filter_var($input, FILTER_VALIDATE_IP) ;
 }
 
 /**
@@ -647,7 +647,7 @@ function checkEmailSecurity(string $domain): array {
     $txtRecords = @dns_get_record($domain, DNS_TXT);
     if ($txtRecords) {
         foreach ($txtRecords as $rec) {
-            if (isset($rec['txt']) && stripos($rec['txt'], 'v=spf1') === 0) {
+            if (isset($rec['txt']) && str_starts_with(strtolower($rec['txt']), 'v=spf1')) {
                 $result['spf']['found'] = true;
                 $result['spf']['record'] = $rec['txt'];
                 $result['spf']['status'] = 'configured';
@@ -660,7 +660,7 @@ function checkEmailSecurity(string $domain): array {
     $dmarcRecords = @dns_get_record('_dmarc.' . $domain, DNS_TXT);
     if ($dmarcRecords) {
         foreach ($dmarcRecords as $rec) {
-            if (isset($rec['txt']) && stripos($rec['txt'], 'v=DMARC1') === 0) {
+            if (isset($rec['txt']) && str_starts_with(strtolower($rec['txt']), 'v=dmarc1')) {
                 $result['dmarc']['found'] = true;
                 $result['dmarc']['record'] = $rec['txt'];
 
@@ -1052,7 +1052,7 @@ function checkRegistrarReputation(string $registrar): ?array {
     ];
 
     foreach ($flagged as $pattern => $info) {
-        if (strpos($lower, $pattern) !== false) {
+        if (str_contains($lower, $pattern) ) {
             return $info;
         }
     }
@@ -1786,7 +1786,7 @@ function detectRedirectChain(string $domain): ?array {
 
     $suspicious = count($chain) > 5;
     $httpToHttps = false;
-    if (count($chain) >= 2 && strpos($chain[0]['url'], 'http://') === 0 && strpos(end($chain)['url'], 'https://') === 0) {
+    if (count($chain) >= 2 && str_starts_with($chain[0]['url'], 'http://') && str_starts_with(end($chain)['url'], 'https://')) {
         $httpToHttps = true;
     }
 
@@ -1860,7 +1860,7 @@ function auditTlsVersions(string $domain): ?array {
 function checkCaaRecords(string $domain): array {
     $result = ['found' => false, 'records' => []];
 
-    // PHP dns_get_record supports CAA on PHP 7.0.16+
+    // PHP dns_get_record supports CAA natively (PHP 8.4+)
     $records = @dns_get_record($domain, DNS_CAA);
     if ($records) {
         foreach ($records as $rec) {
@@ -1945,7 +1945,7 @@ function reverseIpLookup(string $ip): ?array {
     $url = 'https://api.hackertarget.com/reverseiplookup/?q=' . urlencode($ip);
     $ctx = stream_context_create(['http' => ['timeout' => 5, 'header' => "User-Agent: mwWhoIs\r\n"]]);
     $response = @file_get_contents($url, false, $ctx);
-    if (!$response || strpos($response, 'error') !== false || strpos($response, 'API count') !== false) return null;
+    if (!$response || str_contains($response, 'error')  || str_contains($response, 'API count') ) return null;
 
     $domains = array_filter(array_map('trim', explode("\n", trim($response))));
     return ['ip' => $ip, 'count' => count($domains), 'domains' => array_slice($domains, 0, 25)];
@@ -2122,27 +2122,27 @@ function detectTechStack(string $domain): ?array {
 
     if ($html) {
         // CMS detection
-        if (stripos($html, 'wp-content') !== false || stripos($html, 'wordpress') !== false) $techs[] = ['category' => 'CMS', 'name' => 'WordPress'];
-        elseif (stripos($html, 'Joomla') !== false) $techs[] = ['category' => 'CMS', 'name' => 'Joomla'];
-        elseif (stripos($html, 'Drupal') !== false) $techs[] = ['category' => 'CMS', 'name' => 'Drupal'];
-        elseif (stripos($html, 'shopify') !== false) $techs[] = ['category' => 'CMS', 'name' => 'Shopify'];
-        elseif (stripos($html, 'squarespace') !== false) $techs[] = ['category' => 'CMS', 'name' => 'Squarespace'];
-        elseif (stripos($html, 'wix.com') !== false) $techs[] = ['category' => 'CMS', 'name' => 'Wix'];
+        if (str_contains(strtolower($html), 'wp-content')  || str_contains(strtolower($html), 'wordpress') ) $techs[] = ['category' => 'CMS', 'name' => 'WordPress'];
+        elseif (str_contains(strtolower($html), 'joomla') ) $techs[] = ['category' => 'CMS', 'name' => 'Joomla'];
+        elseif (str_contains(strtolower($html), 'drupal') ) $techs[] = ['category' => 'CMS', 'name' => 'Drupal'];
+        elseif (str_contains(strtolower($html), 'shopify') ) $techs[] = ['category' => 'CMS', 'name' => 'Shopify'];
+        elseif (str_contains(strtolower($html), 'squarespace') ) $techs[] = ['category' => 'CMS', 'name' => 'Squarespace'];
+        elseif (str_contains(strtolower($html), 'wix.com') ) $techs[] = ['category' => 'CMS', 'name' => 'Wix'];
 
         // JS frameworks
-        if (stripos($html, 'react') !== false || stripos($html, '__NEXT_DATA__') !== false) $techs[] = ['category' => 'JS Framework', 'name' => 'React'];
-        if (stripos($html, 'vue') !== false && stripos($html, 'data-v-') !== false) $techs[] = ['category' => 'JS Framework', 'name' => 'Vue.js'];
-        if (stripos($html, 'angular') !== false || stripos($html, 'ng-') !== false) $techs[] = ['category' => 'JS Framework', 'name' => 'Angular'];
+        if (str_contains(strtolower($html), 'react')  || str_contains(strtolower($html), '__next_data__') ) $techs[] = ['category' => 'JS Framework', 'name' => 'React'];
+        if (str_contains(strtolower($html), 'vue')  && str_contains(strtolower($html), 'data-v-') ) $techs[] = ['category' => 'JS Framework', 'name' => 'Vue.js'];
+        if (str_contains(strtolower($html), 'angular')  || str_contains(strtolower($html), 'ng-') ) $techs[] = ['category' => 'JS Framework', 'name' => 'Angular'];
 
         // CDN
-        if (stripos($html, 'cloudflare') !== false || !empty($headers['cf-ray'])) $techs[] = ['category' => 'CDN', 'name' => 'Cloudflare'];
-        if (stripos($html, 'cdn.jsdelivr.net') !== false) $techs[] = ['category' => 'CDN', 'name' => 'jsDelivr'];
-        if (stripos($html, 'cloudfront') !== false) $techs[] = ['category' => 'CDN', 'name' => 'CloudFront'];
-        if (stripos($html, 'akamai') !== false) $techs[] = ['category' => 'CDN', 'name' => 'Akamai'];
+        if (str_contains(strtolower($html), 'cloudflare')  || !empty($headers['cf-ray'])) $techs[] = ['category' => 'CDN', 'name' => 'Cloudflare'];
+        if (str_contains(strtolower($html), 'cdn.jsdelivr.net') ) $techs[] = ['category' => 'CDN', 'name' => 'jsDelivr'];
+        if (str_contains(strtolower($html), 'cloudfront') ) $techs[] = ['category' => 'CDN', 'name' => 'CloudFront'];
+        if (str_contains(strtolower($html), 'akamai') ) $techs[] = ['category' => 'CDN', 'name' => 'Akamai'];
 
         // Analytics
-        if (stripos($html, 'google-analytics') !== false || stripos($html, 'gtag') !== false || stripos($html, 'GA-') !== false) $techs[] = ['category' => 'Analytics', 'name' => 'Google Analytics'];
-        if (stripos($html, 'matomo') !== false || stripos($html, 'piwik') !== false) $techs[] = ['category' => 'Analytics', 'name' => 'Matomo'];
+        if (str_contains(strtolower($html), 'google-analytics')  || str_contains(strtolower($html), 'gtag')  || str_contains(strtolower($html), 'ga-') ) $techs[] = ['category' => 'Analytics', 'name' => 'Google Analytics'];
+        if (str_contains(strtolower($html), 'matomo')  || str_contains(strtolower($html), 'piwik') ) $techs[] = ['category' => 'Analytics', 'name' => 'Matomo'];
 
         // Meta generator
         if (preg_match('/<meta[^>]+name=["\']generator["\'][^>]+content=["\']([^"\']+)/i', $html, $m)) {
@@ -2167,12 +2167,12 @@ function analyseRobotsTxt(string $domain): ?array {
         $result['robots_found'] = true;
         foreach (explode("\n", $robots) as $line) {
             $line = trim($line);
-            if (stripos($line, 'Disallow:') === 0) {
+            if (str_starts_with(strtolower($line), 'disallow:')) {
                 $path = trim(substr($line, 9));
                 if ($path) $result['disallowed'][] = $path;
-            } elseif (stripos($line, 'Sitemap:') === 0) {
+            } elseif (str_starts_with(strtolower($line), 'sitemap:')) {
                 $result['sitemaps'][] = trim(substr($line, 8));
-            } elseif (stripos($line, 'Crawl-delay:') === 0) {
+            } elseif (str_starts_with(strtolower($line), 'crawl-delay:')) {
                 $result['crawl_delay'] = (int)trim(substr($line, 12));
             }
         }
@@ -2181,7 +2181,7 @@ function analyseRobotsTxt(string $domain): ?array {
 
     // Check sitemap.xml
     $sitemapHeaders = @get_headers('https://' . $domain . '/sitemap.xml', true, $ctx);
-    if ($sitemapHeaders && isset($sitemapHeaders[0]) && strpos($sitemapHeaders[0], '200') !== false) {
+    if ($sitemapHeaders && isset($sitemapHeaders[0]) && str_contains($sitemapHeaders[0], '200') ) {
         $result['sitemap_found'] = true;
         if (!in_array('https://' . $domain . '/sitemap.xml', $result['sitemaps'])) {
             $result['sitemaps'][] = 'https://' . $domain . '/sitemap.xml';

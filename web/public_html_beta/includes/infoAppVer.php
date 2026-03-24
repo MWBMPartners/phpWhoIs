@@ -12,10 +12,10 @@
 			
 			// Environment-based override (failsafe)
 			//If running from a non-beta directory, clear the dev status
-				if (strpos(__DIR__, 'public_html_dev') !== false){
+				if (str_contains(__DIR__, 'public_html_dev')){
 					$app["Application"]["Version"]["Development"]["Status"] = "Alpha";
 				}
-				elseif (strpos(__DIR__, 'public_html_beta') !== false){
+				elseif (str_contains(__DIR__, 'public_html_beta')){
 					$app["Application"]["Version"]["Development"]["Status"] = "Beta";
 				}
 				else{

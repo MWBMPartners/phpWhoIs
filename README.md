@@ -91,7 +91,7 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 
 ## Tech Stack
 
-- **Backend**: PHP 7.4+
+- **Backend**: PHP 8.4+
 - **Frontend**: Bootstrap 5.3, Bootstrap Icons, vanilla JavaScript
 - **Caching**: Redis → Memcached → file-based (15min TTL)
 - **DNS**: PHP `dns_get_record()`, system `whois` and `dig` commands
@@ -163,7 +163,7 @@ Full API documentation: [/docs](https://beta.whois.mwhost.online/docs)
 
 ## Requirements
 
-- PHP 7.4+
+- PHP 8.4+
 - `curl` extension (recommended for RDAP and external APIs)
 - `whois` system command
 - `dig` command (for DNSSEC, CAA, DANE/TLSA checks)

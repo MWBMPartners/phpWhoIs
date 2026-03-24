@@ -27,7 +27,7 @@ $checks = [];
 
 // PHP version
 $checks['php'] = [
-    'status' => version_compare(PHP_VERSION, '7.4.0', '>=') ? 'ok' : 'warning',
+    'status' => version_compare(PHP_VERSION, '8.4.0', '>=') ? 'ok' : (version_compare(PHP_VERSION, '8.0.0', '>=') ? 'warning' : 'error'),
     'version' => PHP_VERSION,
 ];
 
