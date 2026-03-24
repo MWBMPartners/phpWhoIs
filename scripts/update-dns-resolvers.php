@@ -50,6 +50,9 @@ $countryNames = [
 // ── Type sort order ──
 $typeOrder = ['standard' => 0, 'security' => 1, 'family' => 2];
 
+// ── Exempt providers — no per-country or per-resolver limits applied ──
+$exemptProviders = ['Cloudflare', 'Google', 'OpenDNS', 'Quad9', 'AdGuard'];
+
 // ── Load existing resolvers ──
 if (!file_exists($resolverFile)) {
     fwrite(STDERR, "Error: resolver file not found: $resolverFile\n");
@@ -137,11 +140,11 @@ foreach ($existing as $r) {
 }
 
 foreach ($byCountry as $cc => $servers) {
-    // Count ALL existing entries for this country (manual + auto)
+    // Count ALL existing entries for this country (manual + auto), excluding exempt providers
     $existingCountryCount = 0;
     $existingAutoCount = 0;
     foreach ($existing as $r) {
-        if ($r['country_code'] === $cc) {
+        if ($r['country_code'] === $cc && !in_array($r['name'], $exemptProviders)) {
             $existingCountryCount++;
             if (($r['source'] ?? 'manual') === 'public-dns') {
                 $existingAutoCount++;
@@ -149,6 +152,7 @@ foreach ($byCountry as $cc => $servers) {
         }
     }
     // Max $maxPerCountry auto-sourced per country, skip if country already has 4+ entries total
+    // Exempt providers bypass these limits entirely
     $slotsAvailable = max(0, $maxPerCountry - $existingAutoCount);
     if ($slotsAvailable === 0 || $existingCountryCount >= 4) continue;
 
@@ -157,7 +161,8 @@ foreach ($byCountry as $cc => $servers) {
 
     $added = 0;
     foreach ($servers as $s) {
-        if ($added >= $slotsAvailable) break;
+        $isExempt = in_array($s['name'], $exemptProviders);
+        if (!$isExempt && $added >= $slotsAvailable) break;
         $maxId++;
         $location = $countryNames[$s['country_code']] ?? $s['country_code'];
         $newEntries[] = [
@@ -171,7 +176,7 @@ foreach ($byCountry as $cc => $servers) {
             'source'       => 'public-dns',
             'reliability'  => $s['reliability'],
         ];
-        $added++;
+        if (!$isExempt) $added++;
     }
 }
 
