@@ -76,6 +76,7 @@ if (file_exists($changelogPath)) {
 $items = array_slice($items, 0, 20);
 
 echo '<?xml version="1.0" encoding="UTF-8"?>' . PHP_EOL;
+echo '<?xml-stylesheet type="text/xsl" href="feed.xsl"?>' . PHP_EOL;
 ?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
 <channel>

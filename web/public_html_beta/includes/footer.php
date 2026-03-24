@@ -59,7 +59,7 @@ $_showApiDocs = !empty($_SESSION['logged_in'])
                     echo htmlspecialchars($_footerTitle);
 
                     if (isset($app["Application"]["Version"]["Number"]) && $app["Application"]["Version"]["Number"]){
-                        echo ' <a href="feed" class="footer-link" title="Changelog RSS Feed">v' . htmlspecialchars($app["Application"]["Version"]["Number"]) . '</a>';
+                        echo ' <a href="feed" class="footer-link" title="Changelog RSS Feed" target="_blank" rel="noopener noreferrer">v' . htmlspecialchars($app["Application"]["Version"]["Number"]) . '</a>';
 
                         if (!empty($app["Application"]["Version"]["Repo"]["Commit"]["SHA"]["Short"])){
                             echo ' <span style="font-size: 0.8em">(<a href="' . htmlspecialchars($app["Application"]["Version"]["Repo"]["Commit"]["URL"]) . '" target="_blank" rel="noopener noreferrer" class="footer-commit">';
