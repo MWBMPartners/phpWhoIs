@@ -2352,6 +2352,7 @@ function calculateSecurityScore(array $data): array {
         'status' => $httpsPass ? 'pass' : 'fail',
         'info' => $httpsPass ? 'Valid SSL certificate detected' : 'No SSL certificate found',
         'recommendation' => $httpsPass ? null : 'Install an SSL/TLS certificate and enforce HTTPS',
+        'guide' => $httpsPass ? null : 'https://letsencrypt.org/getting-started/',
     ];
 
     // HSTS
@@ -2369,6 +2370,7 @@ function calculateSecurityScore(array $data): array {
         'status' => $hstsPass ? 'pass' : 'fail',
         'info' => $hstsPass ? 'Strict-Transport-Security header present' : 'HSTS header not found',
         'recommendation' => $hstsPass ? null : 'Add a Strict-Transport-Security header to enforce HTTPS connections',
+        'guide' => $hstsPass ? null : 'https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Strict-Transport-Security',
     ];
 
     // DNSSEC
@@ -2378,6 +2380,7 @@ function calculateSecurityScore(array $data): array {
         'status' => $dnssecPass ? 'pass' : 'fail',
         'info' => $dnssecPass ? 'DNSSEC signatures verified' : 'DNSSEC not enabled',
         'recommendation' => $dnssecPass ? null : 'Enable DNSSEC with your DNS provider to protect against DNS spoofing',
+        'guide' => $dnssecPass ? null : 'https://www.icann.org/resources/pages/dnssec-what-is-it-why-is-it-important-2019-03-05-en',
     ];
 
     // SPF
@@ -2387,6 +2390,7 @@ function calculateSecurityScore(array $data): array {
         'status' => $spfPass ? 'pass' : 'fail',
         'info' => $spfPass ? 'SPF record found' : 'No SPF record',
         'recommendation' => $spfPass ? null : 'Add an SPF TXT record to specify authorised mail servers',
+        'guide' => $spfPass ? null : 'https://www.cloudflare.com/en-gb/learning/dns/dns-records/dns-spf-record/',
     ];
 
     // DMARC
@@ -2396,6 +2400,7 @@ function calculateSecurityScore(array $data): array {
         'status' => $dmarcPass ? 'pass' : 'fail',
         'info' => $dmarcPass ? 'DMARC policy found' : 'No DMARC policy',
         'recommendation' => $dmarcPass ? null : 'Add a DMARC TXT record to protect against email spoofing',
+        'guide' => $dmarcPass ? null : 'https://dmarc.org/overview/',
     ];
 
     // DKIM
@@ -2405,6 +2410,7 @@ function calculateSecurityScore(array $data): array {
         'status' => $dkimPass ? 'pass' : 'warn',
         'info' => $dkimPass ? 'DKIM selector found' : 'DKIM not detected (common selectors checked)',
         'recommendation' => $dkimPass ? null : 'Configure DKIM signing with your email provider',
+        'guide' => $dkimPass ? null : 'https://www.cloudflare.com/en-gb/learning/dns/dns-records/dns-dkim-record/',
     ];
 
     // MTA-STS
@@ -2414,6 +2420,7 @@ function calculateSecurityScore(array $data): array {
         'status' => $mtaStsPass ? 'pass' : 'warn',
         'info' => $mtaStsPass ? 'MTA-STS policy published' : 'No MTA-STS policy',
         'recommendation' => $mtaStsPass ? null : 'Publish an MTA-STS policy to enforce TLS for inbound email',
+        'guide' => $mtaStsPass ? null : 'https://www.hardenize.com/blog/mta-sts/',
     ];
 
     // TLS 1.2+ only (no 1.0/1.1)
@@ -2423,6 +2430,7 @@ function calculateSecurityScore(array $data): array {
         'status' => $tlsPass ? 'pass' : 'fail',
         'info' => $tlsPass ? 'Only TLS 1.2+ supported' : 'Insecure TLS versions (1.0/1.1) accepted',
         'recommendation' => $tlsPass ? null : 'Disable TLS 1.0 and 1.1 on your web server',
+        'guide' => $tlsPass ? null : 'https://ssl-config.mozilla.org/',
     ];
 
     // Not on blocklists
@@ -2432,6 +2440,7 @@ function calculateSecurityScore(array $data): array {
         'status' => $blPass ? 'pass' : 'fail',
         'info' => $blPass ? 'Not listed on Spamhaus' : 'Listed on Spamhaus blocklist',
         'recommendation' => $blPass ? null : 'Investigate and resolve the blocklist listing at spamhaus.org',
+        'guide' => $blPass ? null : 'https://www.spamhaus.org/blocklists/do-not-block/',
     ];
 
     // CAA records
@@ -2441,6 +2450,7 @@ function calculateSecurityScore(array $data): array {
         'status' => $caaPass ? 'pass' : 'warn',
         'info' => $caaPass ? 'CAA records restrict certificate issuance' : 'No CAA records found',
         'recommendation' => $caaPass ? null : 'Add CAA DNS records to control which CAs can issue certificates',
+        'guide' => $caaPass ? null : 'https://letsencrypt.org/docs/caa/',
     ];
 
     // No malware/phishing
@@ -2450,6 +2460,7 @@ function calculateSecurityScore(array $data): array {
         'status' => $malwarePass ? 'pass' : 'fail',
         'info' => $malwarePass ? 'No known malware URLs' : 'Malware URLs associated with this domain',
         'recommendation' => $malwarePass ? null : 'Scan your site for compromised files and remove malicious content',
+        'guide' => $malwarePass ? null : 'https://developers.google.com/web/fundamentals/security/hacked/',
     ];
 
     $passed = 0;

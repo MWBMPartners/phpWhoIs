@@ -1635,7 +1635,7 @@ if ($_showPortfolioIcon): ?>
                         '<strong><i class="bi bi-shield-check me-1"></i>Security Checks</strong>' +
                         '<span class="badge bg-' + ssColor + '">' + ss.grade + ' — ' + ss.score + '%</span></div>' +
                         '<div class="card-body"><table class="table table-sm mb-0">';
-                    secHtml += '<thead><tr><th>Check</th><th>Status</th><th>Details</th></tr></thead><tbody>';
+                    secHtml += '<thead><tr><th>Check</th><th>Status</th><th>Details</th><th>Guide</th></tr></thead><tbody>';
                     ss.details.forEach(function (d) {
                         var icon, badge;
                         if (d.status === 'pass') {
@@ -1651,6 +1651,10 @@ if ($_showPortfolioIcon): ?>
                         secHtml += '<tr><td class="fw-bold">' + icon + ' ' + esc(d.name) + '</td><td>' + badge + '</td><td>' + esc(d.info);
                         if (d.recommendation) {
                             secHtml += '<br><small class="text-muted"><i class="bi bi-lightbulb me-1"></i>' + esc(d.recommendation) + '</small>';
+                        }
+                        secHtml += '</td><td>';
+                        if (d.guide && d.status !== 'pass') {
+                            secHtml += '<a href="' + esc(d.guide) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-up-right me-1"></i>Fix guide</a>';
                         }
                         secHtml += '</td></tr>';
                     });
