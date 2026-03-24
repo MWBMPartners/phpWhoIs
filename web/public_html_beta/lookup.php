@@ -217,7 +217,11 @@ if (!$dnt && !$isIpLookup && $domain && !empty($config['hibp_api_key'])) {
 // Screenshot URL (Issue #55) — generate if enabled; skip if DNT
 $screenshotUrl = null;
 if (!$dnt && !$isIpLookup && $domain && !empty($config['screenshot_enabled'])) {
-    $screenshotUrl = 'https://image.thum.io/get/width/600/' . urlencode('https://' . $domain);
+    $screenshotBase = 'https://image.thum.io/get';
+    if (!empty($config['screenshot_api_key'])) {
+        $screenshotBase .= '/auth/' . urlencode($config['screenshot_api_key']);
+    }
+    $screenshotUrl = $screenshotBase . '/width/600/' . urlencode('https://' . $domain);
 }
 
 // Subdomain discovery (Issue #46) — only for domain lookups

@@ -32,20 +32,27 @@ $config = [
         // ],
     ],
 
-    // Google Safe Browsing API (Issue #52)
-    // Get a key from https://console.cloud.google.com/apis/api/safebrowsing.googleapis.com
-    // 'safe_browsing_api_key' => '',
+    // ── Enhanced Security Features ──
+    // These features activate automatically when a valid API key is provided.
+    // Leave empty ('') or null to disable. No need to comment out.
 
-    // VirusTotal API (Issue #53)
-    // Get a free key from https://www.virustotal.com/gui/my-apikey
-    // 'virustotal_api_key' => '',
+        // Google Safe Browsing — checks domains against Google's malware/phishing database
+        // Get a key from https://console.cloud.google.com/apis/api/safebrowsing.googleapis.com
+            'safe_browsing_api_key' => '',
 
-    // Have I Been Pwned API (Issue #65)
-    // Get a key from https://haveibeenpwned.com/API/Key
-    // 'hibp_api_key' => '',
+        // VirusTotal — domain reputation scores and antivirus verdicts
+        // Get a free key from https://www.virustotal.com/gui/my-apikey
+            'virustotal_api_key' => '',
 
-    // Website screenshot API (Issue #55)
-    // Uses the free site-shot.com API — no key required for basic usage.
-    // Set to true to enable thumbnail screenshots on lookup results.
-    'screenshot_enabled' => true,
+        // Have I Been Pwned — data breach information for domains
+        // Get a key from https://haveibeenpwned.com/API/Key
+            'hibp_api_key' => '',
+
+    // ── Website Screenshot ──
+    // Set 'screenshot_enabled' to true to show website preview thumbnails.
+    // Works without an API key (basic/free tier). Provide an API key to
+    // unlock higher resolution, rate limits, or premium features.
+    // Leave 'screenshot_api_key' empty ('') for basic usage.
+        'screenshot_enabled' => true,
+        'screenshot_api_key' => '',
 ];
