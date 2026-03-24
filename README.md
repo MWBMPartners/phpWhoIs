@@ -20,7 +20,7 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 - Reverse DNS lookup for IP addresses
 - Bulk domain lookup with progress indicator and file import
 - Domain comparison (side-by-side with export)
-- Domain name suggestions for unavailable domains
+- On-demand domain name suggestions for unavailable domains
 
 ### Security Analysis
 - **Security Score**: Aggregated A-F grade from 12 security checks
