@@ -39,6 +39,7 @@ body {
 /* Subpage scrollable content area (fixed header + scrollable body + fixed footer) */
 .subpage-content {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
 }
@@ -123,6 +124,7 @@ h1 a:focus {
 /* ─── Scrollable results container (only this area scrolls) ─── */
 .result-container {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: 20px;
