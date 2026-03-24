@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [bbfa429] - 2026-03-24
+
+**feat: sync manifest.json from infoAppVer.php during deployment (#168)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`bbfa429`](https://github.com/MWBMPartners/phpWhoIs/commit/bbfa429f02b4721b350a9be18f25d6ebd14a578d)
+
+### Changed files
+
+- `manifest.json`
+
+
 ## [abf4c2e] - 2026-03-24
 
 **fix: make Portfolio and RSS feed discoverable from main UI (#166, #167)**
