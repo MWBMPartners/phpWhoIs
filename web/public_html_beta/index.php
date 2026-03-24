@@ -409,7 +409,7 @@ if ($_showPortfolioIcon): ?>
             }
 
             // Multiple registrars — dropdown
-            var html = '<div class="btn-group dropstart">';
+            var html = '<div class="btn-group">';
             var first = REGISTRARS[0];
             var firstUrl = first.url_template.replace('{domain}', encodedDomain);
             var firstTarget = first.open_in_new_tab ? ' target="_blank" rel="noopener noreferrer"' : '';

@@ -1,3 +1,8 @@
+/* ─── Registrar dropdown z-index ─── */
+#availabilityBadge .dropdown-menu {
+    z-index: 1050;
+}
+
 /* ─── Skip to content link ─── */
 .skip-link:focus {
     position: fixed;
