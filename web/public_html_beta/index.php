@@ -441,6 +441,20 @@ if ($_showPortfolioIcon): ?>
         }
         var currentDomain = '';
 
+        // ── URL parameter UI controls ──
+        var urlParams = new URLSearchParams(window.location.search);
+        var paramHideSecScore = urlParams.has('hideSecScore');
+        var paramHideSummary = urlParams.has('hideDomainSummary');
+        var paramOnly = urlParams.has('Only') ? urlParams.get('Only').toLowerCase().split(',').map(function (s) { return s.trim(); }).filter(Boolean) : [];
+        // Map friendly names to data-tab values
+        var tabNameMap = { whois: 'whois', dns: 'dns', email: 'email', ssl: 'ssl', subdomains: 'subdomains', security: 'security' };
+        var paramOnlyTabs = paramOnly.map(function (n) { return tabNameMap[n] || n; }).filter(function (t) { return !!tabNameMap[t] || Object.values(tabNameMap).indexOf(t) !== -1; });
+        // ?Only implies hideSecScore and hideDomainSummary
+        if (paramOnlyTabs.length > 0) {
+            paramHideSecScore = true;
+            paramHideSummary = true;
+        }
+
         // ── DNS Propagation auto-refresh ──
         var dnsPropAutoRefresh = null; // interval ID
         var dnsPropInterval = parseInt(localStorage.getItem('dnsPropInterval') || '60', 10);
@@ -1431,7 +1445,7 @@ if ($_showPortfolioIcon): ?>
                 }
                 geoHtml += '</table></div></div>';
                 document.getElementById('parsedFields').innerHTML += geoHtml;
-                document.getElementById('parsedFields').style.display = '';
+                if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
             }
 
             // Formatted WHOIS
@@ -1628,7 +1642,7 @@ if ($_showPortfolioIcon): ?>
                 });
                 rcHtml += '</ol></div></div>';
                 document.getElementById('parsedFields').innerHTML += rcHtml;
-                document.getElementById('parsedFields').style.display = '';
+                if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
             }
 
             // HTTP Versions (Issue #112)
@@ -1660,7 +1674,7 @@ if ($_showPortfolioIcon): ?>
                 rtHtml += '<tr><td class="fw-bold">Total</td><td>' + rt.total_ms + ' ms</td></tr>';
                 rtHtml += '</table></div></div>';
                 document.getElementById('parsedFields').innerHTML += rtHtml;
-                document.getElementById('parsedFields').style.display = '';
+                if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
             }
 
             // NS Diversity (Issue #115)
@@ -1707,7 +1721,7 @@ if ($_showPortfolioIcon): ?>
             }
 
             // Security Score (Issue #128, #175)
-            if (data.security_score) {
+            if (data.security_score && !paramHideSecScore) {
                 var ss = data.security_score;
                 var ssColor = ss.grade <= 'B' ? 'success' : (ss.grade <= 'D' ? 'warning' : 'danger');
 
@@ -1744,7 +1758,7 @@ if ($_showPortfolioIcon): ?>
                     '<div><strong>Security Score</strong><br><small class="text-muted">' + ss.passed + ' of ' + ss.total + ' checks passed</small>' +
                     '<div class="progress mt-1" style="height:6px;width:200px"><div class="progress-bar bg-' + ssColor + '" style="width:' + ss.score + '%"></div></div>' + sparkline + '</div></div></div>';
                 document.getElementById('parsedFields').innerHTML = ssHtml + document.getElementById('parsedFields').innerHTML;
-                document.getElementById('parsedFields').style.display = '';
+                if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
 
                 // Security details tab (Issue #175)
                 if (ss.details && ss.details.length) {
@@ -1888,6 +1902,23 @@ if ($_showPortfolioIcon): ?>
             document.getElementById('actionButtons').style.cssText = '';
             isRawView = false;
             updateToggleBtn();
+
+            // ── URL param: ?Only — filter visible tabs ──
+            if (paramOnlyTabs.length > 0) {
+                document.querySelectorAll('#resultTabs .nav-item').forEach(function (item) {
+                    var link = item.querySelector('.nav-link');
+                    if (link && paramOnlyTabs.indexOf(link.dataset.tab) === -1) {
+                        item.style.display = 'none';
+                    }
+                });
+                // Hide tab bar entirely if only one tab
+                if (paramOnlyTabs.length === 1) {
+                    document.getElementById('resultTabs').style.display = 'none';
+                }
+                // Focus the first allowed tab
+                var firstTab = document.querySelector('#resultTabs .nav-link[data-tab="' + paramOnlyTabs[0] + '"]');
+                if (firstTab) firstTab.click();
+            }
         }
 
         // ── Result tabs ──
