@@ -181,18 +181,10 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                         <li><button class="dropdown-item" type="button" data-lang="de" role="menuitem">Deutsch</button></li>
                     </ul>
                 </div>
-                <!-- Theme selector -->
-                <div class="dropdown">
-                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="themeToggle" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Change theme" title="Change theme">
-                        <i class="bi bi-sun-fill" id="themeIcon"></i>
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="themeToggle" role="menu">
-                        <li><button class="dropdown-item" type="button" data-theme-value="auto" role="menuitem"><i class="bi bi-circle-half me-2"></i><span data-i18n="theme_auto">Auto</span></button></li>
-                        <li><button class="dropdown-item" type="button" data-theme-value="light" role="menuitem"><i class="bi bi-sun-fill me-2"></i><span data-i18n="theme_light">Light</span></button></li>
-                        <li><button class="dropdown-item" type="button" data-theme-value="dark" role="menuitem"><i class="bi bi-moon-fill me-2"></i><span data-i18n="theme_dark">Dark</span></button></li>
-                        <li><button class="dropdown-item" type="button" data-theme-value="colourblind" role="menuitem"><i class="bi bi-eye-fill me-2"></i><span data-i18n="theme_colourblind">Colourblind</span></button></li>
-                    </ul>
-                </div>
+                <!-- Settings button (Issue #181) -->
+                <button class="btn btn-sm btn-outline-secondary" type="button" id="settingsBtn" data-bs-toggle="modal" data-bs-target="#settingsModal" aria-label="Settings" title="Settings">
+                    <i class="bi bi-gear-fill" id="themeIcon"></i>
+                </button>
             </div>
         </div>
 
@@ -353,6 +345,60 @@ if ($_showPortfolioIcon): ?>
             <button class="btn btn-outline-secondary btn-sm" id="exportJsonBtn" aria-label="Export bulk results as JSON"><i class="bi bi-filetype-json" aria-hidden="true"></i> Export JSON</button>
         </div>
     </main>
+
+    <!-- Settings Modal (Issue #181) -->
+    <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="settingsModalLabel"><i class="bi bi-gear-fill me-2"></i>Settings</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Theme -->
+                    <h6 class="fw-bold mb-2"><i class="bi bi-palette me-1"></i>Theme</h6>
+                    <div class="btn-group w-100 mb-4" role="group" aria-label="Theme selection">
+                        <button type="button" class="btn btn-outline-secondary" data-theme-value="auto"><i class="bi bi-circle-half me-1"></i>Auto</button>
+                        <button type="button" class="btn btn-outline-secondary" data-theme-value="light"><i class="bi bi-sun-fill me-1"></i>Light</button>
+                        <button type="button" class="btn btn-outline-secondary" data-theme-value="dark"><i class="bi bi-moon-fill me-1"></i>Dark</button>
+                        <button type="button" class="btn btn-outline-secondary" data-theme-value="colourblind"><i class="bi bi-eye-fill me-1"></i>Colourblind</button>
+                    </div>
+
+                    <!-- Default View Mode -->
+                    <h6 class="fw-bold mb-2"><i class="bi bi-layout-text-window me-1"></i>Default View Mode</h6>
+                    <p class="text-muted small mb-2">These defaults apply when no URL parameters are specified.</p>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="settingHideSecScore">
+                        <label class="form-check-label" for="settingHideSecScore">Hide Security Score</label>
+                    </div>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="settingHideSummary">
+                        <label class="form-check-label" for="settingHideSummary">Hide Domain Summary</label>
+                    </div>
+
+                    <label class="form-label fw-bold small" for="settingDefaultTabs">Default Tabs</label>
+                    <p class="text-muted small mb-2">Select which tabs to show. Leave all checked for the full view.</p>
+                    <div class="row row-cols-2 g-2 mb-3" id="settingDefaultTabs">
+                        <div class="col"><div class="form-check"><input class="form-check-input setting-tab-check" type="checkbox" value="whois" id="stWhois" checked><label class="form-check-label" for="stWhois">WHOIS</label></div></div>
+                        <div class="col"><div class="form-check"><input class="form-check-input setting-tab-check" type="checkbox" value="dns" id="stDns" checked><label class="form-check-label" for="stDns">DNS Records</label></div></div>
+                        <div class="col"><div class="form-check"><input class="form-check-input setting-tab-check" type="checkbox" value="email" id="stEmail" checked><label class="form-check-label" for="stEmail">Email Security</label></div></div>
+                        <div class="col"><div class="form-check"><input class="form-check-input setting-tab-check" type="checkbox" value="ssl" id="stSsl" checked><label class="form-check-label" for="stSsl">SSL/TLS</label></div></div>
+                        <div class="col"><div class="form-check"><input class="form-check-input setting-tab-check" type="checkbox" value="subdomains" id="stSubs" checked><label class="form-check-label" for="stSubs">Subdomains</label></div></div>
+                        <div class="col"><div class="form-check"><input class="form-check-input setting-tab-check" type="checkbox" value="security" id="stSec" checked><label class="form-check-label" for="stSec">Security</label></div></div>
+                    </div>
+
+                    <div class="alert alert-info small mb-0">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Settings are saved in your browser. <span class="text-muted">When user accounts are available, settings will sync to your profile.</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="settingsReset"><i class="bi bi-arrow-counterclockwise me-1"></i>Reset to Defaults</button>
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Footer -->
     <?php $appName = $pageTitle; require __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'footer.php'; ?>
@@ -619,13 +665,25 @@ if ($_showPortfolioIcon): ?>
         // Load initial language
         loadLanguage(currentLang);
 
-        // ── Theme selector (Auto / Light / Dark / Colourblind) ──
+        // ── Settings & Theme (Issue #181) ──
         var themeIcon = document.getElementById('themeIcon');
         var theme = localStorage.getItem('theme') || 'auto';
         var systemDarkMQ = window.matchMedia('(prefers-color-scheme: dark)');
+
+        // Load saved settings as defaults (URL params override these)
+        var savedSettings = JSON.parse(localStorage.getItem('appSettings') || '{}');
+        if (!urlParams.has('hideSecScore') && savedSettings.hideSecScore) paramHideSecScore = true;
+        if (!urlParams.has('hideDomainSummary') && savedSettings.hideSummary) paramHideSummary = true;
+        if (paramOnlyTabs.length === 0 && savedSettings.defaultTabs && savedSettings.defaultTabs.length > 0 && savedSettings.defaultTabs.length < 6) {
+            paramOnlyTabs = savedSettings.defaultTabs;
+            if (savedSettings.defaultTabs.length > 0) {
+                paramHideSecScore = true;
+                paramHideSummary = true;
+            }
+        }
+
         applyTheme(theme);
 
-        // Listen for system theme changes (only affects 'auto' mode)
         systemDarkMQ.addEventListener('change', function () {
             if (theme === 'auto') applyTheme('auto');
         });
@@ -654,12 +712,54 @@ if ($_showPortfolioIcon): ?>
                 document.documentElement.setAttribute('data-bs-theme', 'light');
                 document.documentElement.removeAttribute('data-theme');
             }
-            var icons = { auto: 'bi bi-circle-half', light: 'bi bi-sun-fill', dark: 'bi bi-moon-fill', colourblind: 'bi bi-eye-fill' };
-            themeIcon.className = icons[t] || 'bi bi-circle-half';
+            themeIcon.className = 'bi bi-gear-fill';
             document.querySelectorAll('[data-theme-value]').forEach(function (item) {
                 item.classList.toggle('active', item.dataset.themeValue === t);
             });
         }
+
+        // Settings modal controls
+        function loadSettingsUI() {
+            var s = JSON.parse(localStorage.getItem('appSettings') || '{}');
+            document.getElementById('settingHideSecScore').checked = !!s.hideSecScore;
+            document.getElementById('settingHideSummary').checked = !!s.hideSummary;
+            var allTabs = ['whois', 'dns', 'email', 'ssl', 'subdomains', 'security'];
+            var savedTabs = s.defaultTabs || allTabs;
+            document.querySelectorAll('.setting-tab-check').forEach(function (cb) {
+                cb.checked = savedTabs.indexOf(cb.value) !== -1;
+            });
+        }
+
+        function saveSettings() {
+            var checkedTabs = [];
+            document.querySelectorAll('.setting-tab-check:checked').forEach(function (cb) {
+                checkedTabs.push(cb.value);
+            });
+            var s = {
+                hideSecScore: document.getElementById('settingHideSecScore').checked,
+                hideSummary: document.getElementById('settingHideSummary').checked,
+                defaultTabs: checkedTabs.length === 6 ? [] : checkedTabs, // empty = all tabs (full view)
+            };
+            localStorage.setItem('appSettings', JSON.stringify(s));
+        }
+
+        // Bind settings change events
+        document.getElementById('settingHideSecScore').addEventListener('change', saveSettings);
+        document.getElementById('settingHideSummary').addEventListener('change', saveSettings);
+        document.querySelectorAll('.setting-tab-check').forEach(function (cb) {
+            cb.addEventListener('change', saveSettings);
+        });
+
+        document.getElementById('settingsReset').addEventListener('click', function () {
+            localStorage.removeItem('appSettings');
+            localStorage.setItem('theme', 'auto');
+            theme = 'auto';
+            applyTheme('auto');
+            loadSettingsUI();
+        });
+
+        // Load settings UI when modal opens
+        document.getElementById('settingsModal').addEventListener('show.bs.modal', loadSettingsUI);
 
         // ── Lookup mode tabs (ARIA tab pattern with roving tabindex) ──
         var lookupTabs = Array.from(document.querySelectorAll('#lookupModeTabs .nav-link'));

@@ -37,7 +37,7 @@ PHP-based domain WHOIS/RDAP lookup tool with DNS records, availability detection
 - URLhaus, PhishTank, AbuseIPDB, Shodan, VirusTotal, Safe Browsing integration
 - Technology stack detection (CMS, frameworks, CDNs, analytics)
 - Robots.txt and sitemap.xml analysis
-- DNS propagation checker (Google, Cloudflare, OpenDNS, Quad9)
+- DNS propagation checker (80+ global resolvers, auto-refresh, daily auto-update from public-dns.info)
 - Aggregated security score (A-F grade, 12-check matrix)
 - Bulk domain lookup with progress indicator and file import
 - Domain comparison (side-by-side)
@@ -49,6 +49,7 @@ PHP-based domain WHOIS/RDAP lookup tool with DNS records, availability detection
 - Domain expiry watch list with notifications and ICS calendar export
 - RSS feed for watched domain changes
 - Copy to clipboard / download as .txt
+- Settings panel with theme selection and default view mode
 - Dark mode, light mode, colourblind-safe theme
 - Multi-language support (English, Spanish, French, German)
 - Keyboard shortcuts (press ? for help)
@@ -92,6 +93,7 @@ public_html_beta/
 │   └── api/openapi.yaml  # OpenAPI 3.0 specification
 ├── includes/
 │   ├── config.php     # Configuration
+│   ├── dns_resolvers.php  # DNS propagation resolver list
 │   ├── session_config.php  # Session/CSRF setup
 │   ├── functions.php  # Core lookup functions
 │   └── infoAppVer.php # Version metadata
@@ -112,6 +114,18 @@ POST /lookup
 Header: X-API-Key: your-key-here
 Body: domain=example.com
 ```
+
+## URL Parameters
+
+Optional parameters for focused or embedded views:
+
+| Parameter | Description |
+| --- | --- |
+| `?hideSecScore` | Hide the Security Score card |
+| `?hideDomainSummary` | Hide the domain summary section |
+| `?Only=tab1,tab2` | Show only specified tabs: `whois`, `dns`, `email`, `ssl`, `subdomains`, `security` |
+
+Using `?Only` automatically hides the security score and domain summary. A single tab hides the tab bar entirely. These defaults can also be configured via the Settings panel (gear icon).
 
 ## Requirements
 
