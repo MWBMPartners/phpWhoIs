@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [db72d54] - 2026-03-24
+
+**fix: rewrite RSS feed to parse CHANGELOG.md instead of empty watch list**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`db72d54`](https://github.com/MWBMPartners/phpWhoIs/commit/db72d54d968d0ca8ce8ecc5d8c9a516740068453)
+
+### Changed files
+
+- `feed.php`
+
+
 ## [4b99553] - 2026-03-24
 
 **feat: restrict API Documentation link to logged-in developer accounts (#172)**
