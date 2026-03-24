@@ -134,6 +134,17 @@ if (isset($_POST['domain'])) {
     $rawDomainInput = trim((string)$_POST['domain']);
 }
 
+// DNS propagation-only refresh (lightweight, skips full lookup)
+if (!empty($_POST['dns_propagation_only'])) {
+    $domain = sanitizeDomainInput($rawDomainInput);
+    if (!$domain || !isValidDomain($domain)) {
+        sendError('Invalid domain name.');
+    }
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['dns_propagation' => checkDnsPropagation($domain)]);
+    exit;
+}
+
 // ─── Check if input is an IP address (Issue #45) ───
 $isIpLookup = isIpAddress($rawDomainInput);
 $reverseDns = null;

@@ -441,6 +441,122 @@ if ($_showPortfolioIcon): ?>
         }
         var currentDomain = '';
 
+        // ── DNS Propagation auto-refresh ──
+        var dnsPropAutoRefresh = null; // interval ID
+        var dnsPropInterval = parseInt(localStorage.getItem('dnsPropInterval') || '60', 10);
+        var dnsPropEnabled = localStorage.getItem('dnsPropAutoRefresh') === 'true';
+
+        function renderDnsPropagation(dp) {
+            var dpHtml = '<div class="card mt-3" id="dnsPropCard"><div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">' +
+                '<div><strong><i class="bi bi-globe me-1"></i>DNS Propagation</strong>' +
+                (dp.consistent ? ' <span class="badge bg-success">Consistent</span>' : ' <span class="badge bg-warning">Inconsistent</span>') +
+                ' <small class="text-muted">(' + dp.resolvers.length + ' servers)</small></div>' +
+                '<div class="d-flex align-items-center gap-2">' +
+                '<small id="dnsPropLastRefresh" class="text-muted"></small>' +
+                '<div class="form-check form-switch mb-0">' +
+                '<input class="form-check-input" type="checkbox" id="dnsPropAutoToggle"' + (dnsPropEnabled ? ' checked' : '') + ' title="Auto-refresh DNS propagation">' +
+                '<label class="form-check-label small" for="dnsPropAutoToggle">Auto <select id="dnsPropIntervalSelect" class="form-select form-select-sm d-inline-block" style="width:auto;padding:0 1.5rem 0 0.3rem;font-size:0.75rem;height:1.5rem;">' +
+                '<option value="15"' + (dnsPropInterval === 15 ? ' selected' : '') + '>15s</option>' +
+                '<option value="30"' + (dnsPropInterval === 30 ? ' selected' : '') + '>30s</option>' +
+                '<option value="60"' + (dnsPropInterval === 60 ? ' selected' : '') + '>60s</option>' +
+                '<option value="120"' + (dnsPropInterval === 120 ? ' selected' : '') + '>2m</option>' +
+                '<option value="300"' + (dnsPropInterval === 300 ? ' selected' : '') + '>5m</option>' +
+                '</select></label></div>' +
+                '<button class="btn btn-sm btn-outline-secondary" id="dnsPropManualRefresh" title="Refresh now"><i class="bi bi-arrow-clockwise"></i></button>' +
+                '</div></div>';
+            dpHtml += '<div class="card-body"><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Resolver</th><th>Location</th><th>IP</th><th>Answer</th></tr></thead><tbody>';
+            dp.resolvers.forEach(function (r) {
+                var typeIcon = '';
+                if (r.type === 'security') {
+                    typeIcon = ' <i class="bi bi-shield-check text-info" title="Security / Malware filtering"></i>';
+                } else if (r.type === 'family') {
+                    typeIcon = ' <i class="bi bi-people-fill text-warning" title="Parental Control / Family filter"></i>';
+                }
+                var flag = '';
+                if (r.country_code && r.country_code !== 'GLOBAL') {
+                    var cc = r.country_code.toUpperCase();
+                    flag = String.fromCodePoint(0x1F1E6 + cc.charCodeAt(0) - 65, 0x1F1E6 + cc.charCodeAt(1) - 65) + ' ';
+                } else if (r.country_code === 'GLOBAL') {
+                    flag = '\uD83C\uDF10 ';
+                }
+                dpHtml += '<tr><td class="fw-bold">' + esc(r.resolver) + typeIcon + '</td><td class="text-nowrap">' + flag + (r.location ? '<small>' + esc(r.location) + '</small>' : '') + '</td><td><code>' + esc(r.ip) + '</code></td><td>' + (r.answers.length ? r.answers.map(esc).join(', ') : '<span class="text-muted">No answer</span>') + '</td></tr>';
+            });
+            dpHtml += '</tbody></table></div></div></div>';
+            return dpHtml;
+        }
+
+        function refreshDnsPropagation() {
+            if (!currentDomain) return;
+            var fd = new FormData();
+            fd.append('domain', currentDomain);
+            fd.append('csrf_token', CSRF);
+            fd.append('dns_propagation_only', '1');
+            var refreshBtn = document.getElementById('dnsPropManualRefresh');
+            if (refreshBtn) refreshBtn.classList.add('disabled');
+            fetch('lookup?nocache=' + Date.now(), { method: 'POST', body: fd })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.dns_propagation) {
+                        var card = document.getElementById('dnsPropCard');
+                        if (card) {
+                            var parent = card.parentNode;
+                            var tmp = document.createElement('div');
+                            tmp.innerHTML = renderDnsPropagation(data.dns_propagation);
+                            parent.replaceChild(tmp.firstChild, card);
+                            bindDnsPropControls();
+                        }
+                        var ts = document.getElementById('dnsPropLastRefresh');
+                        if (ts) ts.textContent = 'Updated ' + new Date().toLocaleTimeString();
+                    }
+                })
+                .catch(function () {})
+                .finally(function () {
+                    var btn = document.getElementById('dnsPropManualRefresh');
+                    if (btn) btn.classList.remove('disabled');
+                });
+        }
+
+        function startDnsPropAutoRefresh() {
+            stopDnsPropAutoRefresh();
+            if (dnsPropEnabled && currentDomain) {
+                dnsPropAutoRefresh = setInterval(refreshDnsPropagation, dnsPropInterval * 1000);
+            }
+        }
+
+        function stopDnsPropAutoRefresh() {
+            if (dnsPropAutoRefresh) {
+                clearInterval(dnsPropAutoRefresh);
+                dnsPropAutoRefresh = null;
+            }
+        }
+
+        function bindDnsPropControls() {
+            var toggle = document.getElementById('dnsPropAutoToggle');
+            var select = document.getElementById('dnsPropIntervalSelect');
+            var manualBtn = document.getElementById('dnsPropManualRefresh');
+            if (toggle) {
+                toggle.onchange = function () {
+                    dnsPropEnabled = this.checked;
+                    localStorage.setItem('dnsPropAutoRefresh', dnsPropEnabled);
+                    if (dnsPropEnabled) {
+                        startDnsPropAutoRefresh();
+                    } else {
+                        stopDnsPropAutoRefresh();
+                    }
+                };
+            }
+            if (select) {
+                select.onchange = function () {
+                    dnsPropInterval = parseInt(this.value, 10);
+                    localStorage.setItem('dnsPropInterval', dnsPropInterval);
+                    if (dnsPropEnabled) startDnsPropAutoRefresh();
+                };
+            }
+            if (manualBtn) {
+                manualBtn.onclick = function () { refreshDnsPropagation(); };
+            }
+        }
+
         // ── i18n (Issue #59) ──
         var i18nStrings = {};
         var currentLang = localStorage.getItem('lang') || navigator.language.split('-')[0] || 'en';
@@ -1691,27 +1807,9 @@ if ($_showPortfolioIcon): ?>
 
             // DNS Propagation (Issue #126)
             if (data.dns_propagation) {
-                var dp = data.dns_propagation;
-                var dpHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-globe me-1"></i>DNS Propagation</strong>' + (dp.consistent ? ' <span class="badge bg-success">Consistent</span>' : ' <span class="badge bg-warning">Inconsistent</span>') + ' <small class="text-muted">(' + dp.resolvers.length + ' servers)</small></div><div class="card-body"><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Resolver</th><th>Location</th><th>IP</th><th>Answer</th></tr></thead><tbody>';
-                dp.resolvers.forEach(function (r) {
-                    var typeIcon = '';
-                    if (r.type === 'security') {
-                        typeIcon = ' <i class="bi bi-shield-check text-info" title="Security / Malware filtering"></i>';
-                    } else if (r.type === 'family') {
-                        typeIcon = ' <i class="bi bi-people-fill text-warning" title="Parental Control / Family filter"></i>';
-                    }
-                    // Convert ISO country code to emoji flag (regional indicator symbols)
-                    var flag = '';
-                    if (r.country_code && r.country_code !== 'GLOBAL') {
-                        var cc = r.country_code.toUpperCase();
-                        flag = String.fromCodePoint(0x1F1E6 + cc.charCodeAt(0) - 65, 0x1F1E6 + cc.charCodeAt(1) - 65) + ' ';
-                    } else if (r.country_code === 'GLOBAL') {
-                        flag = '\uD83C\uDF10 '; // globe emoji
-                    }
-                    dpHtml += '<tr><td class="fw-bold">' + esc(r.resolver) + typeIcon + '</td><td class="text-nowrap">' + flag + (r.location ? '<small>' + esc(r.location) + '</small>' : '') + '</td><td><code>' + esc(r.ip) + '</code></td><td>' + (r.answers.length ? r.answers.map(esc).join(', ') : '<span class="text-muted">No answer</span>') + '</td></tr>';
-                });
-                dpHtml += '</tbody></table></div></div></div>';
-                document.getElementById('dnsResultPane').innerHTML += dpHtml;
+                document.getElementById('dnsResultPane').innerHTML += renderDnsPropagation(data.dns_propagation);
+                bindDnsPropControls();
+                if (dnsPropEnabled) startDnsPropAutoRefresh();
             }
 
             // Multi-DNSBL (Issue #133)
@@ -2005,6 +2103,7 @@ if ($_showPortfolioIcon): ?>
             document.getElementById('whoisResultPane').style.display = '';
             document.getElementById('result').innerHTML = '';
             document.getElementById('dnsResultPane').innerHTML = '';
+            stopDnsPropAutoRefresh();
             document.getElementById('emailSecurityPane').innerHTML = '';
             document.getElementById('sslPane').innerHTML = '';
             document.getElementById('subdomainsPane').innerHTML = '';
