@@ -6,7 +6,7 @@
  * CHANGELOG.md. Each changelog entry becomes an RSS item.
  */
 
-header('Content-Type: application/rss+xml; charset=utf-8');
+header('Content-Type: application/xml; charset=utf-8');
 header('Cache-Control: public, max-age=3600');
 header_remove('X-Powered-By');
 
