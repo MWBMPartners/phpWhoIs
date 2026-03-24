@@ -254,7 +254,11 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
                 <button class="btn btn-sm btn-link text-muted p-0" id="clearHistory" title="Clear history" aria-label="Clear lookup history">
                     <i class="bi bi-x-circle" aria-hidden="true"></i>
                 </button>
-<?php if (!empty($config['portfolio_enabled'])): ?>
+<?php
+// Portfolio icon: requires config enabled + user logged in (Issue #171)
+// $_SESSION['logged_in'] set by user account system (Issue #163)
+$_showPortfolioIcon = !empty($config['portfolio_enabled']) && !empty($_SESSION['logged_in']);
+if ($_showPortfolioIcon): ?>
                 <a href="portfolio" class="btn btn-sm btn-link text-muted p-0 ms-1" id="historyPortfolioLink" title="Domain Portfolio" aria-label="Domain Portfolio" style="display:none;">
                     <i class="bi bi-collection" aria-hidden="true"></i>
                 </a>
