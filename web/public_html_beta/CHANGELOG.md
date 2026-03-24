@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [79dcee8] - 2026-03-24T21:28:29Z
+
+**feat: add type field to DNS resolvers with icons for security/family filters**
+
+- Commit: [`79dcee8`](https://github.com/MWBMPartners/phpWhoIs/commit/79dcee8f7eebda6596d5a60bfe1fa9c6d29d6abe)
+
+
 ## [13d1c3a] - 2026-03-24T21:23:08Z
 
 **feat: add unique IDs to DNS resolvers, clean names, expand parental control servers**
