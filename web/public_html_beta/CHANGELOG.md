@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [fa107e9] - 2026-03-24
+
+**feat: split RSS into changelog feed and gated watchlist feed (#173)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`fa107e9`](https://github.com/MWBMPartners/phpWhoIs/commit/fa107e91ff5f42b38ccc5f7e7129942a087be91a)
+
+### Changed files
+
+- `feed-watchlist.php`
+- `includes/footer.php`
+- `index.php`
+
+
 ## [db72d54] - 2026-03-24
 
 **fix: rewrite RSS feed to parse CHANGELOG.md instead of empty watch list**
