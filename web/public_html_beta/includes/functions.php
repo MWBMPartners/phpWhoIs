@@ -2317,18 +2317,52 @@ function checkDnsPropagation(string $domain): array {
     global $config;
 
     $resolvers = $config['dns_resolvers'] ?? [];
-
-    $results = [];
-    foreach ($resolvers as $resolver) {
-        if (empty($resolver['enabled'])) {
-            continue;
+    $enabled = [];
+    foreach ($resolvers as $r) {
+        if (!empty($r['enabled'])) {
+            $enabled[] = $r;
         }
-        $name = $resolver['name'];
-        $ip = $resolver['ip'];
-        $location = $resolver['location'] ?? '';
-        $output = @shell_exec('dig @' . escapeshellarg($ip) . ' +short A ' . escapeshellarg($domain) . ' 2>/dev/null');
+    }
+
+    // Run all dig queries in parallel using temp files
+    $tmpDir = sys_get_temp_dir();
+    $tmpFiles = [];
+    foreach ($enabled as $i => $resolver) {
+        $tmpFile = $tmpDir . DIRECTORY_SEPARATOR . 'dns_prop_' . getmypid() . '_' . $i;
+        $tmpFiles[$i] = $tmpFile;
+        $cmd = 'dig @' . escapeshellarg($resolver['ip']) . ' +short +time=2 +tries=1 A '
+             . escapeshellarg($domain) . ' > ' . escapeshellarg($tmpFile) . ' 2>/dev/null &';
+        @exec($cmd);
+    }
+
+    // Wait for all background processes (max 4s total)
+    usleep(500000);
+    $waited = 0;
+    while ($waited < 35) {
+        $allDone = true;
+        foreach ($tmpFiles as $f) {
+            if (!file_exists($f)) {
+                $allDone = false;
+                break;
+            }
+        }
+        if ($allDone) break;
+        usleep(100000);
+        $waited++;
+    }
+
+    // Collect results
+    $results = [];
+    foreach ($enabled as $i => $resolver) {
+        $output = @file_get_contents($tmpFiles[$i]);
+        @unlink($tmpFiles[$i]);
         $ips = $output ? array_filter(array_map('trim', explode("\n", trim($output)))) : [];
-        $results[] = ['resolver' => $name, 'ip' => $ip, 'location' => $location, 'answers' => $ips];
+        $results[] = [
+            'resolver' => $resolver['name'],
+            'ip' => $resolver['ip'],
+            'location' => $resolver['location'] ?? '',
+            'answers' => $ips,
+        ];
     }
 
     // Check consistency
