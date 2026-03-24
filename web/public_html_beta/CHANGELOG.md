@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [0da5eff] - 2026-03-24
+
+**fix: gate manifest.json and service worker to production only**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`0da5eff`](https://github.com/MWBMPartners/phpWhoIs/commit/0da5eff15b0bfc052913c0794d0f86080208c836)
+
+### Changed files
+
+- `index.php`
+
+
 ## [fa107e9] - 2026-03-24
 
 **feat: split RSS into changelog feed and gated watchlist feed (#173)**
