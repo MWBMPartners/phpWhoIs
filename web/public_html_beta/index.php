@@ -150,13 +150,15 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         <div class="alert alert-warning text-center m-3">This tool requires JavaScript to perform WHOIS lookups. Please enable JavaScript in your browser settings.</div>
     </noscript>
 
-    <!-- PWA install banner (Issue #170) -->
+    <?php if (empty($app["Application"]["Version"]["Development"]["Status"])): ?>
+    <!-- PWA install banner — production only (Issue #170) -->
     <div id="pwaInstallBanner" class="alert alert-primary alert-dismissible d-flex align-items-center gap-2 m-0 py-2 px-3 rounded-0 small" style="display:none;" role="alert">
         <i class="bi bi-download" aria-hidden="true"></i>
         <span>Install <strong><?php echo htmlspecialchars($pageTitle); ?></strong> for quick access</span>
         <button class="btn btn-primary btn-sm ms-auto" id="pwaInstallBtn">Install</button>
         <button type="button" class="btn-close ms-2" id="pwaInstallDismiss" aria-label="Dismiss"></button>
     </div>
+    <?php endif; ?>
 
     <!-- Header -->
     <header class="header-form">
@@ -1807,17 +1809,16 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         navigator.serviceWorker.register('sw.js').catch(function () {});
     }
 
-    // ── PWA install prompt (Issue #170) ──
+    // ── PWA install prompt — production only (Issue #170) ──
+    <?php if (empty($app["Application"]["Version"]["Development"]["Status"])): ?>
     (function () {
         var deferredPrompt = null;
         var banner = document.getElementById('pwaInstallBanner');
         var installBtn = document.getElementById('pwaInstallBtn');
         var dismissBtn = document.getElementById('pwaInstallDismiss');
 
-        // Don't show if already installed (standalone mode)
         if (window.matchMedia('(display-mode: standalone)').matches) return;
 
-        // Don't show if dismissed within the last 7 days
         var dismissed = localStorage.getItem('pwaInstallDismissed');
         if (dismissed && (Date.now() - parseInt(dismissed)) < 7 * 24 * 60 * 60 * 1000) return;
 
@@ -1842,12 +1843,12 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
             deferredPrompt = null;
         });
 
-        // Hide if app gets installed while banner is showing
         window.addEventListener('appinstalled', function () {
             banner.style.display = 'none';
             deferredPrompt = null;
         });
     })();
+    <?php endif; ?>
     </script>
 </body>
 </html>
