@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [d510cba] - 2026-03-24
+
+**fix: update content type header for RSS feed to application/xml**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`d510cba`](https://github.com/MWBMPartners/phpWhoIs/commit/d510cba46e577e1b4bcaa4a3543e73e7c7ca41df)
+
+### Changed files
+
+- `feed.php`
+
+
 ## [be32c48] - 2026-03-24
 
 **feat: add XSL stylesheet for RSS feed and update footer link to open in new tab**
