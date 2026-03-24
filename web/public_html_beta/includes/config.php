@@ -36,7 +36,6 @@ $config = [
                 'open_in_new_tab' => true,
             ],
         ],
-],
 
     // ── Enhanced Security Features ──
     // These features activate automatically when a valid API key is provided.
