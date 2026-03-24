@@ -464,22 +464,24 @@ if ($_showPortfolioIcon): ?>
                 '</select></label></div>' +
                 '<button class="btn btn-sm btn-outline-secondary" id="dnsPropManualRefresh" title="Refresh now"><i class="bi bi-arrow-clockwise"></i></button>' +
                 '</div></div>';
-            dpHtml += '<div class="card-body"><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Resolver</th><th>Location</th><th>IP</th><th>Answer</th></tr></thead><tbody>';
+            dpHtml += '<div class="card-body"><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Resolver</th><th>Type</th><th>IP</th><th>Answer</th></tr></thead><tbody>';
             dp.resolvers.forEach(function (r) {
-                var typeIcon = '';
-                if (r.type === 'security') {
-                    typeIcon = ' <i class="bi bi-shield-check text-info" title="Security / Malware filtering"></i>';
-                } else if (r.type === 'family') {
-                    typeIcon = ' <i class="bi bi-people-fill text-warning" title="Parental Control / Family filter"></i>';
-                }
+                // Flag suffix
                 var flag = '';
                 if (r.country_code && r.country_code !== 'GLOBAL') {
                     var cc = r.country_code.toUpperCase();
-                    flag = String.fromCodePoint(0x1F1E6 + cc.charCodeAt(0) - 65, 0x1F1E6 + cc.charCodeAt(1) - 65) + ' ';
+                    flag = ' ' + String.fromCodePoint(0x1F1E6 + cc.charCodeAt(0) - 65, 0x1F1E6 + cc.charCodeAt(1) - 65);
                 } else if (r.country_code === 'GLOBAL') {
-                    flag = '\uD83C\uDF10 ';
+                    flag = ' \uD83C\uDF10';
                 }
-                dpHtml += '<tr><td class="fw-bold">' + esc(r.resolver) + typeIcon + '</td><td class="text-nowrap">' + flag + (r.location ? '<small>' + esc(r.location) + '</small>' : '') + '</td><td><code>' + esc(r.ip) + '</code></td><td>' + (r.answers.length ? r.answers.map(esc).join(', ') : '<span class="text-muted">No answer</span>') + '</td></tr>';
+                // Type column
+                var typeBadge = '';
+                if (r.type === 'security') {
+                    typeBadge = '<span class="badge bg-info"><i class="bi bi-shield-check me-1"></i>Security</span>';
+                } else if (r.type === 'family') {
+                    typeBadge = '<span class="badge bg-warning text-dark"><i class="bi bi-people-fill me-1"></i>Family</span>';
+                }
+                dpHtml += '<tr><td class="fw-bold text-nowrap">' + esc(r.resolver) + flag + '</td><td>' + typeBadge + '</td><td><code>' + esc(r.ip) + '</code></td><td>' + (r.answers.length ? r.answers.map(esc).join(', ') : '<span class="text-muted">No answer</span>') + '</td></tr>';
             });
             dpHtml += '</tbody></table></div></div></div>';
             return dpHtml;
