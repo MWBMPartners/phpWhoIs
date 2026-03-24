@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [ada8b8b] - 2026-03-24
+
+**fix: clean stale full-URL entries from recent history on page load (#177)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`ada8b8b`](https://github.com/MWBMPartners/phpWhoIs/commit/ada8b8b02d3dd1edac26ce9aeeb0655e13f4df7e)
+
+### Changed files
+
+- `index.php`
+
+
 ## [c715e56] - 2026-03-24
 
 **fix: expand shorthand JS/PHP notation to full multiline, fix multiple UI bugs**
