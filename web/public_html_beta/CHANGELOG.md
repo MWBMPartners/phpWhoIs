@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [290d5fa] - 2026-03-24T22:02:45Z
+
+**feat: add GitHub Action to auto-update DNS resolvers from public-dns.info**
+
+- Commit: [`290d5fa`](https://github.com/MWBMPartners/phpWhoIs/commit/290d5fa68d601ff926c54777e301138e119c7d75)
+
+
 ## [26129b2] - 2026-03-24T21:54:21Z
 
 **fix: move flag to resolver name suffix, replace location column with type column**
