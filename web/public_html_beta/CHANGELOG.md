@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [bd134ab] - 2026-03-24
+
+**feat: enhance content security policy and add DNT handling for registrar icons**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`bd134ab`](https://github.com/MWBMPartners/phpWhoIs/commit/bd134ab079fc3b8fe660c7bc212e8491e8d4e1dd)
+
+### Changed files
+
+- `index.php`
+
+
 ## [63eeace] - 2026-03-24
 
 **feat: add CloudFlare as a registrar and update Namecheap and GoDaddy configurations**
