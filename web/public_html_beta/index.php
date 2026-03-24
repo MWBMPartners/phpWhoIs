@@ -1634,8 +1634,8 @@ if ($_showPortfolioIcon): ?>
                     var secHtml = '<div class="card"><div class="card-header d-flex align-items-center justify-content-between">' +
                         '<strong><i class="bi bi-shield-check me-1"></i>Security Checks</strong>' +
                         '<span class="badge bg-' + ssColor + '">' + ss.grade + ' — ' + ss.score + '%</span></div>' +
-                        '<div class="card-body"><table class="table table-sm mb-0">';
-                    secHtml += '<thead><tr><th>Check</th><th>Status</th><th>Details</th><th>Guide</th></tr></thead><tbody>';
+                        '<div class="card-body"><div class="table-responsive"><table class="table table-sm mb-0">';
+                    secHtml += '<thead><tr><th>Check</th><th>Status</th><th>Details</th><th class="text-nowrap">Guide</th></tr></thead><tbody>';
                     ss.details.forEach(function (d) {
                         var icon, badge;
                         if (d.status === 'pass') {
@@ -1658,7 +1658,7 @@ if ($_showPortfolioIcon): ?>
                         }
                         secHtml += '</td></tr>';
                     });
-                    secHtml += '</tbody></table></div></div>';
+                    secHtml += '</tbody></table></div></div></div>';
                     document.getElementById('securityPane').innerHTML = secHtml;
                 }
             }
