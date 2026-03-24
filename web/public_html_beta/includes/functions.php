@@ -2361,15 +2361,18 @@ function checkDnsPropagation(string $domain): array {
             'id' => $resolver['id'] ?? $i,
             'resolver' => $resolver['name'],
             'ip' => $resolver['ip'],
+            'country_code' => $resolver['country_code'] ?? '',
             'location' => $resolver['location'] ?? '',
             'type' => $resolver['type'] ?? 'standard',
             'answers' => $ips,
         ];
     }
 
-    // Check consistency
+    // Check consistency — sort each answer set so different ordering is not flagged
     $allAnswers = array_map(function ($r) {
-        return implode(',', $r['answers']);
+        $sorted = $r['answers'];
+        sort($sorted);
+        return implode(',', $sorted);
     }, $results);
     $consistent = count(array_unique($allAnswers)) <= 1;
 

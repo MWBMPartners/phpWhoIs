@@ -1700,7 +1700,15 @@ if ($_showPortfolioIcon): ?>
                     } else if (r.type === 'family') {
                         typeIcon = ' <i class="bi bi-people-fill text-warning" title="Parental Control / Family filter"></i>';
                     }
-                    dpHtml += '<tr><td class="fw-bold">' + esc(r.resolver) + typeIcon + '</td><td>' + (r.location ? '<small>' + esc(r.location) + '</small>' : '') + '</td><td><code>' + esc(r.ip) + '</code></td><td>' + (r.answers.length ? r.answers.map(esc).join(', ') : '<span class="text-muted">No answer</span>') + '</td></tr>';
+                    // Convert ISO country code to emoji flag (regional indicator symbols)
+                    var flag = '';
+                    if (r.country_code && r.country_code !== 'GLOBAL') {
+                        var cc = r.country_code.toUpperCase();
+                        flag = String.fromCodePoint(0x1F1E6 + cc.charCodeAt(0) - 65, 0x1F1E6 + cc.charCodeAt(1) - 65) + ' ';
+                    } else if (r.country_code === 'GLOBAL') {
+                        flag = '\uD83C\uDF10 '; // globe emoji
+                    }
+                    dpHtml += '<tr><td class="fw-bold">' + esc(r.resolver) + typeIcon + '</td><td class="text-nowrap">' + flag + (r.location ? '<small>' + esc(r.location) + '</small>' : '') + '</td><td><code>' + esc(r.ip) + '</code></td><td>' + (r.answers.length ? r.answers.map(esc).join(', ') : '<span class="text-muted">No answer</span>') + '</td></tr>';
                 });
                 dpHtml += '</tbody></table></div></div></div>';
                 document.getElementById('dnsResultPane').innerHTML += dpHtml;
