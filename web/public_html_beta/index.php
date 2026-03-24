@@ -150,6 +150,14 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         <div class="alert alert-warning text-center m-3">This tool requires JavaScript to perform WHOIS lookups. Please enable JavaScript in your browser settings.</div>
     </noscript>
 
+    <!-- PWA install banner (Issue #170) -->
+    <div id="pwaInstallBanner" class="alert alert-primary alert-dismissible d-flex align-items-center gap-2 m-0 py-2 px-3 rounded-0 small" style="display:none;" role="alert">
+        <i class="bi bi-download" aria-hidden="true"></i>
+        <span>Install <strong><?php echo htmlspecialchars($pageTitle); ?></strong> for quick access</span>
+        <button class="btn btn-primary btn-sm ms-auto" id="pwaInstallBtn">Install</button>
+        <button type="button" class="btn-close ms-2" id="pwaInstallDismiss" aria-label="Dismiss"></button>
+    </div>
+
     <!-- Header -->
     <header class="header-form">
         <div class="position-relative text-center mb-2">
@@ -1798,6 +1806,48 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js').catch(function () {});
     }
+
+    // ── PWA install prompt (Issue #170) ──
+    (function () {
+        var deferredPrompt = null;
+        var banner = document.getElementById('pwaInstallBanner');
+        var installBtn = document.getElementById('pwaInstallBtn');
+        var dismissBtn = document.getElementById('pwaInstallDismiss');
+
+        // Don't show if already installed (standalone mode)
+        if (window.matchMedia('(display-mode: standalone)').matches) return;
+
+        // Don't show if dismissed within the last 7 days
+        var dismissed = localStorage.getItem('pwaInstallDismissed');
+        if (dismissed && (Date.now() - parseInt(dismissed)) < 7 * 24 * 60 * 60 * 1000) return;
+
+        window.addEventListener('beforeinstallprompt', function (e) {
+            e.preventDefault();
+            deferredPrompt = e;
+            banner.style.display = 'flex';
+        });
+
+        installBtn.addEventListener('click', function () {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            deferredPrompt.userChoice.then(function (result) {
+                banner.style.display = 'none';
+                deferredPrompt = null;
+            });
+        });
+
+        dismissBtn.addEventListener('click', function () {
+            banner.style.display = 'none';
+            localStorage.setItem('pwaInstallDismissed', Date.now().toString());
+            deferredPrompt = null;
+        });
+
+        // Hide if app gets installed while banner is showing
+        window.addEventListener('appinstalled', function () {
+            banner.style.display = 'none';
+            deferredPrompt = null;
+        });
+    })();
     </script>
 </body>
 </html>
