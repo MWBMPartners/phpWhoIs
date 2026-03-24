@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [4b99553] - 2026-03-24
+
+**feat: restrict API Documentation link to logged-in developer accounts (#172)**
+
+- Branch: `beta`
+- Author: Salem874
+- Commit: [`4b99553`](https://github.com/MWBMPartners/phpWhoIs/commit/4b9955360e3b3f1bf5c83a27b7408a9b63a4d5b7)
+
+### Changed files
+
+- `docs.php`
+- `includes/footer.php`
+
+
 ## [4c0cbb6] - 2026-03-24
 
 **feat: add auth gate for Portfolio link, ready for user accounts (#171)**
