@@ -90,6 +90,10 @@ return [
 
     // ── Africa / Middle East ──
     ['id' => 54, 'enabled' => true,  'name' => 'Comss.one',       'ip' => '92.38.152.163',    'country_code' => 'AE',     'location' => 'UAE',          'type' => 'standard'],
+    ['id' => 79, 'enabled' => true,  'name' => 'Cool Ideas',      'ip' => '155.93.177.13',    'country_code' => 'ZA',     'location' => 'Johannesburg', 'type' => 'standard'],
+    ['id' => 80, 'enabled' => true,  'name' => 'Vodacom',         'ip' => '41.23.234.129',    'country_code' => 'ZA',     'location' => 'Johannesburg', 'type' => 'standard'],
+    ['id' => 81, 'enabled' => true,  'name' => 'Krypton Web',     'ip' => '102.216.223.7',    'country_code' => 'ZA',     'location' => 'Cape Town',    'type' => 'standard'],
+    ['id' => 82, 'enabled' => true,  'name' => 'X-DSL',           'ip' => '41.180.82.162',    'country_code' => 'ZA',     'location' => 'Durban',       'type' => 'standard'],
 
     // ═════════════════════════════════════════════════════════════
     //  Security — malware / threat blocking (disabled by default)
