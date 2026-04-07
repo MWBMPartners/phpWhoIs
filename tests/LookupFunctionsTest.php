@@ -277,7 +277,7 @@ class LookupFunctionsTest extends TestCase
 
         $this->assertStringContainsString('EXAMPLE.COM', $result);
         $this->assertStringContainsString('active', $result);
-        $this->assertStringContainsString('Registration', $result);
+        $this->assertStringContainsString('Creation Date', $result);
         $this->assertStringContainsString('ns1.example.com', $result);
         $this->assertStringContainsString('ns2.example.com', $result);
     }
