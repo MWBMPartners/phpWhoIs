@@ -314,4 +314,97 @@ class LookupFunctionsTest extends TestCase
     {
         $this->assertNull(getCached('nonexistent-domain-' . time() . '.com'));
     }
+
+
+    // ═══════════════════════════════════════════════════════════════
+    //  TLD classification (tlds.php reference page)
+    // ═══════════════════════════════════════════════════════════════
+
+    public function testClassifyTldGeneric(): void
+    {
+        $this->assertEquals('generic', classifyTld('com'));
+        $this->assertEquals('generic', classifyTld('net'));
+        $this->assertEquals('generic', classifyTld('org'));
+        $this->assertEquals('generic', classifyTld('info'));
+        $this->assertEquals('generic', classifyTld('.COM'));
+    }
+
+    public function testClassifyTldCountry(): void
+    {
+        $this->assertEquals('country', classifyTld('uk'));
+        $this->assertEquals('country', classifyTld('de'));
+        $this->assertEquals('country', classifyTld('jp'));
+        // IDN ccTLD (Russian Federation: рф)
+        $this->assertEquals('country', classifyTld('xn--p1ai'));
+    }
+
+    public function testClassifyTldSponsored(): void
+    {
+        $this->assertEquals('sponsored', classifyTld('edu'));
+        $this->assertEquals('sponsored', classifyTld('gov'));
+        $this->assertEquals('sponsored', classifyTld('museum'));
+        $this->assertEquals('sponsored', classifyTld('aero'));
+    }
+
+    public function testClassifyTldNewGtld(): void
+    {
+        $this->assertEquals('new_gtld', classifyTld('shop'));
+        $this->assertEquals('new_gtld', classifyTld('app'));
+        $this->assertEquals('new_gtld', classifyTld('technology'));
+    }
+
+    public function testClassifyTldInfrastructure(): void
+    {
+        $this->assertEquals('infrastructure', classifyTld('arpa'));
+    }
+
+
+    // ═══════════════════════════════════════════════════════════════
+    //  splitDomainLabel() — used by alternative-TLD suggestions
+    // ═══════════════════════════════════════════════════════════════
+
+    public function testSplitDomainLabelSimple(): void
+    {
+        $r = splitDomainLabel('example.com');
+        $this->assertEquals('example', $r['label']);
+        $this->assertEquals('com', $r['tld']);
+    }
+
+    public function testSplitDomainLabelMultiPartSuffix(): void
+    {
+        // Seed the second-level-suffix list so extractRegistrableDomain() can
+        // resolve co.uk. In production this file is maintained by
+        // updateTldDataIfNeeded(); tests need to inject it explicitly.
+        file_put_contents(SL_SUFFIXES_PATH, "co.uk\ncom.au\n");
+        try {
+            $r = splitDomainLabel('www.bbc.co.uk');
+            $this->assertEquals('bbc', $r['label']);
+            $this->assertEquals('co.uk', $r['tld']);
+        } finally {
+            @unlink(SL_SUFFIXES_PATH);
+        }
+    }
+
+    public function testSplitDomainLabelSubdomainStripped(): void
+    {
+        $r = splitDomainLabel('api.example.org');
+        $this->assertEquals('example', $r['label']);
+        $this->assertEquals('org', $r['tld']);
+    }
+
+
+    // ═══════════════════════════════════════════════════════════════
+    //  getPopularTlds()
+    // ═══════════════════════════════════════════════════════════════
+
+    public function testGetPopularTldsIncludesExpectedEntries(): void
+    {
+        $tlds = getPopularTlds();
+        $this->assertContains('com', $tlds);
+        $this->assertContains('io', $tlds);
+        $this->assertContains('co.uk', $tlds);
+        $this->assertGreaterThan(20, count($tlds));
+        // No duplicates
+        $this->assertEquals(count($tlds), count(array_unique($tlds)));
+    }
 }

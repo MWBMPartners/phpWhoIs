@@ -48,15 +48,30 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 
 // ═══════════════════════════════════════════════════════════════════
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['suggest']) && $_GET['suggest'] === '1') {
+    header('Content-Type: application/json');
     $suggestDomain = isset($_POST['domain']) ? trim((string)$_POST['domain']) : '';
     $suggestDomain = sanitizeDomainInput($suggestDomain);
-    if ($suggestDomain && isValidDomain($suggestDomain)) {
-        header('Content-Type: application/json');
-        echo json_encode(['suggestions' => suggestAlternativeDomains($suggestDomain)]);
-    } else {
-        header('Content-Type: application/json');
-        echo json_encode(['suggestions' => []]);
+    if (!$suggestDomain || !isValidDomain($suggestDomain)) {
+        echo json_encode(['suggestions' => [], 'grid' => null]);
+        exit;
     }
+    // Rate-limit the suggest endpoint just like the main lookup.
+    if (!checkRateLimit() || !checkIpRateLimit()) {
+        http_response_code(429);
+        echo json_encode(['error' => 'Rate limit exceeded.']);
+        exit;
+    }
+    $grid = getTldAvailabilityGrid($suggestDomain);
+    $suggestions = [];
+    foreach ($grid['results'] as $r) {
+        if ($r['availability'] === 'available') {
+            $suggestions[] = $r['domain'];
+        }
+    }
+    echo json_encode([
+        'suggestions' => $suggestions,
+        'grid' => $grid,
+    ]);
     exit;
 }
 
