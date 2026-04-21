@@ -13,13 +13,21 @@ $app = [];
 if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php')) {
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php';
 }
+header_remove('X-Powered-By');
+if (isset($app["Application"]["Name"]) && $app["Application"]["Name"]) {
+    $poweredBy = $app["Application"]["Name"];
+    if (isset($app["Application"]["Version"]["Number"]) && $app["Application"]["Version"]["Number"]) {
+        $poweredBy .= '/' . $app["Application"]["Version"]["Number"];
+    }
+    header('X-Powered-By: ' . $poweredBy);
+}
 
 // Check dependencies
 $checks = [];
 
 // PHP version
 $checks['php'] = [
-    'status' => version_compare(PHP_VERSION, '7.4.0', '>=') ? 'ok' : 'warning',
+    'status' => version_compare(PHP_VERSION, '8.4.0', '>=') ? 'ok' : (version_compare(PHP_VERSION, '8.0.0', '>=') ? 'warning' : 'error'),
     'version' => PHP_VERSION,
 ];
 

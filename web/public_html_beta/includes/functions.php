@@ -2157,35 +2157,276 @@ function checkNsDiversity(string $domain): array {
 
 
 // ═══════════════════════════════════════════════════════════════════
-//  Domain name suggestions (Issue #116)
+//  Domain name suggestions (Issue #116, #164)
 // ═══════════════════════════════════════════════════════════════════
 
-function suggestAlternativeDomains(string $domain): array {
-    $parts = explode('.', $domain, 2);
-    $name = $parts[0];
-    $currentTld = $parts[1] ?? 'com';
+/**
+ * Curated list of popular TLDs checked when offering alternatives.
+ * Ordered roughly by demand — generic first, then tech/new gTLDs, then ccTLDs.
+ */
+function getPopularTlds(): array {
+    return [
+        // Classic generic
+        'com', 'net', 'org', 'info', 'biz', 'pro',
+        // Tech / new gTLDs
+        'io', 'co', 'dev', 'app', 'ai', 'tech', 'cloud', 'online', 'site', 'store', 'xyz', 'me',
+        // UK / EU
+        'co.uk', 'uk', 'eu', 'de', 'fr', 'es', 'it', 'nl', 'ch',
+        // Americas / APAC
+        'us', 'ca', 'au', 'nz', 'in', 'jp',
+    ];
+}
 
-    $altTlds = ['com', 'net', 'org', 'io', 'co', 'info', 'biz', 'dev', 'app', 'xyz', 'me', 'co.uk', 'uk'];
-    $suggestions = [];
+/**
+ * Extract the left-hand label (SLD) from a domain, honouring multi-part
+ * suffixes like co.uk. For "acme.co.uk" this returns "acme".
+ */
+function splitDomainLabel(string $domain): array {
+    $domain = strtolower($domain);
+    $registrable = extractRegistrableDomain($domain);
+    $parts = explode('.', $registrable, 2);
+    $label = $parts[0];
+    $tld = $parts[1] ?? '';
+    return ['label' => $label, 'tld' => $tld];
+}
 
-    foreach ($altTlds as $tld) {
+/**
+ * Fast per-TLD availability check using parallel RDAP requests with caching.
+ * Falls back to DNS NS presence as a "registered" signal when RDAP is unreachable.
+ *
+ * Returns an array of ['domain', 'tld', 'availability', 'cached'] entries,
+ * one per TLD (excluding the current TLD).
+ */
+function checkAlternativeTldAvailability(string $label, string $currentTld, array $tlds): array {
+    $results = [];
+    $pending = [];
+
+    foreach ($tlds as $tld) {
         if ($tld === $currentTld) {
             continue;
         }
-        $candidate = $name . '.' . $tld;
-        $whois = @shell_exec('whois ' . escapeshellarg($candidate) . ' 2>&1');
-        if ($whois) {
-            $avail = detectAvailability($whois);
-            if ($avail === 'available') {
-                $suggestions[] = $candidate;
-            }
+        $candidate = $label . '.' . $tld;
+        $cached = getCached('alt:' . $candidate);
+        if ($cached !== null) {
+            $results[$candidate] = ['domain' => $candidate, 'tld' => $tld, 'availability' => $cached, 'cached' => true];
+            continue;
         }
-        if (count($suggestions) >= 5) {
-            break; // Limit to 5 suggestions
+        $pending[$candidate] = $tld;
+    }
+
+    if (!empty($pending) && function_exists('curl_multi_init')) {
+        $mh = curl_multi_init();
+        $handles = [];
+
+        foreach ($pending as $candidate => $tld) {
+            $ch = curl_init('https://rdap.org/domain/' . urlencode($candidate));
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS      => 3,
+                CURLOPT_TIMEOUT        => 4,
+                CURLOPT_CONNECTTIMEOUT => 2,
+                CURLOPT_HTTPHEADER     => ['Accept: application/rdap+json'],
+                CURLOPT_USERAGENT      => 'mwWhoisLookup/1.0',
+                CURLOPT_PROTOCOLS      => CURLPROTO_HTTPS,
+                CURLOPT_NOSIGNAL       => 1,
+            ]);
+            curl_multi_add_handle($mh, $ch);
+            $handles[$candidate] = $ch;
+        }
+
+        $running = null;
+        do {
+            curl_multi_exec($mh, $running);
+            if ($running) {
+                curl_multi_select($mh, 1.0);
+            }
+        } while ($running > 0);
+
+        foreach ($handles as $candidate => $ch) {
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $body = curl_multi_getcontent($ch);
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
+
+            $availability = 'unknown';
+            if ($code === 404) {
+                $availability = 'available';
+            } elseif ($code >= 200 && $code < 300 && $body) {
+                $data = json_decode($body, true);
+                if (is_array($data) && isset($data['ldhName'])) {
+                    $availability = 'registered';
+                } elseif (is_array($data) && isset($data['errorCode']) && (int)$data['errorCode'] === 404) {
+                    $availability = 'available';
+                }
+            }
+
+            // DNS NS presence is strong "registered" evidence when RDAP is inconclusive
+            if ($availability === 'unknown' && @checkdnsrr($candidate, 'NS')) {
+                $availability = 'registered';
+            }
+
+            $results[$candidate] = [
+                'domain' => $candidate,
+                'tld' => $pending[$candidate],
+                'availability' => $availability,
+                'cached' => false,
+            ];
+            setCache('alt:' . $candidate, $availability);
+        }
+
+        curl_multi_close($mh);
+    } elseif (!empty($pending)) {
+        // curl_multi not available — fall back to DNS NS check only
+        foreach ($pending as $candidate => $tld) {
+            $availability = @checkdnsrr($candidate, 'NS') ? 'registered' : 'unknown';
+            $results[$candidate] = [
+                'domain' => $candidate,
+                'tld' => $tld,
+                'availability' => $availability,
+                'cached' => false,
+            ];
+            setCache('alt:' . $candidate, $availability);
         }
     }
 
+    // Preserve input TLD order
+    $ordered = [];
+    foreach ($tlds as $tld) {
+        if ($tld === $currentTld) {
+            continue;
+        }
+        $candidate = $label . '.' . $tld;
+        if (isset($results[$candidate])) {
+            $ordered[] = $results[$candidate];
+        }
+    }
+    return $ordered;
+}
+
+/**
+ * Back-compat wrapper — returns a flat list of available candidate domains
+ * (up to $limit entries). Used by older UI code paths.
+ */
+function suggestAlternativeDomains(string $domain, int $limit = 5): array {
+    $split = splitDomainLabel($domain);
+    if ($split['label'] === '' || $split['tld'] === '') {
+        return [];
+    }
+    $results = checkAlternativeTldAvailability($split['label'], $split['tld'], getPopularTlds());
+    $suggestions = [];
+    foreach ($results as $r) {
+        if ($r['availability'] === 'available') {
+            $suggestions[] = $r['domain'];
+            if (count($suggestions) >= $limit) {
+                break;
+            }
+        }
+    }
     return $suggestions;
+}
+
+/**
+ * Full TLD availability grid for the requested domain. Returns a structured
+ * payload for the frontend availability grid and JSON API.
+ */
+function getTldAvailabilityGrid(string $domain): array {
+    $split = splitDomainLabel($domain);
+    if ($split['label'] === '' || $split['tld'] === '') {
+        return ['label' => '', 'current_tld' => '', 'results' => []];
+    }
+    return [
+        'label' => $split['label'],
+        'current_tld' => $split['tld'],
+        'results' => checkAlternativeTldAvailability($split['label'], $split['tld'], getPopularTlds()),
+    ];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  TLD reference list (Issue — /tlds page)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Loads the IANA TLD list from disk (populated by updateTldDataIfNeeded()).
+ * Returns an array of lowercase TLDs with the leading dot stripped.
+ */
+function loadIanaTldList(): array {
+    if (!file_exists(IANA_TLD_PATH)) {
+        return [];
+    }
+    $lines = file(IANA_TLD_PATH, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    $tlds = [];
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '' || str_starts_with($line, '#')) {
+            continue;
+        }
+        // IANA file is UPPERCASE A-label; normalise to lowercase.
+        // Keep Punycode (xn--...) as-is; front-end can render Unicode form separately.
+        $tlds[] = strtolower($line);
+    }
+    sort($tlds, SORT_STRING);
+    return $tlds;
+}
+
+/**
+ * Classify a TLD into one of: country (ccTLD), sponsored, generic (legacy gTLD),
+ * infrastructure, or new_gtld. Classification is heuristic but matches IANA
+ * categories closely enough for reference display purposes.
+ */
+function classifyTld(string $tld): string {
+    $tld = strtolower(ltrim($tld, '.'));
+
+    if ($tld === 'arpa') {
+        return 'infrastructure';
+    }
+
+    static $sponsored = [
+        'aero', 'asia', 'cat', 'coop', 'edu', 'gov', 'int', 'jobs',
+        'mil', 'mobi', 'museum', 'post', 'tel', 'travel', 'xxx',
+    ];
+    if (in_array($tld, $sponsored, true)) {
+        return 'sponsored';
+    }
+
+    static $generic = ['com', 'net', 'org', 'info', 'biz', 'name', 'pro'];
+    if (in_array($tld, $generic, true)) {
+        return 'generic';
+    }
+
+    // ccTLDs: two-letter ASCII OR Punycode two-letter IDN ccTLDs (xn-- …).
+    // IANA's Punycode country-codes decode to a single-label country TLD.
+    if (preg_match('/^[a-z]{2}$/', $tld)) {
+        return 'country';
+    }
+    if (str_starts_with($tld, 'xn--')) {
+        // IDN ccTLDs are flagged as country; IDN gTLDs will be misclassified
+        // here but that is acceptable for a reference view.
+        return 'country';
+    }
+
+    return 'new_gtld';
+}
+
+/**
+ * Returns the IANA TLD list grouped by category, with counts.
+ * Categories: generic, country, sponsored, new_gtld, infrastructure.
+ */
+function getTldsByCategory(): array {
+    $tlds = loadIanaTldList();
+    $groups = [
+        'generic'        => [],
+        'country'        => [],
+        'sponsored'      => [],
+        'new_gtld'       => [],
+        'infrastructure' => [],
+    ];
+    foreach ($tlds as $tld) {
+        $cat = classifyTld($tld);
+        $groups[$cat][] = $tld;
+    }
+    return $groups;
 }
 
 

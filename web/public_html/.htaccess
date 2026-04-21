@@ -9,9 +9,33 @@
     </IfModule>
 </FilesMatch>
 
-# Block access to logs and includes directories
+# Hide default server identification
+<IfModule mod_headers.c>
+    Header unset Server
+</IfModule>
+
 <IfModule mod_rewrite.c>
     RewriteEngine On
+
+    # Block access to logs and includes directories
     RewriteRule ^logs/ - [F,L]
     RewriteRule ^includes/ - [F,L]
+
+    # Remove .php extension from URLs (clean URLs)
+    # If the request doesn't have a file extension and a matching .php file exists, serve it
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME}\.php -f
+    RewriteRule ^(.+)$ $1.php [L]
+</IfModule>
+
+# Suppress PHP version exposure (mod_php only; PHP-FPM uses header_remove() in code)
+<IfModule mod_php.c>
+    php_flag expose_php Off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag expose_php Off
+</IfModule>
+<IfModule mod_php8.c>
+    php_flag expose_php Off
 </IfModule>

@@ -119,3 +119,43 @@ Deployment is controlled by the `SFTP_ENABLED` repository variable (Settings →
 | `version-bump.yml` | Push to `beta` (code changes) | Auto-increment semver in `includes/infoAppVer.php` |
 | `changelog.yml` | Push to `main` or `beta` | Auto-append entry to `CHANGELOG.md` |
 | `release.yml` | Tag push (`v*`) | Create GitHub Release (stable or pre-release) |
+| `update-dns-resolvers.yml` | Daily 04:00 UTC / manual | Auto-update DNS resolver list from public-dns.info |
+
+## URL Parameters
+
+Optional URL parameters control the UI layout for focused or embedded views.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `hideSecScore` | flag | Hides the Security Score card from results |
+| `hideDomainSummary` | flag | Hides the domain summary section (registrar, dates, geo, etc.) |
+| `Only` | CSV | Comma-separated list of tabs to show: `whois`, `dns`, `email`, `ssl`, `subdomains`, `security` |
+
+### Behaviour
+
+- Flag parameters are presence-based (no value needed): `?hideSecScore`
+- `?Only` accepts one or more tab names: `?Only=dns` or `?Only=dns,security`
+- When `?Only` specifies a single tab, the tab bar is hidden and that tab is auto-focused
+- Using `?Only` automatically implies `hideSecScore` and `hideDomainSummary`
+- Parameters can be combined: `?hideSecScore&hideDomainSummary`
+- Default view settings can be configured via the Settings panel (gear icon) and are persisted in localStorage
+
+### URL Parameter Examples
+
+```text
+# Show only DNS tab (no summary, no score, no tab bar)
+https://example.com/?Only=dns
+
+# Show DNS and Security tabs
+https://example.com/?Only=dns,security
+
+# Full view with security score hidden
+https://example.com/?hideSecScore
+
+# Embed-ready minimal view
+https://example.com/?Only=ssl&hideDomainSummary
+```
+
+## Settings
+
+User settings (theme, default view mode) are stored in `localStorage` under the key `appSettings`. When user accounts (#163) are implemented, settings will sync to the user profile server-side.

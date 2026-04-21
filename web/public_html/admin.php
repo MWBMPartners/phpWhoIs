@@ -89,6 +89,13 @@ if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'infoAppVer.php';
 }
 $appName = isset($app["Application"]["Name"]) ? $app["Application"]["Name"] : 'mwWhoIs';
+if ($appName) {
+    $poweredBy = $appName;
+    if (isset($app["Application"]["Version"]["Number"]) && $app["Application"]["Version"]["Number"]) {
+        $poweredBy .= '/' . $app["Application"]["Version"]["Number"];
+    }
+    header('X-Powered-By: ' . $poweredBy);
+}
 ?>
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
@@ -181,6 +188,46 @@ $appName = isset($app["Application"]["Name"]) ? $app["Application"]["Name"] : 'm
         </div>
     </div>
     <?php endif; ?>
+
+    <!-- Webhook test (Issue #119) -->
+    <div class="card mt-4">
+        <div class="card-header"><strong>Webhook Test</strong></div>
+        <div class="card-body">
+            <p class="small text-muted">Send a test payload to verify webhook delivery.</p>
+            <div class="input-group">
+                <input type="url" id="webhookTestUrl" class="form-control form-control-sm" placeholder="https://webhook.site/...">
+                <button class="btn btn-sm btn-outline-primary" id="webhookTestBtn">Send Test</button>
+            </div>
+            <div id="webhookTestResult" class="mt-2 small"></div>
+        </div>
+    </div>
 </div>
+<script>
+document.getElementById('webhookTestBtn').addEventListener('click', function () {
+    var url = document.getElementById('webhookTestUrl').value.trim();
+    var result = document.getElementById('webhookTestResult');
+    if (!url) {
+        result.innerHTML = '<span class="text-danger">Enter a webhook URL</span>';
+        return;
+    }
+    result.innerHTML = '<span class="text-muted">Sending...</span>';
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            test: true,
+            source: 'mwWhoIs admin',
+            timestamp: new Date().toISOString(),
+            domain: 'test.example.com',
+            changes: [{ field: 'Test', old: 'before', new: 'after' }]
+        }),
+        mode: 'no-cors'
+    }).then(function () {
+        result.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Payload sent (check your webhook receiver)</span>';
+    }).catch(function (e) {
+        result.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle"></i> ' + e.message + '</span>';
+    });
+});
+</script>
 </body>
 </html>
