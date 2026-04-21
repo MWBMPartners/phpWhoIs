@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [371386c] - 2026-04-21T15:06:56Z
+
+**Merge pull request #184 from MWBMPartners/claude/add-tld-listing-GiisC**
+
+- Commit: [`371386c`](https://github.com/MWBMPartners/phpWhoIs/commit/371386cf5dd36f7136dd0b459475ae4ae4c8c0de)
+
+
 ## [a01f94e] - 2026-03-24T23:11:09Z
 
 **fix: PWA install banner on iOS — show share instructions instead of broken button**
