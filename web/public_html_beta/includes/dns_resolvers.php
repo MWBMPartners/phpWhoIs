@@ -27,7 +27,7 @@
  *   https://gist.github.com/mutin-sa/5dcbd35ee436eb629db7872581093bc5
  *   https://blog.cloudflare.com/introducing-1-1-1-1-for-families/
  *
- * Last updated: 2026-06-14 05:42:14 UTC
+ * Last updated: 2026-06-15 05:57:03 UTC
  */
 
 return [
