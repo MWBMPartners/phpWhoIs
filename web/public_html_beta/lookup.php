@@ -130,7 +130,7 @@ if (!$jsonFormat && !$apiKeyConfig && !validateCsrfToken()) {
 
 // Rate limit — use API key tier limit if applicable
 $rateLimit = $apiKeyConfig ? getApiKeyRateLimit($apiKeyConfig) : RATE_LIMIT_MAX;
-if (!checkRateLimit() || !checkIpRateLimit()) {
+if (!checkRateLimit($rateLimit) || !checkIpRateLimit($rateLimit)) {
     sendError('Rate limit exceeded. Please wait before trying again.', 429);
 }
 

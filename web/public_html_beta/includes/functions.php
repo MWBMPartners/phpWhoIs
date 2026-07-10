@@ -201,7 +201,7 @@ function validateCsrfToken(): bool {
 /**
  * Session-based rate limiting (per-user).
  */
-function checkRateLimit(): bool {
+function checkRateLimit(int $limit = RATE_LIMIT_MAX): bool {
     $now = time();
 
     if (!isset($_SESSION['rate_limit']) || ($now - $_SESSION['rate_limit']['start']) > RATE_LIMIT_WINDOW) {
@@ -210,7 +210,7 @@ function checkRateLimit(): bool {
 
     $_SESSION['rate_limit']['count']++;
 
-    return $_SESSION['rate_limit']['count'] <= RATE_LIMIT_MAX;
+    return $_SESSION['rate_limit']['count'] <= $limit;
 }
 
 /**
@@ -218,7 +218,7 @@ function checkRateLimit(): bool {
  * Uses file-based storage in the cache directory.
  * Harder to bypass than session-based limiting.
  */
-function checkIpRateLimit(): bool {
+function checkIpRateLimit(int $limit = RATE_LIMIT_MAX): bool {
     // Use REMOTE_ADDR as primary (cannot be spoofed)
     // Only use X-Forwarded-For if behind a trusted proxy
     $ip = '';
@@ -258,7 +258,7 @@ function checkIpRateLimit(): bool {
         cleanExpiredRateLimits($rateLimitDir);
     }
 
-    return $data['count'] <= RATE_LIMIT_MAX;
+    return $data['count'] <= $limit;
 }
 
 /**
