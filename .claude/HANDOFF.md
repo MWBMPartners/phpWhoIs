@@ -4,15 +4,27 @@
 > pick up without re-reading the brief, the whole codebase, or prior chat.
 > Last updated: **2026-07-10** (deep-analysis + remediation session).
 
-## ⚠️ Immediate state — 22 local commits on `beta`, PENDING PUSH
+## ⚠️ Immediate state — 39 local commits on `beta`, PENDING PUSH
 
-`local beta` (`f50b711`) is **22 commits ahead of `origin/beta`** (`793bb29`) — a
+`local beta` (`8cae4e0`) is **39 commits ahead of `origin/beta`** (`793bb29`) — a
 clean fast-forward. **Nothing has been pushed** (awaiting explicit owner go-ahead).
-`php -l` clean; all 4 workflows valid YAML; tests bootstrap fixed.
+Verified pre-PR: all PHP `php -l` clean, all workflows valid YAML, SSRF/CSRF/functional
+smoke-tests pass, server returns correct status codes (lookup w/o CSRF → 403, not 500).
 
-**Two sessions of work sit in these 22 commits:** (A) the deep-analysis remediation
-(15 commits, the 13 issues — see table below), and (B) a **repo restructure** to
-the iHymns/WebMS-Intra single-source deploy model (7 commits).
+**Four tranches sit in these 39 commits:** (A) deep-analysis remediation (15 commits);
+(B) single-source deploy **restructure** (8 commits incl. the config auto-merge);
+(C) **pre-PR batch** — remaining perf + security + safe fixes + OpenAPI (16 commits).
+
+### Pre-PR batch done (2026-07-10 pt4) — owner selected all four batches
+- **Perf Phase-1 finish:** #189 full-response cache · #192 hard curl timeouts + crt.sh/redirect caps · #193 TLD refresh off request path · #194 propagation completion fix + `dns_propagation_max=25` · #195 SMTP egress skip.
+- **Security:** #197 **SSRF egress gate** (`resolveAndVetHost`, blocks private/reserved, IP-pinning, re-vets redirect hops — agent self-caught 2 bypasses) · #198 CSRF/API-key required on JSON + `?suggest=1`, wildcard CORS removed.
+- **Safe fixes/hardening:** #202 admin key via header + Referrer-Policy · #203 HSTS + host allow-list + appLog newline · #214 SW cache bound · #215 RDAP-404 confirm · #216 availability-unknown · #217 IP display · #218 firstARecord/guards/cache-backend.
+- **Docs/infra:** #245 OpenAPI refresh (51-prop schema, X-API-Key auth, Retry-After now sent on 429). #204 CLOSED (`.auth` + auto-merge). Created 5 **Milestones**, the **DomainCheckr Development** project (#14), assigned all 64 issues.
+
+### 🟡 Still open for the owner
+- **Enable the GitHub Wiki** (Settings → Features → Wikis) + create any first page — then the Home content in `scratchpad/wiki-Home.md` can be pushed (GitHub needs the wiki initialised via UI before the `.wiki.git` repo exists).
+- **Deferred (not in this PR, need decisions):** #196 progressive re-arch (big) · #211 watch/monitor wiring · #212 IDN support · #213 bulk-vs-rate-limit · the `for consideration` features #219–#247 · the `stash@{0}` broken-edit decision (#186).
+- Minor: PHP 8.4 `session.sid_length` deprecation in session_config.php (pre-existing forward-compat nit).
 
 ### 🔴 BEFORE PUSHING — owner must set GitHub secrets (Settings → Secrets and variables → Actions)
 The deploy pipeline was rewritten. It now needs:
@@ -45,11 +57,8 @@ Also fixed in passing: infoAppVer.php dev-status detection now reads the CI-inje
 When authorised: `git push origin beta` (clean fast-forward). Monitor deploy + CI.
 Do **not** auto-advance `alpha` with these dev commits.
 
-## Still NOT done — the "proceed with 196/197/198" fixes (restructure-first was chosen)
-These now land in the consolidated `web/public_html/` (next pass, Sonnet):
-- **#197 SSRF gate** — egress policy = **block private/reserved ranges** (owner's earlier "proceed" implies my recommended policy). `resolveAndVetHost()` + IP-pinning + no-redirect-to-internal.
-- **#198 CSRF/API-key** on the JSON + `?suggest=1` endpoints.
-- **#196 progressive-loading re-architecture** — its own focused pass (big; touches lookup.php/index.php/functions.php).
+## #197 + #198 — DONE (in the pre-PR batch above). Only #196 remains from that trio.
+- **#196 progressive-loading re-architecture** — still deferred; its own focused pass (big; touches lookup.php/index.php/functions.php). This is the last major latency win (Phase 2 parallelise + Phase 3 progressive modules) after the Phase-1 work already landed.
 
 ### The 15 deep-analysis commits (oldest→newest)
 
