@@ -383,7 +383,7 @@ function getCacheBackend() {
     return ['type' => $backend, 'conn' => $conn];
 }
 
-function getCached(string $domain): ?string {
+function getCached(string $domain, int $ttl = CACHE_TTL): ?string {
     $cache = getCacheBackend();
     $key = 'mwwhois:' . md5($domain);
 
@@ -406,24 +406,24 @@ function getCached(string $domain): ?string {
 
     $data = json_decode(file_get_contents($file), true);
 
-    if (!$data || (time() - $data['ts']) >= CACHE_TTL) {
+    if (!$data || (time() - $data['ts']) >= $ttl) {
         return null;
     }
 
     return $data['result'];
 }
 
-function setCache(string $domain, string $result): void {
+function setCache(string $domain, string $result, int $ttl = CACHE_TTL): void {
     $cache = getCacheBackend();
     $key = 'mwwhois:' . md5($domain);
 
     if ($cache['type'] === 'redis') {
-        $cache['conn']->setex($key, CACHE_TTL, $result);
+        $cache['conn']->setex($key, $ttl, $result);
         return;
     }
 
     if ($cache['type'] === 'memcached') {
-        $cache['conn']->set($key, $result, CACHE_TTL);
+        $cache['conn']->set($key, $result, $ttl);
         return;
     }
 
@@ -2068,6 +2068,35 @@ function checkCaaRecords(string $domain): array {
 
 
 // ═══════════════════════════════════════════════════════════════════
+//  Outbound SMTP (port 25) egress probe (Issue #195)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Detect whether outbound port 25 is reachable at all from this host. Shared
+ * hosting commonly DROPs outbound port 25 at the firewall, which makes every
+ * fsockopen($mx, 25) in checkSmtpSecurity() below take a flat ~5s (its connect
+ * timeout) for no result. Probe a known-good public MX once a day and cache the
+ * boolean so every lookup after the first doesn't pay that cost again.
+ */
+function isSmtpEgressOpen(): bool {
+    $cacheKey = 'smtp_egress_open';
+    $cached = getCached($cacheKey, 86400);
+    if ($cached !== null) {
+        return $cached === '1';
+    }
+
+    $fp = @fsockopen('gmail-smtp-in.l.google.com', 25, $errno, $errstr, 3);
+    $open = (bool) $fp;
+    if ($fp) {
+        fclose($fp);
+    }
+
+    setCache($cacheKey, $open ? '1' : '0', 86400);
+    return $open;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  SMTP banner & STARTTLS check (Issue #110)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -2088,6 +2117,14 @@ function checkSmtpSecurity(string $domain): ?array {
     }
 
     $result = ['mx_host' => $mxHost, 'banner' => null, 'starttls' => false, 'reachable' => false];
+
+    // Issue #195: skip the doomed flat-~5s connect attempt entirely when outbound
+    // port 25 is known to be blocked.
+    if (!isSmtpEgressOpen()) {
+        $result['reachable'] = null;
+        $result['blocked_egress'] = true;
+        return $result;
+    }
 
     $fp = @fsockopen($mxHost, 25, $errno, $errstr, 5);
     if (!$fp) {
