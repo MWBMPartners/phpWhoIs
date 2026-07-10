@@ -651,6 +651,7 @@ if ($jsonFormat) {
 
     $response = [
         'whois'        => htmlspecialchars($whoisOutput, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+        'domain'       => $domain,
         'is_ip'        => $isIpLookup,
         'availability' => $availability,
         'data_source'  => $dataSource,
