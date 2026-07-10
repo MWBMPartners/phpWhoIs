@@ -61,6 +61,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['suggest']) && $_GET['s
         echo json_encode(['error' => 'Rate limit exceeded.']);
         exit;
     }
+    // session no longer needed — release the lock so concurrent requests aren't serialized
+    session_write_close();
     $grid = getTldAvailabilityGrid($suggestDomain);
     $suggestions = [];
     foreach ($grid['results'] as $r) {
@@ -140,6 +142,9 @@ header('X-RateLimit-Limit: ' . $rateLimit);
 header('X-RateLimit-Remaining: ' . $rateLimitRemaining);
 header('X-RateLimit-Reset: ' . $rateLimitReset);
 
+// session no longer needed — release the lock so concurrent requests aren't serialized
+session_write_close();
+
 // Update TLD data (IANA + second-level suffixes, throttled to once per day)
 updateTldDataIfNeeded();
 
@@ -156,6 +161,8 @@ if (!empty($_POST['dns_propagation_only'])) {
         sendError('Invalid domain name.');
     }
     header('Content-Type: application/json; charset=utf-8');
+    // session no longer needed — release the lock so concurrent requests aren't serialized
+    session_write_close();
     echo json_encode(['dns_propagation' => checkDnsPropagation($domain)]);
     exit;
 }
