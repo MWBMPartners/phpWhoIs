@@ -206,7 +206,7 @@ if ($isIpLookup) {
 
     // Fall back to system WHOIS
     if (!$whoisText) {
-        $whoisText = shell_exec("whois " . escapeshellarg($domain) . " 2>&1");
+        $whoisText = runCommandWithTimeout("whois " . escapeshellarg($domain), 8);
         $dataSource = 'whois';
         if (!$dnt) trackLookup('whois', $domain);
     }

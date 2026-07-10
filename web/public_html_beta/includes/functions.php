@@ -6,6 +6,45 @@
  */
 
 // ═══════════════════════════════════════════════════════════════════
+//  Subprocess timeout helper (Issue #187)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Run a shell command with a hard wall-clock timeout, portably.
+ * Prefers the `timeout` binary when present; falls back to proc_open + stream_select
+ * (macOS / hosts without GNU coreutils). Returns command output, or null on failure/timeout-with-no-output.
+ */
+function runCommandWithTimeout(string $cmd, int $timeoutSec = 8): ?string {
+    static $hasTimeout = null;
+    if ($hasTimeout === null) {
+        $hasTimeout = (bool) @shell_exec('command -v timeout 2>/dev/null');
+    }
+    if ($hasTimeout) {
+        $out = @shell_exec('timeout ' . (int)$timeoutSec . ' ' . $cmd . ' 2>&1');
+        return ($out === null || $out === '') ? null : $out;
+    }
+    $proc = @proc_open($cmd . ' 2>&1', [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($proc)) { return null; }
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+    $out = '';
+    $deadline = microtime(true) + $timeoutSec;
+    while (microtime(true) < $deadline) {
+        $status = proc_get_status($proc);
+        $out .= (string) stream_get_contents($pipes[1]);
+        if (!$status['running']) { break; }
+        $r = [$pipes[1]]; $w = null; $e = null;
+        @stream_select($r, $w, $e, 0, 200000);
+    }
+    $status = proc_get_status($proc);
+    if (!empty($status['running'])) { @proc_terminate($proc, 9); }
+    foreach ($pipes as $p) { if (is_resource($p)) { @fclose($p); } }
+    @proc_close($proc);
+    return $out === '' ? null : $out;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  Logging (Issue #43)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -499,7 +538,7 @@ function reverseDnsLookup(string $ip): ?string {
  */
 function ipWhoisLookup(string $ip): ?string {
     $escapedIp = escapeshellarg($ip);
-    $result = shell_exec("whois {$escapedIp} 2>&1");
+    $result = runCommandWithTimeout("whois {$escapedIp}", 8);
     if ($result) {
         return $result;
     }
@@ -1322,7 +1361,7 @@ function checkDnssec(string $domain): array {
 
     // Fallback: use dig if available
     if (!$result['signed']) {
-        $digOutput = @shell_exec('dig +short DS ' . escapeshellarg($domain) . ' 2>/dev/null');
+        $digOutput = @shell_exec('dig +short +time=2 +tries=1 DS ' . escapeshellarg($domain) . ' 2>/dev/null');
         if ($digOutput && trim($digOutput)) {
             $result['signed'] = true;
             $result['ds_records'] = count(array_filter(explode("\n", trim($digOutput))));
@@ -1659,7 +1698,7 @@ function checkDaneTlsa(string $domain): array {
     $host = '_443._tcp.' . $domain;
 
     // PHP dns_get_record doesn't support TLSA natively, use dig
-    $output = @shell_exec('dig +short TLSA ' . escapeshellarg($host) . ' 2>/dev/null');
+    $output = @shell_exec('dig +short +time=2 +tries=1 TLSA ' . escapeshellarg($host) . ' 2>/dev/null');
     if ($output && trim($output)) {
         $lines = array_filter(explode("\n", trim($output)));
         $result['found'] = true;
@@ -1947,7 +1986,7 @@ function checkCaaRecords(string $domain): array {
 
     // Fallback via dig
     if (!$result['found']) {
-        $output = @shell_exec('dig +short CAA ' . escapeshellarg($domain) . ' 2>/dev/null');
+        $output = @shell_exec('dig +short +time=2 +tries=1 CAA ' . escapeshellarg($domain) . ' 2>/dev/null');
         if ($output && trim($output)) {
             $lines = array_filter(explode("\n", trim($output)));
             foreach ($lines as $line) {
