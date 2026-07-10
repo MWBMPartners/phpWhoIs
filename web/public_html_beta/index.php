@@ -485,6 +485,13 @@ if ($_showPortfolioIcon): ?>
             div.appendChild(document.createTextNode(str));
             return div.innerHTML;
         }
+
+        // CSV cell escape helper to prevent formula injection (Issue #201)
+        function csvEscape(v) {
+            var s = (v === null || v === undefined) ? '' : String(v);
+            if (/^[=+\-@\t\r]/.test(s)) { s = "'" + s; }   // neutralise spreadsheet formulas
+            return '"' + s.replace(/"/g, '""') + '"';        // quote + double embedded quotes
+        }
         var currentDomain = '';
 
         // ── URL parameter UI controls ──
@@ -1225,12 +1232,12 @@ if ($_showPortfolioIcon): ?>
                         allKeys[k] = true;
                     }
                 }
-                var csv = 'Field,"' + d1 + '","' + d2 + '"\n';
-                csv += '"Availability","' + (data1.availability || '') + '","' + (data2.availability || '') + '"\n';
+                var csv = [csvEscape('Field'), csvEscape(d1), csvEscape(d2)].join(',') + '\n';
+                csv += [csvEscape('Availability'), csvEscape(data1.availability || ''), csvEscape(data2.availability || '')].join(',') + '\n';
                 for (var key in allKeys) {
                     var v1 = data1.parsed && data1.parsed[key] ? (Array.isArray(data1.parsed[key]) ? data1.parsed[key].join('; ') : data1.parsed[key]) : '';
                     var v2 = data2.parsed && data2.parsed[key] ? (Array.isArray(data2.parsed[key]) ? data2.parsed[key].join('; ') : data2.parsed[key]) : '';
-                    csv += '"' + key + '","' + v1 + '","' + v2 + '"\n';
+                    csv += [csvEscape(key), csvEscape(v1), csvEscape(v2)].join(',') + '\n';
                 }
                 var a = document.createElement('a');
                 a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -1365,9 +1372,14 @@ if ($_showPortfolioIcon): ?>
             var csv = 'Domain,Availability,Registrar,Creation Date,Expiry Date,Data Source\n';
             bulkResultsData.forEach(function (r) {
                 var p = r.data.parsed || {};
-                csv += '"' + r.domain + '","' + (r.data.availability || '') + '","' +
-                    (p['Registrar'] || '') + '","' + (p['Creation Date'] || '') + '","' +
-                    (p['Expiry Date'] || '') + '","' + (r.data.data_source || '') + '"\n';
+                csv += [
+                    csvEscape(r.domain),
+                    csvEscape(r.data.availability || ''),
+                    csvEscape(p['Registrar'] || ''),
+                    csvEscape(p['Creation Date'] || ''),
+                    csvEscape(p['Expiry Date'] || ''),
+                    csvEscape(r.data.data_source || '')
+                ].join(',') + '\n';
             });
             var a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
