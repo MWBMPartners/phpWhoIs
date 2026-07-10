@@ -81,7 +81,7 @@ $_showApiDocs = !empty($_SESSION['logged_in'])
     <script>
     (function () {
         try {
-            var w = JSON.parse(localStorage.getItem('watchedDomains') || '[]');
+            var w = JSON.parse(localStorage.getItem('whoisWatchList') || '[]');
             if (w.length) {
 <?php if ($_showPortfolio): ?>
                 var fl = document.getElementById('footerPortfolioLink');
