@@ -99,7 +99,7 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
     <p>In addition, reference data about top-level domains is periodically refreshed from <strong>IANA</strong> and <strong>publicsuffix.org</strong>, and front-end assets (Bootstrap, icons) are loaded from the <strong>jsDelivr</strong> CDN when you load a page. Each third-party service is subject to its own privacy policy; we do not control what data these services retain.</p>
 
     <h2 class="mt-4">5. Do Not Track (DNT)</h2>
-    <p>The Service <strong>honours</strong> the Do Not Track signal sent by your browser. When DNT is enabled, all optional third-party enrichment calls listed in Section 4 are skipped, and anonymous usage-statistics tracking is disabled. Core WHOIS/RDAP/DNS lookup functionality is unaffected. For a full breakdown of what is and isn't available with DNT enabled, see <a href="terms#dnt-limitations">Section 5 of our Terms of Service</a>.</p>
+    <p>The Service <strong>honours</strong> the Do Not Track signal sent by your browser. When DNT is enabled, all optional third-party enrichment calls listed in Section 4 are skipped, and anonymous usage-statistics tracking is disabled. Core WHOIS/RDAP/DNS lookup functionality is unaffected. For a full breakdown of what is and isn't available with DNT enabled, see <a href="terms#dnt-limitations">Section 7 of our Terms of Service</a>.</p>
 
     <h2 class="mt-4">6. Data Stored in Your Browser Only</h2>
     <p>The following data is stored using your browser's <code>localStorage</code> and is <strong>never sent to our servers</strong>:</p>
