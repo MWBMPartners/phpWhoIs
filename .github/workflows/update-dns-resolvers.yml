@@ -22,6 +22,16 @@ jobs:
   update:
     runs-on: ubuntu-latest
 
+    # Both active dev branches now share the single web/public_html/ source
+    # (the old public_html/public_html_beta split was consolidated), so this
+    # updater runs against both alpha and beta independently — each branch
+    # gets its own resolver-list commit, pushed to its own ref. fail-fast:
+    # false so a push race on one branch doesn't cancel the other's run.
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: [alpha, beta]
+
     env:
       DNS_MIN_RELIABILITY: ${{ github.event.inputs.min_reliability || '0.80' }}
       DNS_MAX_PER_COUNTRY: ${{ github.event.inputs.max_per_country || '2' }}
@@ -30,7 +40,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
         with:
-          ref: beta
+          ref: ${{ matrix.branch }}
           fetch-depth: 0
 
       - name: Set up PHP
@@ -44,13 +54,13 @@ jobs:
       - name: Check for changes
         id: changes
         run: |
-          if git diff --quiet web/public_html_beta/includes/dns_resolvers.php; then
+          if git diff --quiet web/public_html/includes/dns_resolvers.php; then
             echo "changed=false" >> $GITHUB_OUTPUT
             echo "No changes to DNS resolvers"
           else
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "DNS resolvers updated"
-            git diff --stat web/public_html_beta/includes/dns_resolvers.php
+            git diff --stat web/public_html/includes/dns_resolvers.php
           fi
 
       - name: Commit and push
@@ -58,12 +68,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add web/public_html_beta/includes/dns_resolvers.php
+          git add web/public_html/includes/dns_resolvers.php
           git commit -m "chore: auto-update DNS resolver list from public-dns.info [skip ci]"
 
           for i in 1 2 3; do
-            git fetch origin beta
-            git rebase origin/beta && git push origin beta && break
+            git fetch origin ${{ matrix.branch }}
+            git rebase origin/${{ matrix.branch }} && git push origin ${{ matrix.branch }} && break
             echo "Push attempt $i failed, retrying..."
             sleep 2
           done

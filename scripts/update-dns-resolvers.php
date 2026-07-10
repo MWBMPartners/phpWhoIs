@@ -23,7 +23,7 @@
 $minReliability  = (float)(getenv('DNS_MIN_RELIABILITY') ?: 0.80);  // Minimum reliability score (0.00–1.00)
 $maxPerCountry   = (int)(getenv('DNS_MAX_PER_COUNTRY') ?: 2);       // Max auto-sourced entries per country
 $csvUrl          = 'https://public-dns.info/nameservers.csv';
-$resolverFile    = __DIR__ . '/../web/public_html_beta/includes/dns_resolvers.php';
+$resolverFile    = __DIR__ . '/../web/public_html/includes/dns_resolvers.php';
 
 echo "Config: minReliability=$minReliability, maxPerCountry=$maxPerCountry\n";
 

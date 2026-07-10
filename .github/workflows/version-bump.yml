@@ -4,10 +4,11 @@ on:
   push:
     branches:
       - beta
+      - alpha
     paths:
-      - 'web/public_html_beta/**'
-      - '!web/public_html_beta/CHANGELOG.md'
-      - '!web/public_html_beta/README.md'
+      - 'web/public_html/**'
+      - '!web/public_html/CHANGELOG.md'
+      - '!web/public_html/README.md'
 
 permissions:
   contents: write
@@ -50,7 +51,7 @@ jobs:
       - name: Bump version
         id: version
         run: |
-          VERFILE="web/public_html_beta/includes/infoAppVer.php"
+          VERFILE="web/public_html/includes/infoAppVer.php"
           BUMP_TYPE="${{ steps.bump_type.outputs.type }}"
 
           # Extract current version
@@ -87,7 +88,7 @@ jobs:
           grep 'Version\"\]\[\"Number' "$VERFILE"
 
           # Update README.md version
-          README="web/public_html_beta/README.md"
+          README="web/public_html/README.md"
           if [[ -f "$README" ]]; then
             sed -i "s/\*\*Version:\*\* .*/\*\*Version:\*\* ${NEW_VERSION}-beta/" "$README"
           fi
@@ -96,7 +97,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add web/public_html_beta/includes/infoAppVer.php web/public_html_beta/README.md
+          git add web/public_html/includes/infoAppVer.php web/public_html/README.md
 
           if git diff --cached --quiet; then
             echo "No version changes to commit"
@@ -105,11 +106,13 @@ jobs:
             BUMP_TYPE="${{ steps.bump_type.outputs.type }}"
             git commit -m "chore: bump version to ${NEW_VERSION} (${BUMP_TYPE}) [skip ci]"
 
-            # Pull any commits made by other workflows (e.g. changelog) before pushing
+            # Pull any commits made by other workflows (e.g. changelog) before pushing.
+            # Branch is dynamic (beta or alpha) now that both trigger this workflow —
+            # a hardcoded "beta" here would push an alpha-triggered bump onto beta.
             # Retry up to 3 times in case of race conditions
             for i in 1 2 3; do
-              git fetch origin beta
-              git rebase origin/beta && git push origin beta && break
+              git fetch origin ${{ github.ref_name }}
+              git rebase origin/${{ github.ref_name }} && git push origin ${{ github.ref_name }} && break
               echo "Push attempt $i failed, retrying..."
               sleep 2
             done
