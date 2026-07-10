@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [b8dd9d0] - 2026-07-10T09:50:33Z
+
+**feat: enhance application ID assignment logic and add bundle ID**
+
+- Commit: [`b8dd9d0`](https://github.com/MWBMPartners/phpWhoIs/commit/b8dd9d004adbc7f9f24a46e17b63d333e876262f)
+
+
 ## [371386c] - 2026-04-21T15:06:56Z
 
 **Merge pull request #184 from MWBMPartners/claude/add-tld-listing-GiisC**
