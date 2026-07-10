@@ -1454,7 +1454,7 @@ if ($_showPortfolioIcon): ?>
                             cls = ' class="table-warning"';
                         }
                     }
-                    html += '<tr' + cls + '><td class="fw-bold">' + key + '</td><td>' + val + '</td></tr>';
+                    html += '<tr' + cls + '><td class="fw-bold">' + esc(key) + '</td><td>' + esc(val) + '</td></tr>';
                 }
                 html += '</table>';
                 // Safe Browsing warning (Issue #52)
@@ -1572,14 +1572,14 @@ if ($_showPortfolioIcon): ?>
                 var spfIcon = es.spf.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
                 esHtml += '<tr><td class="fw-bold">' + spfIcon + ' SPF</td><td>' + (es.spf.status || 'missing') + '</td></tr>';
                 if (es.spf.record) {
-                    esHtml += '<tr><td></td><td><code class="small">' + es.spf.record + '</code></td></tr>';
+                    esHtml += '<tr><td></td><td><code class="small">' + esc(es.spf.record) + '</code></td></tr>';
                 }
 
                 // DMARC
                 var dmarcIcon = es.dmarc.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
                 esHtml += '<tr><td class="fw-bold">' + dmarcIcon + ' DMARC</td><td>' + (es.dmarc.status || 'missing') + '</td></tr>';
                 if (es.dmarc.record) {
-                    esHtml += '<tr><td></td><td><code class="small">' + es.dmarc.record + '</code></td></tr>';
+                    esHtml += '<tr><td></td><td><code class="small">' + esc(es.dmarc.record) + '</code></td></tr>';
                 }
 
                 // DKIM
@@ -1990,7 +1990,7 @@ if ($_showPortfolioIcon): ?>
                             var sv = Array.isArray(snap.parsed[k]) ? snap.parsed[k].join(', ') : snap.parsed[k];
                             var pv = prev.parsed[k] ? (Array.isArray(prev.parsed[k]) ? prev.parsed[k].join(', ') : prev.parsed[k]) : '';
                             if (sv !== pv) {
-                                changes.push('<strong>' + k + ':</strong> ' + esc(pv || '(none)') + ' → ' + esc(sv));
+                                changes.push('<strong>' + esc(k) + ':</strong> ' + esc(pv || '(none)') + ' → ' + esc(sv));
                             }
                         }
                         if (changes.length) {
