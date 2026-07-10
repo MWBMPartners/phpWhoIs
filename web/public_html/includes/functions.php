@@ -2700,7 +2700,7 @@ function analyseRobotsTxt(string $domain): ?array {
 //  DNS propagation checker (Issue #126)
 // ═══════════════════════════════════════════════════════════════════
 
-function checkDnsPropagation(string $domain): array {
+function checkDnsPropagation(string $domain, bool $full = false): array {
     global $config;
 
     $resolvers = $config['dns_resolvers'] ?? [];
@@ -2711,18 +2711,36 @@ function checkDnsPropagation(string $domain): array {
         }
     }
 
+    // Issue #194: curate the default panel down from the full ~187-entry enabled list.
+    // Callers that explicitly want everything (the dns_propagation_only refresh
+    // endpoint, given `full=1`) pass $full = true.
+    if (!$full) {
+        $max = $config['dns_propagation_max'] ?? 25;
+        $enabled = array_slice($enabled, 0, $max);
+    }
+
     // Run all dig queries in parallel using temp files
     $tmpDir = sys_get_temp_dir();
     $tmpFiles = [];
     foreach ($enabled as $i => $resolver) {
         $tmpFile = $tmpDir . DIRECTORY_SEPARATOR . 'dns_prop_' . getmypid() . '_' . $i;
         $tmpFiles[$i] = $tmpFile;
-        $cmd = 'dig @' . escapeshellarg($resolver['ip']) . ' +short +time=2 +tries=1 A '
-             . escapeshellarg($domain) . ' > ' . escapeshellarg($tmpFile) . ' 2>/dev/null &';
+        // Issue #194: write to a .part file and mv it into place once dig has actually
+        // finished. The previous `dig ... > $tmpFile` redirection CREATES $tmpFile the
+        // instant the shell forks the background job — before dig has run at all — so
+        // file_exists($tmpFile) was true immediately and the poll loop below exited on
+        // its very first check, returning mostly-empty results. Wrapped in a subshell
+        // so the WHOLE sequence backgrounds together: without the parens, `&` only
+        // applies to the last command in a `;`-separated list, so dig itself would run
+        // synchronously and every resolver would be queried one at a time instead of
+        // in parallel.
+        $cmd = '( dig @' . escapeshellarg($resolver['ip']) . ' +short +time=2 +tries=1 A '
+             . escapeshellarg($domain) . ' > ' . escapeshellarg($tmpFile . '.part') . ' 2>/dev/null; mv '
+             . escapeshellarg($tmpFile . '.part') . ' ' . escapeshellarg($tmpFile) . ' ) &';
         @exec($cmd);
     }
 
-    // Wait for all background processes (max 4s total)
+    // Wait for all background processes (max 4s total — unchanged overall time cap)
     usleep(500000);
     $waited = 0;
     while ($waited < 35) {
@@ -2743,6 +2761,7 @@ function checkDnsPropagation(string $domain): array {
     foreach ($enabled as $i => $resolver) {
         $output = @file_get_contents($tmpFiles[$i]);
         @unlink($tmpFiles[$i]);
+        @unlink($tmpFiles[$i] . '.part'); // in case a resolver never finished within the time cap
         $ips = $output ? array_filter(array_map('trim', explode("\n", trim($output)))) : [];
         $results[] = [
             'id' => $resolver['id'] ?? $i,

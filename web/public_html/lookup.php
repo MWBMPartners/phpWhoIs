@@ -168,7 +168,9 @@ if (!empty($_POST['dns_propagation_only'])) {
     header('Content-Type: application/json; charset=utf-8');
     // session no longer needed — release the lock so concurrent requests aren't serialized
     session_write_close();
-    echo json_encode(['dns_propagation' => checkDnsPropagation($domain)]);
+    // Issue #194: curated subset by default; pass full=1 to get every enabled resolver.
+    $fullPropagation = !empty($_POST['full']);
+    echo json_encode(['dns_propagation' => checkDnsPropagation($domain, $fullPropagation)]);
     // This endpoint doesn't go through sendJson() — flush explicitly so the deferred
     // TLD refresh above doesn't keep this (lightweight, frequently-polled) endpoint waiting.
     if (function_exists('fastcgi_finish_request')) {

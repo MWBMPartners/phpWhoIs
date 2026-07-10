@@ -74,6 +74,13 @@ $config = [
     // Loaded from includes/dns_resolvers.php — edit that file to add/remove/toggle servers.
     // Types: 'standard' | 'security' (malware/threat) | 'family' (parental control).
         'dns_resolvers' => require __DIR__ . DIRECTORY_SEPARATOR . 'dns_resolvers.php',
+
+    // ── DNS Propagation panel size (Issue #194) ──
+    // The full enabled resolver list is ~187 entries — far more than the panel needs
+    // by default. checkDnsPropagation() uses only the first N enabled resolvers unless
+    // called with $full = true (wired to a `full=1` POST param on the
+    // dns_propagation_only refresh endpoint).
+        'dns_propagation_max' => 25,
 ];
 
 // ── Merge secret keys from web/.auth/keys.php ──
