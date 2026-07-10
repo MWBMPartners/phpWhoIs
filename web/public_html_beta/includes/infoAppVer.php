@@ -1,11 +1,30 @@
 <?php
 	//Application
 		$app["Application"]["ID"] = "Ltd.MWBMPartners.DomainCheckr";
+		$app["Application"]["Bundle"]["ID"] = "Ltd.MWBMPartners.DomainCheckr";
 		$app["Application"]["Name"] = "DomainCheckr";
 		$app["Application"]["Website"]["URL"] = NULL;
 		$app["Application"]["Description"]["Synopsis"] = "Free domain name checker and s WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.";
 		$app["Application"]["Description"]["Keywords"] = "Domain name, Domain name registration, Whois, RDAP, DNS Records, Domain availability, Registrar information, Expiry date, Name servers, Contact information, IP address lookup, Bulk domain lookup, Domain history, Domain ownership, Domain status, Free whois lookup, Online whois tool";
 
+		if (!isset($app["Application"]["ID"]) OR empty($app["Application"]["ID"])){
+			if (isset($app["Application"]["Bundle"]["ID"]) && $app["Application"]["Bundle"]["ID"]){
+				$app["Application"]["ID"] = $app["Application"]["Bundle"]["ID"];
+			}
+			elseif (isset($app["Application"]["Name"]) && $app["Application"]["Name"]){
+				$app["Application"]["ID"] = $app["Application"]["Name"];
+			}
+			elseif (isset($app["Application"]["Website"]["URL"]) && $app["Application"]["Website"]["URL"]){
+				$app["Application"]["ID"] = $app["Application"]["Website"]["URL"];
+			}
+			else{
+				$app["Application"]["ID"] = NULL;
+			}
+		}
+		else{
+			$app["Application"]["ID"] = NULL;
+		}
+		
 		//Version
 			$app["Application"]["Version"]["Number"] = "1.49.0";
 			$app["Application"]["Version"]["Name"] = NULL;
