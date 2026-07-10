@@ -48,16 +48,29 @@ function runCommandWithTimeout(string $cmd, int $timeoutSec = 8): ?string {
 //  HTTP fetch with a HARD total timeout (Issue #192)
 // ═══════════════════════════════════════════════════════════════════
 
-/** GET a URL with a HARD total timeout via curl. Returns body string, or null on failure. */
+/**
+ * GET a URL with a HARD total timeout via curl. Returns body string, or null on failure.
+ *
+ * Issue #197: pass $opts['resolve'] (a CURLOPT_RESOLVE-shaped array, e.g.
+ * ["host:443:1.2.3.4", "host:80:1.2.3.4"]) to pin the connection to a pre-vetted IP
+ * when $url's host is user-controlled. Callers MUST vet the host with
+ * resolveAndVetHost() first — this function does not vet, it only pins.
+ */
 function httpFetch(string $url, array $opts = []): ?string {
     if (!function_exists('curl_init')) {
+        // Issue #197: without curl we have no way to pin the connection to a pre-vetted
+        // IP, so a caller that requires pinning would otherwise silently fall back to an
+        // unpinned lookup (re-opening the DNS-rebinding window). Fail closed instead.
+        if (!empty($opts['resolve'])) {
+            return null;
+        }
         // Fallback: stream context (idle timeout is the best we can do without curl)
         $ctx = stream_context_create(['http' => ['timeout' => $opts['timeout'] ?? 4, 'method' => $opts['method'] ?? 'GET', 'header' => $opts['header'] ?? "User-Agent: mwWhoIs\r\n", 'follow_location' => 0], 'ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
         $r = @file_get_contents($url, false, $ctx);
         return $r === false ? null : $r;
     }
     $ch = curl_init($url);
-    curl_setopt_array($ch, [
+    $curlOpts = [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => $opts['timeout'] ?? 4,      // TOTAL time cap
         CURLOPT_CONNECTTIMEOUT => $opts['connect'] ?? 2,
@@ -65,12 +78,301 @@ function httpFetch(string $url, array $opts = []): ?string {
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_USERAGENT      => $opts['ua'] ?? 'mwWhoIs',
         CURLOPT_MAXFILESIZE    => $opts['maxbytes'] ?? 3145728, // 3 MB default cap
-    ]);
+    ];
+    // Issue #197: restrict redirects/requests to HTTP(S) only where curl supports it.
+    if (defined('CURLOPT_PROTOCOLS')) { $curlOpts[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+    if (defined('CURLOPT_REDIR_PROTOCOLS')) { $curlOpts[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+    if (!empty($opts['resolve'])) { $curlOpts[CURLOPT_RESOLVE] = $opts['resolve']; }
+    curl_setopt_array($ch, $curlOpts);
     if (!empty($opts['post'])) { curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, $opts['post']); }
     if (!empty($opts['headers'])) { curl_setopt($ch, CURLOPT_HTTPHEADER, $opts['headers']); }
     $r = curl_exec($ch);
     curl_close($ch);
     return ($r === false || $r === '') ? null : $r;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  SSRF egress gate (Issue #197)
+// ═══════════════════════════════════════════════════════════════════
+//
+//  lookup.php makes many OUTBOUND connections to a user-supplied domain
+//  (SSL probe, header audit, redirect-chain walk, tech-stack sniff, robots.txt
+//  fetch, SMTP banner grab, ...). isValidDomain() only checks *format* — it says
+//  nothing about where the name actually resolves. An attacker can point a
+//  syntactically valid domain (or a wildcard-DNS service like nip.io/sslip.io)
+//  at cloud metadata (169.254.169.254), loopback, or an internal RFC1918 host and
+//  have this server fetch it on their behalf and reflect the response back — SSRF.
+//
+//  Policy: BLOCK private/reserved/internal ranges; public domains keep working
+//  exactly as before. Every fetcher that connects to the user's host (not the
+//  fixed third-party threat-intel APIs, which take the domain/IP as a query
+//  parameter, not a connection target) must call resolveAndVetHost() first and
+//  connect ONLY to the returned, pre-vetted IP (curl: CURLOPT_RESOLVE; sockets:
+//  connect to the IP directly) — never re-resolve the hostname after vetting it,
+//  or a DNS-rebinding attacker can swap the answer between the check and the use.
+
+/**
+ * CIDR ranges that must NEVER be treated as a safe SSRF target, even though some of
+ * them (CGNAT, the IETF protocol/benchmarking/documentation ranges, multicast, the
+ * NAT64 well-known prefix) are not reliably excluded by
+ * FILTER_FLAG_NO_PRIV_RANGE|FILTER_FLAG_NO_RES_RANGE across PHP builds/versions.
+ * Kept as an explicit list (rather than trusting the flags alone) so the policy is
+ * self-documenting and doesn't silently change if that flag behaviour ever does.
+ *
+ * @return string[]
+ */
+function ssrfBlockedRanges(): array {
+    return [
+        // ── IPv4 ──
+        '0.0.0.0/8',        // "this" network
+        '10.0.0.0/8',       // RFC1918 private
+        '100.64.0.0/10',    // CGNAT (RFC6598)
+        '127.0.0.0/8',      // loopback
+        '169.254.0.0/16',   // link-local — includes the 169.254.169.254 cloud metadata IP
+        '172.16.0.0/12',    // RFC1918 private
+        '192.168.0.0/16',   // RFC1918 private
+        '192.0.0.0/24',     // IETF protocol assignments
+        '192.0.2.0/24',     // TEST-NET-1
+        '198.18.0.0/15',    // benchmarking
+        '198.51.100.0/24',  // TEST-NET-2
+        '203.0.113.0/24',   // TEST-NET-3
+        '224.0.0.0/4',      // multicast
+        '240.0.0.0/4',      // reserved / future use
+        // ── IPv6 ──
+        '::1/128',          // loopback
+        '::/128',           // unspecified
+        'fc00::/7',         // unique local address (ULA)
+        'fe80::/10',        // link-local
+        '::ffff:0:0/96',    // IPv4-mapped IPv6 — reject the mapped literal outright rather
+                             // than unwrap-and-recheck the embedded v4; no legitimate public
+                             // AAAA record is ever published in this form, it's only ever
+                             // seen as a validator-bypass trick.
+        '2001:db8::/32',    // documentation
+        '64:ff9b::/96',     // NAT64 well-known prefix (can front an internal v4 host)
+        // Security review (Issue #197): FILTER_FLAG_NO_PRIV_RANGE/NO_RES_RANGE only
+        // recognise the IPv4-mapped form (::ffff:a.b.c.d) as embedding a v4 address —
+        // NOT the deprecated "IPv4-compatible" form (::a.b.c.d, i.e. the last 32 bits of
+        // an otherwise-zero address, equivalently written in hex groups e.g. "::7f00:1"
+        // for 127.0.0.1, or "::a9fe:a9fe" for the 169.254.169.254 metadata address).
+        // filter_var() with those flags does NOT reject "::7f00:1", even though it
+        // decodes (via inet_pton) to the exact same 16 bytes as "::127.0.0.1", which IS
+        // rejected — a pure notation difference. Block the whole /96 explicitly so no
+        // hex-group spelling of a private v4 address can sneak past isPublicIp().
+        '::/96',            // deprecated IPv4-compatible IPv6 (RFC4291) — embeds an arbitrary v4
+        '2002::/16',         // 6to4 (RFC3056) — also embeds an arbitrary v4 in the address
+    ];
+}
+
+/**
+ * Is $ip inside $cidr? Works for both IPv4 and IPv6 (family must match).
+ */
+function cidrMatch(string $ip, string $cidr): bool {
+    if (strpos($cidr, '/') === false) {
+        return $ip === $cidr;
+    }
+    [$subnet, $bits] = explode('/', $cidr, 2);
+    $bits = (int) $bits;
+
+    $ipBin = @inet_pton($ip);
+    $subnetBin = @inet_pton($subnet);
+    if ($ipBin === false || $subnetBin === false || strlen($ipBin) !== strlen($subnetBin)) {
+        return false; // different address family, or unparsable
+    }
+
+    $fullBytes = intdiv($bits, 8);
+    $remBits = $bits % 8;
+
+    if ($fullBytes > 0 && substr($ipBin, 0, $fullBytes) !== substr($subnetBin, 0, $fullBytes)) {
+        return false;
+    }
+    if ($remBits > 0) {
+        $mask = chr((0xFF << (8 - $remBits)) & 0xFF);
+        if ((substr($ipBin, $fullBytes, 1) & $mask) !== (substr($subnetBin, $fullBytes, 1) & $mask)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * Is $ip safe to connect to as an SSRF target — i.e. a global-scope PUBLIC address?
+ * Returns false for anything private/reserved/loopback/link-local/metadata/multicast
+ * (v4 or v6). Fails CLOSED: anything that isn't affirmatively a valid, public IP is
+ * rejected.
+ */
+function isPublicIp(string $ip): bool {
+    if (filter_var($ip, FILTER_VALIDATE_IP) === false) {
+        return false;
+    }
+    // Base filter: PHP's own private/reserved-range detector.
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+        return false;
+    }
+    // Explicit belt-and-braces ranges the flags don't reliably cover (see ssrfBlockedRanges()).
+    foreach (ssrfBlockedRanges() as $cidr) {
+        if (cidrMatch($ip, $cidr)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * Resolve $host (a domain name OR an IP literal) and vet EVERY resulting address.
+ *
+ * Returns null (UNSAFE — do not connect) when:
+ *   - $host doesn't resolve at all, or
+ *   - ANY resolved A/AAAA answer is not a global-scope public address (rebinding
+ *     defence: a multi-answer response is rejected wholesale if even one answer is
+ *     private/internal, since an attacker can put a public IP first and a private
+ *     one second, or vice versa across two lookups).
+ *
+ * On success returns ['host' => $host, 'ip' => <first vetted public IP>,
+ * 'ips' => <all vetted public IPs>] so the caller can PIN its connection to a
+ * specific, already-checked IP instead of letting the underlying transport
+ * re-resolve $host (which would reopen the DNS-rebinding window between check and use).
+ */
+function resolveAndVetHost(string $host): ?array {
+    static $cache = [];
+    if (array_key_exists($host, $cache)) {
+        return $cache[$host];
+    }
+
+    $ips = [];
+    if (filter_var($host, FILTER_VALIDATE_IP)) {
+        $ips[] = $host;
+    } else {
+        $aRecords = @dns_get_record($host, DNS_A);
+        if ($aRecords) {
+            foreach ($aRecords as $rec) {
+                if (!empty($rec['ip'])) { $ips[] = $rec['ip']; }
+            }
+        }
+        $aaaaRecords = @dns_get_record($host, DNS_AAAA);
+        if ($aaaaRecords) {
+            foreach ($aaaaRecords as $rec) {
+                if (!empty($rec['ipv6'])) { $ips[] = $rec['ipv6']; }
+            }
+        }
+    }
+
+    $ips = array_values(array_unique($ips));
+
+    if (empty($ips)) {
+        return $cache[$host] = null; // doesn't resolve
+    }
+    foreach ($ips as $ip) {
+        if (!isPublicIp($ip)) {
+            return $cache[$host] = null; // at least one answer is private/internal — reject all
+        }
+    }
+
+    return $cache[$host] = ['host' => $host, 'ip' => $ips[0], 'ips' => $ips];
+}
+
+/**
+ * Bracket an IPv6 literal for use in a "host:port" style connection target
+ * (ssl://, CURLOPT_RESOLVE, fsockopen, openssl s_client -connect). No-op for IPv4.
+ */
+function bracketIp(string $ip): string {
+    return (strpos($ip, ':') !== false) ? '[' . $ip . ']' : $ip;
+}
+
+/**
+ * Resolve a Location header value against the URL it was returned for. Handles
+ * absolute URLs, protocol-relative ("//host/path"), and root-relative ("/path")
+ * forms — good enough for the redirect targets real HTTP servers send.
+ */
+function resolveRedirectUrl(string $baseScheme, string $baseHost, string $location): string {
+    if (preg_match('#^https?://#i', $location)) {
+        return $location;
+    }
+    if (str_starts_with($location, '//')) {
+        return $baseScheme . ':' . $location;
+    }
+    if (str_starts_with($location, '/')) {
+        return $baseScheme . '://' . $baseHost . $location;
+    }
+    return $baseScheme . '://' . $baseHost . '/' . ltrim($location, './');
+}
+
+/**
+ * Fetch $url via curl, pinning EVERY hop's connection to its own freshly-vetted IP and
+ * manually following redirects ourselves (CURLOPT_FOLLOWLOCATION is never used here —
+ * if it were, curl would connect straight to whatever host the Location header names
+ * with NO vetting at all, which would silently defeat the whole gate on the very first
+ * 3xx response). Each hop re-runs resolveAndVetHost() on its own host before connecting.
+ *
+ * Returns null if the initial host (or any hop along the way) fails vetting, if the
+ * hop budget is exceeded while still redirecting, or if the transfer fails outright.
+ * On success returns ['url' => <final URL>, 'status' => <final HTTP code>,
+ * 'headers' => <raw header block of the final hop>, 'body' => <final hop response body>].
+ *
+ * $curlOpts are merged in as the base options (e.g. CURLOPT_NOBODY, CURLOPT_TIMEOUT,
+ * CURLOPT_USERAGENT) — FOLLOWLOCATION/RESOLVE/HEADER are always forced by this helper.
+ *
+ * Security note: CURLOPT_RESOLVE pins are host:PORT-scoped — they only cover 80/443
+ * below. A redirect to any other port would make curl fall back to a LIVE DNS lookup
+ * for that host:port pair (confirmed against curl directly), completely bypassing the
+ * pin and reopening the rebinding window. So any hop whose URL names a port other than
+ * the implicit default 80/443 is rejected outright rather than connected to.
+ */
+function fetchViaVettedCurl(string $url, array $curlOpts = [], int $maxHops = 3): ?array {
+    if (!function_exists('curl_init')) {
+        return null;
+    }
+    for ($hop = 0; $hop <= $maxHops; $hop++) {
+        $host = parse_url($url, PHP_URL_HOST);
+        $scheme = parse_url($url, PHP_URL_SCHEME) ?: 'https';
+        $port = parse_url($url, PHP_URL_PORT);
+        if (!$host) {
+            return null;
+        }
+        if ($port !== null && !in_array((int) $port, [80, 443], true)) {
+            return null; // non-standard port — our CURLOPT_RESOLVE pin can't cover it safely
+        }
+        $vet = resolveAndVetHost($host);
+        if ($vet === null) {
+            return null; // unresolvable, or resolves to a private/internal address — stop
+        }
+        $ip = $vet['ip'];
+
+        $ch = curl_init($url);
+        $opts = $curlOpts;
+        $opts[CURLOPT_RETURNTRANSFER] = true;
+        $opts[CURLOPT_HEADER] = true;
+        $opts[CURLOPT_FOLLOWLOCATION] = false;
+        $opts[CURLOPT_RESOLVE] = [$host . ':443:' . bracketIp($ip), $host . ':80:' . bracketIp($ip)];
+        if (defined('CURLOPT_PROTOCOLS')) { $opts[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+        if (defined('CURLOPT_REDIR_PROTOCOLS')) { $opts[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+        curl_setopt_array($ch, $opts);
+        $raw = curl_exec($ch);
+        if ($raw === false) {
+            curl_close($ch);
+            return null;
+        }
+        $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        $rawHeaders = substr($raw, 0, $headerSize);
+        $body = substr($raw, $headerSize);
+
+        $location = null;
+        foreach (preg_split('/\r\n|\n/', trim($rawHeaders)) as $line) {
+            if (preg_match('/^location:\s*(.+)/i', $line, $m)) {
+                $location = trim($m[1]);
+            }
+        }
+
+        if ($status >= 300 && $status < 400 && $location) {
+            $url = resolveRedirectUrl($scheme, $host, $location);
+            continue; // next loop iteration re-vets the NEW host before connecting
+        }
+
+        return ['url' => $url, 'status' => $status, 'headers' => $rawHeaders, 'body' => $body];
+    }
+    return null; // exceeded hop budget while still redirecting
 }
 
 
@@ -878,16 +1180,24 @@ function getIpGeolocation(string $ip): ?array {
  * Fetch SSL certificate info for a domain.
  */
 function getSslInfo(string $domain): ?array {
+    // Issue #197: vet before connecting, then pin to the checked IP — connecting to
+    // "ssl://{$domain}:443" directly would let the transport re-resolve $domain itself.
+    $vet = resolveAndVetHost($domain);
+    if ($vet === null) {
+        return null;
+    }
+
     $ctx = stream_context_create([
         'ssl' => [
             'capture_peer_cert' => true,
             'verify_peer' => false,
             'verify_peer_name' => false,
+            'peer_name' => $domain, // keep SNI + hostname matching pinned to the real host
         ],
     ]);
 
     $client = @stream_socket_client(
-        "ssl://{$domain}:443",
+        'ssl://' . bracketIp($vet['ip']) . ':443',
         $errno,
         $errstr,
         5,
@@ -1857,23 +2167,33 @@ function assessHostingRisk(?array $geolocation): ?array {
 // ═══════════════════════════════════════════════════════════════════
 
 function auditHttpHeaders(string $domain): ?array {
-    $url = 'https://' . $domain;
-    $ctx = stream_context_create(['http' => ['method' => 'HEAD', 'timeout' => 5, 'follow_location' => 1, 'max_redirects' => 3, 'header' => "User-Agent: mwWhoIs Security Audit\r\n"], 'ssl' => ['verify_peer' => false]]);
-    $headers = @get_headers($url, true, $ctx);
-    if (!$headers) {
-        // Try HTTP fallback
-        $url = 'http://' . $domain;
-        $headers = @get_headers($url, true, $ctx);
-        if (!$headers) {
+    // Issue #197: get_headers()'s stream-context wrapper re-resolves the hostname
+    // itself and offers no way to pin a connection, so this now goes through curl
+    // with resolveAndVetHost() + CURLOPT_RESOLVE. Redirects (this used to auto-follow
+    // up to 3 hops) are followed manually so each hop's host gets re-vetted before
+    // it's connected to — see fetchViaVettedCurl().
+    $curlOpts = [
+        CURLOPT_NOBODY         => true,
+        CURLOPT_TIMEOUT        => 5,
+        CURLOPT_CONNECTTIMEOUT => 3,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_USERAGENT      => 'mwWhoIs Security Audit',
+    ];
+    $fetch = fetchViaVettedCurl('https://' . $domain, $curlOpts);
+    if ($fetch === null) {
+        // Try HTTP fallback (matches the original's https-then-http behaviour)
+        $fetch = fetchViaVettedCurl('http://' . $domain, $curlOpts);
+        if ($fetch === null) {
             return null;
         }
     }
 
     // Normalise header keys to lowercase
     $h = [];
-    foreach ($headers as $k => $v) {
-        if (is_string($k)) {
-            $h[strtolower($k)] = is_array($v) ? end($v) : $v;
+    foreach (preg_split('/\r\n|\n/', trim($fetch['headers'])) as $line) {
+        $parts = explode(':', $line, 2);
+        if (count($parts) === 2) {
+            $h[strtolower(trim($parts[0]))] = trim($parts[1]);
         }
     }
 
@@ -1929,8 +2249,27 @@ function detectRedirectChain(string $domain): ?array {
     $stillRedirecting = true;
 
     for ($i = 0; $i < $maxRedirects; $i++) {
+        // Issue #197: this manually walks the redirect chain itself (FOLLOWLOCATION is
+        // already off), which is exactly what makes it SSRF-prone — each Location header
+        // is attacker-influenceable once the FIRST hop is. Re-vet every hop's host before
+        // connecting to it, and stop (marking the hop as blocked) instead of following one
+        // that resolves to a private/internal address.
+        $hopHost = parse_url($url, PHP_URL_HOST);
+        $hopPort = parse_url($url, PHP_URL_PORT);
+        // Security: CURLOPT_RESOLVE pins below are host:PORT-scoped (443/80 only) — a
+        // redirect naming any other port would make curl fall back to a LIVE DNS lookup
+        // for that host:port, bypassing the pin entirely. Treat that the same as a
+        // vetting failure rather than connect.
+        $portOk = ($hopPort === null || in_array((int) $hopPort, [80, 443], true));
+        $vet = ($hopHost && $portOk) ? resolveAndVetHost($hopHost) : null;
+        if ($vet === null) {
+            $chain[] = ['url' => $url, 'status' => null, 'blocked' => true];
+            $stillRedirecting = false;
+            break;
+        }
+
         $ch = curl_init($url);
-        curl_setopt_array($ch, [
+        $curlOpts = [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_TIMEOUT => 3, // Issue #192: was 5 — per-hop TOTAL time cap
@@ -1938,7 +2277,11 @@ function detectRedirectChain(string $domain): ?array {
             CURLOPT_NOBODY => true,
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_USERAGENT => 'mwWhoIs',
-        ]);
+            CURLOPT_RESOLVE => [$hopHost . ':443:' . bracketIp($vet['ip']), $hopHost . ':80:' . bracketIp($vet['ip'])],
+        ];
+        if (defined('CURLOPT_PROTOCOLS')) { $curlOpts[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+        if (defined('CURLOPT_REDIR_PROTOCOLS')) { $curlOpts[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+        curl_setopt_array($ch, $curlOpts);
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $redirectUrl = curl_getinfo($ch, CURLINFO_REDIRECT_URL);
@@ -1957,7 +2300,10 @@ function detectRedirectChain(string $domain): ?array {
     // Suspicious = still redirecting when we hit our own hop cap (was "count($chain) > 5"
     // against a maxRedirects of 10; with the cap now equal to 5 that bare count comparison
     // could never fire, and would also false-flag a chain that resolves cleanly on hop 5).
-    $suspicious = $stillRedirecting && count($chain) >= $maxRedirects;
+    // Issue #197: a chain that redirects to a private/internal address is inherently
+    // suspicious too — flag it rather than just quietly truncating.
+    $wasBlocked = !empty(end($chain)['blocked']);
+    $suspicious = ($stillRedirecting && count($chain) >= $maxRedirects) || $wasBlocked;
     $httpToHttps = false;
     if (count($chain) >= 2 && str_starts_with($chain[0]['url'], 'http://') && str_starts_with(end($chain)['url'], 'https://')) {
         $httpToHttps = true;
@@ -1972,11 +2318,21 @@ function detectRedirectChain(string $domain): ?array {
 // ═══════════════════════════════════════════════════════════════════
 
 function auditTlsVersions(string $domain): ?array {
+    // Issue #197: vet before connecting; pin every curl call AND the openssl s_client
+    // fallback below to the checked IP (openssl s_client does its own DNS resolution
+    // and would otherwise completely bypass the gate).
+    $vet = resolveAndVetHost($domain);
+    if ($vet === null) {
+        return null;
+    }
+    $ip = $vet['ip'];
+    $resolvePin = [$domain . ':443:' . bracketIp($ip)];
+
     $result = ['versions' => [], 'cipher' => null, 'protocol' => null, 'insecure' => false];
 
     // Check negotiated TLS version
     $ch = curl_init('https://' . $domain);
-    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_NOBODY => true, CURLOPT_TIMEOUT => 5, CURLOPT_SSL_VERIFYPEER => false]);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_NOBODY => true, CURLOPT_TIMEOUT => 5, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_RESOLVE => $resolvePin]);
     curl_exec($ch);
     $sslVersion = curl_getinfo($ch, CURLINFO_SSL_VERIFYRESULT);
     $protocol = curl_getinfo($ch, CURLINFO_PROTOCOL);
@@ -1987,8 +2343,12 @@ function auditTlsVersions(string $domain): ?array {
         // Not available in all PHP versions
     }
 
-    // Fallback: use openssl s_client
-    $output = @shell_exec('echo | timeout 5 openssl s_client -connect ' . escapeshellarg($domain . ':443') . ' 2>/dev/null | grep "Protocol\|Cipher"');
+    // Fallback: use openssl s_client — connect to the vetted IP directly (never the
+    // hostname, which openssl would resolve itself), pass -servername for correct SNI.
+    $output = @shell_exec(
+        'echo | timeout 5 openssl s_client -connect ' . escapeshellarg(bracketIp($ip) . ':443')
+        . ' -servername ' . escapeshellarg($domain) . ' 2>/dev/null | grep "Protocol\|Cipher"'
+    );
     if ($output) {
         if (preg_match('/Protocol\s*:\s*(.+)/i', $output, $m)) {
             $result['protocol'] = trim($m[1]);
@@ -2011,7 +2371,7 @@ function auditTlsVersions(string $domain): ?array {
 
     foreach ($tests as $name => $const) {
         $ch = curl_init('https://' . $domain);
-        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_NOBODY => true, CURLOPT_TIMEOUT => 3, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_SSLVERSION => $const]);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_NOBODY => true, CURLOPT_TIMEOUT => 3, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_SSLVERSION => $const, CURLOPT_RESOLVE => $resolvePin]);
         $ok = curl_exec($ch);
         $err = curl_errno($ch);
         curl_close($ch);
@@ -2126,7 +2486,16 @@ function checkSmtpSecurity(string $domain): ?array {
         return $result;
     }
 
-    $fp = @fsockopen($mxHost, 25, $errno, $errstr, 5);
+    // Issue #197: the domain's own MX target is attacker-controlled (a malicious domain
+    // can publish an MX record pointing at internal infrastructure) — vet it and connect
+    // to the checked IP, never the hostname itself.
+    $mxVet = resolveAndVetHost($mxHost);
+    if ($mxVet === null) {
+        $result['ssrf_blocked'] = true;
+        return $result;
+    }
+
+    $fp = @fsockopen(bracketIp($mxVet['ip']), 25, $errno, $errstr, 5);
     if (!$fp) {
         return $result;
     }
@@ -2180,6 +2549,13 @@ function reverseIpLookup(string $ip): ?array {
 function checkHttpVersions(string $domain): array {
     $result = ['http2' => false, 'http3' => false, 'protocol' => null];
 
+    // Issue #197: vet before connecting; return the same default/failure shape without
+    // connecting if the host doesn't resolve to a public address.
+    $vet = resolveAndVetHost($domain);
+    if ($vet === null) {
+        return $result;
+    }
+
     $ch = curl_init('https://' . $domain);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
@@ -2188,6 +2564,7 @@ function checkHttpVersions(string $domain): array {
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_2_0,
         CURLOPT_HEADER => true,
+        CURLOPT_RESOLVE => [$domain . ':443:' . bracketIp($vet['ip']), $domain . ':80:' . bracketIp($vet['ip'])],
     ]);
     $response = curl_exec($ch);
     $httpVersion = curl_getinfo($ch, CURLINFO_HTTP_VERSION);
@@ -2244,6 +2621,16 @@ function checkIpv6Readiness(string $domain): array {
 function measureResponseTimes(string $domain): array {
     $result = ['dns_ms' => null, 'ttfb_ms' => null, 'total_ms' => null];
 
+    // Issue #197: vet before connecting; return the same default/failure shape without
+    // connecting if the host doesn't resolve to a public address. Note: pinning the
+    // connection via CURLOPT_RESOLVE means curl skips its own DNS lookup for this
+    // request, so CURLINFO_NAMELOOKUP_TIME (dns_ms below) now reflects that skipped
+    // lookup (~0ms) rather than a live resolution — an accepted trade-off of the fix.
+    $vet = resolveAndVetHost($domain);
+    if ($vet === null) {
+        return $result;
+    }
+
     $ch = curl_init('https://' . $domain);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
@@ -2251,6 +2638,7 @@ function measureResponseTimes(string $domain): array {
         CURLOPT_TIMEOUT => 10,
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_USERAGENT => 'mwWhoIs',
+        CURLOPT_RESOLVE => [$domain . ':443:' . bracketIp($vet['ip']), $domain . ':80:' . bracketIp($vet['ip'])],
     ]);
     curl_exec($ch);
 
@@ -2579,50 +2967,43 @@ function getTldsByCategory(): array {
 // ═══════════════════════════════════════════════════════════════════
 
 function detectTechStack(string $domain): ?array {
+    // Issue #197: vet before connecting. The redirect-following fetch below re-vets
+    // each hop itself (see fetchViaVettedCurl()), but bail out up front if the domain
+    // itself doesn't resolve to a public address.
+    $vet = resolveAndVetHost($domain);
+    if ($vet === null) {
+        return null;
+    }
+
     // Issue #192: needs response headers + redirect-following, which httpFetch()'s
     // SSRF-safe/body-only contract doesn't support — use curl directly here with the
     // same hard TOTAL timeout cap (idle-only stream timeouts let a slow response hang).
+    // Issue #197: CURLOPT_FOLLOWLOCATION is no longer used (it would connect straight
+    // to whatever host a Location header names, completely unvetted); fetchViaVettedCurl()
+    // walks redirects itself, re-vetting + re-pinning every hop.
     $headers = [];
     $html = null;
-    if (function_exists('curl_init')) {
-        $ch = curl_init('https://' . $domain);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HEADER         => true,
-            CURLOPT_TIMEOUT        => 5,       // TOTAL time cap
-            CURLOPT_CONNECTTIMEOUT => 2,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS      => 3,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_USERAGENT      => 'mwWhoIs',
-            CURLOPT_MAXFILESIZE    => 3145728, // 3 MB cap
-        ]);
-        $raw = curl_exec($ch);
-        if ($raw !== false) {
-            $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-            $rawHeaders = substr($raw, 0, $headerSize);
-            $html = substr($raw, $headerSize);
-            foreach (preg_split('/\r\n|\n/', trim($rawHeaders)) as $h) {
-                $parts = explode(':', $h, 2);
-                if (count($parts) === 2) {
-                    $headers[strtolower(trim($parts[0]))] = trim($parts[1]);
-                }
-            }
-        }
-        curl_close($ch);
-    } else {
-        // Fallback: idle timeout is the best we can do without curl
-        $ctx = stream_context_create(['http' => ['timeout' => 5, 'method' => 'GET', 'header' => "User-Agent: mwWhoIs\r\n", 'follow_location' => 1, 'max_redirects' => 3], 'ssl' => ['verify_peer' => false]]);
-        $html = @file_get_contents('https://' . $domain, false, $ctx);
-        if (isset($http_response_header)) {
-            foreach ($http_response_header as $h) {
-                $parts = explode(':', $h, 2);
-                if (count($parts) === 2) {
-                    $headers[strtolower(trim($parts[0]))] = trim($parts[1]);
-                }
+    $fetch = fetchViaVettedCurl('https://' . $domain, [
+        CURLOPT_TIMEOUT        => 5,       // TOTAL time cap
+        CURLOPT_CONNECTTIMEOUT => 2,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_USERAGENT      => 'mwWhoIs',
+        CURLOPT_MAXFILESIZE    => 3145728, // 3 MB cap
+    ]);
+    if ($fetch !== null) {
+        $html = $fetch['body'];
+        foreach (preg_split('/\r\n|\n/', trim($fetch['headers'])) as $h) {
+            $parts = explode(':', $h, 2);
+            if (count($parts) === 2) {
+                $headers[strtolower(trim($parts[0]))] = trim($parts[1]);
             }
         }
     }
+    // Issue #197: the old curl-unavailable fallback (a plain stream-context
+    // file_get_contents()) had no way to pin the connection to the vetted IP — it would
+    // re-resolve $domain itself, reopening the exact rebinding window this gate closes.
+    // If curl isn't available, fetchViaVettedCurl() returns null and we simply have no
+    // headers/html to analyse, rather than silently falling back to an unpinned fetch.
 
     $techs = [];
 
@@ -2699,9 +3080,18 @@ function detectTechStack(string $domain): ?array {
 
 function analyseRobotsTxt(string $domain): ?array {
     $result = ['robots_found' => false, 'sitemap_found' => false, 'disallowed' => [], 'sitemaps' => [], 'crawl_delay' => null];
-    $ctx = stream_context_create(['http' => ['timeout' => 5, 'header' => "User-Agent: mwWhoIs\r\n"], 'ssl' => ['verify_peer' => false]]);
 
-    $robots = httpFetch('https://' . $domain . '/robots.txt', ['timeout' => 5]);
+    // Issue #197: vet before connecting; pin BOTH fetches below to the checked IP.
+    // Vetting once up front (instead of once per fetch) also means both requests hit
+    // the exact same checked address — no gap between the two calls for a rebinding
+    // attacker to swap the DNS answer.
+    $vet = resolveAndVetHost($domain);
+    if ($vet === null) {
+        return null;
+    }
+    $resolvePin = [$domain . ':443:' . bracketIp($vet['ip']), $domain . ':80:' . bracketIp($vet['ip'])];
+
+    $robots = httpFetch('https://' . $domain . '/robots.txt', ['timeout' => 5, 'resolve' => $resolvePin]);
     if ($robots && stripos($robots, '<html') === false) {
         $result['robots_found'] = true;
         foreach (explode("\n", $robots) as $line) {
@@ -2720,9 +3110,30 @@ function analyseRobotsTxt(string $domain): ?array {
         $result['disallowed'] = array_slice(array_unique($result['disallowed']), 0, 20);
     }
 
-    // Check sitemap.xml
-    $sitemapHeaders = @get_headers('https://' . $domain . '/sitemap.xml', true, $ctx);
-    if ($sitemapHeaders && isset($sitemapHeaders[0]) && str_contains($sitemapHeaders[0], '200') ) {
+    // Check sitemap.xml — Issue #197: replaced get_headers()'s stream-context wrapper
+    // (which re-resolves the hostname itself, with no way to pin it) with a curl HEAD
+    // request pinned to the already-vetted IP.
+    $sitemapStatus = null;
+    if (function_exists('curl_init')) {
+        $ch = curl_init('https://' . $domain . '/sitemap.xml');
+        $chOpts = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_NOBODY         => true,
+            CURLOPT_HEADER         => true,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_USERAGENT      => 'mwWhoIs',
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_RESOLVE        => $resolvePin,
+        ];
+        if (defined('CURLOPT_PROTOCOLS')) { $chOpts[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+        if (defined('CURLOPT_REDIR_PROTOCOLS')) { $chOpts[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+        curl_setopt_array($ch, $chOpts);
+        curl_exec($ch);
+        $sitemapStatus = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+    }
+    if ($sitemapStatus === 200) {
         $result['sitemap_found'] = true;
         if (!in_array('https://' . $domain . '/sitemap.xml', $result['sitemaps'])) {
             $result['sitemaps'][] = 'https://' . $domain . '/sitemap.xml';

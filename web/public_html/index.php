@@ -1750,7 +1750,13 @@ if ($_showPortfolioIcon): ?>
                 var rc = data.redirect_chain;
                 var rcHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-arrow-right-circle me-1"></i>Redirect Chain</strong>' + (rc.suspicious ? ' <span class="badge bg-warning">Excessive redirects</span>' : '') + (rc.http_to_https ? ' <span class="badge bg-info">HTTP→HTTPS</span>' : '') + '</div><div class="card-body"><ol class="mb-0 small">';
                 rc.chain.forEach(function (hop) {
-                    rcHtml += '<li><code>' + esc(hop.url) + '</code> <span class="badge bg-secondary">' + hop.status + '</span></li>';
+                    // Issue #197: a hop can be marked "blocked" when its Location header
+                    // pointed at a private/internal address — we stop the chain rather
+                    // than connect to it, so show that distinctly instead of "null".
+                    var hopBadge = hop.blocked
+                        ? '<span class="badge bg-danger">blocked (internal address)</span>'
+                        : '<span class="badge bg-secondary">' + esc(String(hop.status)) + '</span>';
+                    rcHtml += '<li><code>' + esc(hop.url) + '</code> ' + hopBadge + '</li>';
                 });
                 rcHtml += '</ol></div></div>';
                 document.getElementById('parsedFields').innerHTML += rcHtml;
