@@ -192,6 +192,37 @@ if ($isIpLookup) {
         sendError('Invalid domain name.');
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    //  Full-response cache (Issue #189) — a hit here skips the ENTIRE lookup
+    //  pipeline (WHOIS/RDAP fetch + ~35-check enrichment pipeline), not just
+    //  the raw WHOIS text. Keyed by DNT and by response shape (the JSON API
+    //  shape carries 'raw'; the HTML-embed shape carries masked/escaped
+    //  'whois' instead) so a hit always matches what THIS request expects
+    //  back. source=whois requests always bypass the cache (read-side only)
+    //  so the diff feature keeps seeing a fresh WHOIS fetch.
+    // ═══════════════════════════════════════════════════════════════════
+    $fullKey = 'full:' . $domain . ($dnt ? ':dnt' : '') . ($jsonFormat ? ':json' : '');
+    if ($sourceParam !== 'whois') {
+        $cachedFullRaw = getCached($fullKey);
+        if ($cachedFullRaw !== null) {
+            $cachedFullResponse = json_decode($cachedFullRaw, true);
+            if (is_array($cachedFullResponse)) {
+                if (!$dnt) trackLookup('cache_hit', $domain);
+                $cachedFullResponse['cached'] = true;
+                $cachedFullResponse['verification_token'] = ($domain && session_id())
+                    ? generateVerificationToken($domain, session_id())
+                    : null;
+                $cachedFullResponse['rate_limit'] = ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit];
+                if ($jsonFormat) {
+                    header('Access-Control-Allow-Origin: *');
+                    header('Access-Control-Allow-Methods: POST');
+                    header('Access-Control-Allow-Headers: Content-Type');
+                }
+                sendJson($cachedFullResponse);
+            }
+        }
+    }
+
     // ─── Lookup pipeline ───
     $whoisText = getCached($domain);
     $fromCache = ($whoisText !== null);
@@ -637,6 +668,14 @@ if ($jsonFormat) {
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;
     }
+    // Full-response cache (Issue #189) — store everything EXCEPT the per-request/
+    // per-session fields (verification_token, rate_limit), which are re-injected
+    // fresh on every cache hit above.
+    if (!$isIpLookup) {
+        $responseToCache = $response;
+        unset($responseToCache['verification_token'], $responseToCache['rate_limit']);
+        setCache($fullKey, json_encode($responseToCache));
+    }
     sendJson($response);
 } else {
     $whoisOutput = '';
@@ -702,6 +741,13 @@ if ($jsonFormat) {
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;
+    }
+    // Full-response cache (Issue #189) — see the matching comment in the $jsonFormat
+    // branch above for what's stored and why.
+    if (!$isIpLookup) {
+        $responseToCache = $response;
+        unset($responseToCache['verification_token'], $responseToCache['rate_limit']);
+        setCache($fullKey, json_encode($responseToCache));
     }
     sendJson($response);
 }
