@@ -75,7 +75,7 @@ PHP-based domain WHOIS/RDAP lookup tool with DNS records, availability detection
 ## Directory Structure
 
 ```
-public_html_beta/
+public_html/
 ├── index.php          # Frontend UI
 ├── lookup.php         # Backend API endpoint
 ├── admin.php          # Admin dashboard
