@@ -32,15 +32,38 @@ if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR
 $modeDev = false;
 $modeDebug = false;
 
+// Issue #202: prefer the X-Admin-Key header or a POST field over ?key= — a
+// query-string secret leaks into server/proxy access logs, browser history,
+// and the Referer header. ?key= is kept working for backwards compatibility
+// but is the least-safe of the three, so it's tried last.
+// TODO: a full session-based admin login is a future improvement; this
+// shared-secret gate is intentionally minimal.
 if (isset($_GET['dev'])) {
     $debugKey = isset($config['debug_key']) ? $config['debug_key'] : null;
-    if ($debugKey && isset($_GET['key']) && hash_equals($debugKey, $_GET['key'])) {
+    $suppliedKey = '';
+    if (isset($_SERVER['HTTP_X_ADMIN_KEY'])) {
+        $suppliedKey = (string) ($_SERVER['HTTP_X_ADMIN_KEY'] ?? '');
+    } elseif (isset($_POST['key'])) {
+        $suppliedKey = (string) ($_POST['key'] ?? '');
+    } elseif (isset($_GET['key'])) {
+        // Cast defensively: hash_equals() requires a string, and ?key[]=...
+        // would otherwise pass an array through and TypeError.
+        $suppliedKey = (string) ($_GET['key'] ?? '');
+    }
+    if ($debugKey && $suppliedKey !== '' && hash_equals((string) $debugKey, $suppliedKey)) {
         $modeDev = true;
 
         if (isset($_GET['debug'])) {
             $modeDebug = true;
         }
     }
+}
+
+if ($modeDev) {
+    // Prevent the debug/admin key from leaking to a linked-to site via
+    // Referer (Issue #202) — overrides the site-wide policy set above for
+    // this request only, since no output has been sent yet.
+    header('Referrer-Policy: no-referrer');
 }
 
 if ($modeDebug) {
