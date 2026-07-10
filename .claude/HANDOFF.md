@@ -6,11 +6,22 @@
 
 ## Active session focus
 
-1. **Record standing tasks** into `.claude/` — **DONE** (see
-   `.claude/CLAUDE.md` → "Standing Tasks & Working Agreement",
-   `.claude/memory/feedback_workflow_process.md`).
-2. **Branch cleanup & alpha↔beta realignment** — **ANALYSIS DONE, execution
-   awaiting owner go-ahead** (remote pushes/deletes are gated).
+1. **Record standing tasks** into `.claude/` — **DONE & PUSHED** (issue #185,
+   commit `3268e00` on beta+alpha). See `.claude/CLAUDE.md` → "Standing Tasks
+   & Working Agreement" + `.claude/memory/feedback_workflow_process.md`.
+2. **Branch cleanup & alpha↔beta realignment** — **DONE** (issue #186).
+   `alpha` advanced to `beta` (both at `3268e00`, aligned); merged TLD branch
+   deleted; `main` untouched.
+
+## Completed this session (2026-07-10)
+
+- Issue **#185** — standing tasks + in-repo Claude docs → committed `3268e00`,
+  pushed to `origin/beta` and `origin/alpha`. **CLOSED.**
+- Issue **#186** — branch cleanup + realignment. **CLOSED.**
+  - `git push origin beta` → `a9b5297..3268e00`
+  - `git push origin beta:alpha` → `8390bac..3268e00` (fast-forward, alpha == beta)
+  - `git push origin --delete claude/add-tld-listing-GiisC` → deleted
+- Remote now has exactly three branches: `main`, `beta`, `alpha`.
 
 ## Branch state as of 2026-07-10 (analysed against `origin/*`, post-fetch)
 
@@ -41,29 +52,25 @@ To realign with **beta as the source of truth**: fast-forward `alpha` up to
 `beta` (`alpha` becomes identical to `beta`). This is a **push to origin/alpha**
 → needs explicit owner go-ahead.
 
-## Pending decisions (need owner go-ahead — remote mutations)
+## Open items / decisions still pending
 
-- [ ] **Delete** remote branch `origin/claude/add-tld-listing-GiisC`
-      (fully merged; no local copy). `git push origin --delete …`.
-- [ ] **Advance `alpha` → `beta`** to realign (fast-forward push to origin/alpha).
-- [ ] Do NOT touch `main` (normal beta→main promotion path) or `beta`.
+- **`stash@{0}`** holds the abandoned, **syntactically broken** edit to
+  `web/public_html_beta/includes/infoAppVer.php` (dangling `})`, malformed
+  `isset(... && ...)`). Preserved, not committed. **Owner to decide:** salvage
+  the Bundle-ID fallback logic (fix syntax first) or `git stash drop`.
+- **Stale `origin` remote URL:** points to `https://github.com/Salem874/mwWhoIs.git`
+  which *redirects* to the real `https://github.com/MWBMPartners/phpWhoIs.git`.
+  Pushes work via redirect but emit a "repository moved" notice. Recommend the
+  owner run `git remote set-url origin https://github.com/MWBMPartners/phpWhoIs.git`
+  (not done here — `.git/config` changes need explicit go-ahead).
+- **Local `main`** is 2 behind `origin/main` (harmless; production promotion path).
 
-## Working-tree caveats (local only, not on any branch)
+## Next steps when resuming (the standing "docs sweep")
 
-- `web/public_html_beta/includes/infoAppVer.php` has an **uncommitted, broken**
-  edit (dangling `})`, malformed `isset(... && ...)`) — abandoned. Recommend
-  `git restore` (discard) unless the owner wants to salvage the Bundle-ID logic.
-  **Not committed.**
-- Untracked `.claude/settings.json` (enables `dev-team` plugin) and
-  `.claude/agents/` (deep-architect, quick-edits). Decide whether to commit or
-  gitignore.
-- **Local `beta` is 92 commits behind `origin/beta`**, local `main` 2 behind.
-  Update locals (`git pull --ff-only`) before any local branch work — but the
-  broken `infoAppVer.php` edit must be resolved first or it will block a switch.
-
-## Next steps when resuming
-
-1. Get go-ahead on the two remote mutations above.
-2. Per standing rules: open (or update) a GitHub issue for the cleanup, execute,
-   then commit `.claude/` doc changes individually.
-3. Then proceed to the documentation sweep (Issues/Wiki/Project/Milestones/OpenAPI).
+Per `.claude/CLAUDE.md` → Standing Task #6, now that the queued cleanup is done:
+1. Documentation sweep — update `.md` files, **GitHub Wiki**, **Project**, and
+   **Milestones** (none exist yet — create them), and refresh the
+   **OpenAPI/Swagger** spec (`assets/api/openapi.yaml`) to the current feature set.
+2. Optional: `dev-team-featurefind` pass to propose new features
+   (un-actioned ideas → `for consideration` issues).
+3. `alpha` is ready to become the base dev branch whenever the owner switches.
