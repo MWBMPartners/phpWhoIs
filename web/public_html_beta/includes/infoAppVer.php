@@ -21,10 +21,7 @@
 				$app["Application"]["ID"] = NULL;
 			}
 		}
-		else{
-			$app["Application"]["ID"] = NULL;
-		}
-		
+
 		//Version
 			$app["Application"]["Version"]["Number"] = "1.50.0";
 			$app["Application"]["Version"]["Name"] = NULL;
