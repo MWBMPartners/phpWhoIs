@@ -2802,7 +2802,12 @@ function checkAlternativeTldAvailability(string $label, string $currentTld, arra
 
             $availability = 'unknown';
             if ($code === 404) {
-                $availability = 'available';
+                // rdap.org also returns a bare 404 for TLDs it has no RDAP
+                // endpoint for at all — not just for genuinely unregistered
+                // names (Issue #215). Confirm against live NS records before
+                // trusting the 404; if the name resolves, downgrade to
+                // 'unknown' rather than wrongly reporting it available.
+                $availability = @checkdnsrr($candidate, 'NS') ? 'unknown' : 'available';
             } elseif ($code >= 200 && $code < 300 && $body) {
                 $data = json_decode($body, true);
                 if (is_array($data) && isset($data['ldhName'])) {
