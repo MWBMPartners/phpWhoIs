@@ -39,5 +39,5 @@ if (!defined('TLD_META_PATH')) {
     define('TLD_META_PATH', sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'test_tld_meta.json');
 }
 
-// Load the functions file
-require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'web' . DIRECTORY_SEPARATOR . 'public_html_beta' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
+// Load the functions file (single-source web/public_html/ after the beta consolidation)
+require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'web' . DIRECTORY_SEPARATOR . 'public_html' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
