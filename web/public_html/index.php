@@ -485,6 +485,13 @@ if ($_showPortfolioIcon): ?>
             div.appendChild(document.createTextNode(str));
             return div.innerHTML;
         }
+
+        // CSV cell escape helper to prevent formula injection (Issue #201)
+        function csvEscape(v) {
+            var s = (v === null || v === undefined) ? '' : String(v);
+            if (/^[=+\-@\t\r]/.test(s)) { s = "'" + s; }   // neutralise spreadsheet formulas
+            return '"' + s.replace(/"/g, '""') + '"';        // quote + double embedded quotes
+        }
         var currentDomain = '';
 
         // ── URL parameter UI controls ──
@@ -1225,12 +1232,12 @@ if ($_showPortfolioIcon): ?>
                         allKeys[k] = true;
                     }
                 }
-                var csv = 'Field,"' + d1 + '","' + d2 + '"\n';
-                csv += '"Availability","' + (data1.availability || '') + '","' + (data2.availability || '') + '"\n';
+                var csv = [csvEscape('Field'), csvEscape(d1), csvEscape(d2)].join(',') + '\n';
+                csv += [csvEscape('Availability'), csvEscape(data1.availability || ''), csvEscape(data2.availability || '')].join(',') + '\n';
                 for (var key in allKeys) {
                     var v1 = data1.parsed && data1.parsed[key] ? (Array.isArray(data1.parsed[key]) ? data1.parsed[key].join('; ') : data1.parsed[key]) : '';
                     var v2 = data2.parsed && data2.parsed[key] ? (Array.isArray(data2.parsed[key]) ? data2.parsed[key].join('; ') : data2.parsed[key]) : '';
-                    csv += '"' + key + '","' + v1 + '","' + v2 + '"\n';
+                    csv += [csvEscape(key), csvEscape(v1), csvEscape(v2)].join(',') + '\n';
                 }
                 var a = document.createElement('a');
                 a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -1365,9 +1372,14 @@ if ($_showPortfolioIcon): ?>
             var csv = 'Domain,Availability,Registrar,Creation Date,Expiry Date,Data Source\n';
             bulkResultsData.forEach(function (r) {
                 var p = r.data.parsed || {};
-                csv += '"' + r.domain + '","' + (r.data.availability || '') + '","' +
-                    (p['Registrar'] || '') + '","' + (p['Creation Date'] || '') + '","' +
-                    (p['Expiry Date'] || '') + '","' + (r.data.data_source || '') + '"\n';
+                csv += [
+                    csvEscape(r.domain),
+                    csvEscape(r.data.availability || ''),
+                    csvEscape(p['Registrar'] || ''),
+                    csvEscape(p['Creation Date'] || ''),
+                    csvEscape(p['Expiry Date'] || ''),
+                    csvEscape(r.data.data_source || '')
+                ].join(',') + '\n';
             });
             var a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -1454,7 +1466,7 @@ if ($_showPortfolioIcon): ?>
                             cls = ' class="table-warning"';
                         }
                     }
-                    html += '<tr' + cls + '><td class="fw-bold">' + key + '</td><td>' + val + '</td></tr>';
+                    html += '<tr' + cls + '><td class="fw-bold">' + esc(key) + '</td><td>' + esc(val) + '</td></tr>';
                 }
                 html += '</table>';
                 // Safe Browsing warning (Issue #52)
@@ -1572,14 +1584,14 @@ if ($_showPortfolioIcon): ?>
                 var spfIcon = es.spf.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
                 esHtml += '<tr><td class="fw-bold">' + spfIcon + ' SPF</td><td>' + (es.spf.status || 'missing') + '</td></tr>';
                 if (es.spf.record) {
-                    esHtml += '<tr><td></td><td><code class="small">' + es.spf.record + '</code></td></tr>';
+                    esHtml += '<tr><td></td><td><code class="small">' + esc(es.spf.record) + '</code></td></tr>';
                 }
 
                 // DMARC
                 var dmarcIcon = es.dmarc.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
                 esHtml += '<tr><td class="fw-bold">' + dmarcIcon + ' DMARC</td><td>' + (es.dmarc.status || 'missing') + '</td></tr>';
                 if (es.dmarc.record) {
-                    esHtml += '<tr><td></td><td><code class="small">' + es.dmarc.record + '</code></td></tr>';
+                    esHtml += '<tr><td></td><td><code class="small">' + esc(es.dmarc.record) + '</code></td></tr>';
                 }
 
                 // DKIM
@@ -1790,7 +1802,7 @@ if ($_showPortfolioIcon): ?>
 
             // Domain Suggestions — on-demand (Issue #164)
             if (data.availability === 'registered' || data.availability === 'unknown') {
-                var sgBtnHtml = '<div class="mt-2" id="suggestContainer"><button class="btn btn-outline-primary btn-sm" id="suggestBtn"><i class="bi bi-lightbulb me-1"></i>Suggest Alternatives</button></div>';
+                var sgBtnHtml = '<div class="mt-2" id="suggestContainer"><button class="btn btn-outline-primary btn-sm" id="suggestBtn"><i class="bi bi-lightbulb me-1"></i>Check alternative TLDs</button> <a class="btn btn-link btn-sm" href="tlds" title="Browse all TLDs"><i class="bi bi-list-ul me-1"></i>All TLDs</a></div>';
                 document.getElementById('availabilityBadge').innerHTML += sgBtnHtml;
                 document.getElementById('suggestBtn').addEventListener('click', function () {
                     var btn = this;
@@ -1802,20 +1814,39 @@ if ($_showPortfolioIcon): ?>
                         .then(function (r) { return r.json(); })
                         .then(function (result) {
                             var container = document.getElementById('suggestContainer');
-                            if (result.suggestions && result.suggestions.length > 0) {
-                                var html = '<div class="card mt-2"><div class="card-header"><strong><i class="bi bi-lightbulb me-1"></i>Available Alternatives</strong></div><div class="card-body"><div class="d-flex flex-wrap gap-2">';
-                                result.suggestions.forEach(function (d) {
-                                    html += '<a href="?domain=' + encodeURIComponent(d) + '" class="btn btn-outline-success btn-sm">' + esc(d) + '</a>';
-                                });
-                                html += '</div></div></div>';
-                                container.innerHTML = html;
-                            } else {
-                                container.innerHTML = '<div class="alert alert-info mt-2 small"><i class="bi bi-info-circle me-1"></i>No available alternatives found for common TLDs.</div>';
+                            var grid = result.grid;
+                            if (!grid || !grid.results || !grid.results.length) {
+                                container.innerHTML = '<div class="alert alert-info mt-2 small"><i class="bi bi-info-circle me-1"></i>Could not check alternative TLDs right now. <a href="tlds">Browse all TLDs</a>.</div>';
+                                return;
                             }
+                            var availCount = 0;
+                            result.results = grid.results;
+                            var chips = '';
+                            grid.results.forEach(function (r) {
+                                var badgeClass, icon, title;
+                                if (r.availability === 'available') {
+                                    badgeClass = 'btn-outline-success';
+                                    icon = 'bi-check-circle-fill text-success';
+                                    title = 'Available';
+                                    availCount++;
+                                } else if (r.availability === 'registered') {
+                                    badgeClass = 'btn-outline-secondary';
+                                    icon = 'bi-x-circle-fill text-danger';
+                                    title = 'Registered';
+                                } else {
+                                    badgeClass = 'btn-outline-warning';
+                                    icon = 'bi-question-circle-fill text-warning';
+                                    title = 'Unknown';
+                                }
+                                chips += '<a href="?domain=' + encodeURIComponent(r.domain) + '" class="btn ' + badgeClass + ' btn-sm" title="' + title + (r.cached ? ' (cached)' : '') + '"><i class="bi ' + icon + ' me-1" aria-hidden="true"></i>' + esc(r.domain) + '</a>';
+                            });
+                            var header = '<strong><i class="bi bi-lightbulb me-1"></i>Alternative TLDs</strong> <span class="badge bg-success">' + availCount + ' available</span> <span class="text-muted small">of ' + grid.results.length + ' checked</span>';
+                            var html = '<div class="card mt-2"><div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">' + header + '<a class="small" href="tlds">Browse all TLDs <i class="bi bi-arrow-right"></i></a></div><div class="card-body"><div class="d-flex flex-wrap gap-2">' + chips + '</div></div></div>';
+                            container.innerHTML = html;
                         })
                         .catch(function () {
                             btn.disabled = false;
-                            btn.innerHTML = '<i class="bi bi-lightbulb me-1"></i>Suggest Alternatives';
+                            btn.innerHTML = '<i class="bi bi-lightbulb me-1"></i>Check alternative TLDs';
                         });
                 });
             }
@@ -1971,7 +2002,7 @@ if ($_showPortfolioIcon): ?>
                             var sv = Array.isArray(snap.parsed[k]) ? snap.parsed[k].join(', ') : snap.parsed[k];
                             var pv = prev.parsed[k] ? (Array.isArray(prev.parsed[k]) ? prev.parsed[k].join(', ') : prev.parsed[k]) : '';
                             if (sv !== pv) {
-                                changes.push('<strong>' + k + ':</strong> ' + esc(pv || '(none)') + ' → ' + esc(sv));
+                                changes.push('<strong>' + esc(k) + ':</strong> ' + esc(pv || '(none)') + ' → ' + esc(sv));
                             }
                         }
                         if (changes.length) {

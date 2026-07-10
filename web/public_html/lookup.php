@@ -48,15 +48,32 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 
 // ═══════════════════════════════════════════════════════════════════
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['suggest']) && $_GET['suggest'] === '1') {
+    header('Content-Type: application/json');
     $suggestDomain = isset($_POST['domain']) ? trim((string)$_POST['domain']) : '';
     $suggestDomain = sanitizeDomainInput($suggestDomain);
-    if ($suggestDomain && isValidDomain($suggestDomain)) {
-        header('Content-Type: application/json');
-        echo json_encode(['suggestions' => suggestAlternativeDomains($suggestDomain)]);
-    } else {
-        header('Content-Type: application/json');
-        echo json_encode(['suggestions' => []]);
+    if (!$suggestDomain || !isValidDomain($suggestDomain)) {
+        echo json_encode(['suggestions' => [], 'grid' => null]);
+        exit;
     }
+    // Rate-limit the suggest endpoint just like the main lookup.
+    if (!checkRateLimit() || !checkIpRateLimit()) {
+        http_response_code(429);
+        echo json_encode(['error' => 'Rate limit exceeded.']);
+        exit;
+    }
+    // session no longer needed — release the lock so concurrent requests aren't serialized
+    session_write_close();
+    $grid = getTldAvailabilityGrid($suggestDomain);
+    $suggestions = [];
+    foreach ($grid['results'] as $r) {
+        if ($r['availability'] === 'available') {
+            $suggestions[] = $r['domain'];
+        }
+    }
+    echo json_encode([
+        'suggestions' => $suggestions,
+        'grid' => $grid,
+    ]);
     exit;
 }
 
@@ -113,7 +130,7 @@ if (!$jsonFormat && !$apiKeyConfig && !validateCsrfToken()) {
 
 // Rate limit — use API key tier limit if applicable
 $rateLimit = $apiKeyConfig ? getApiKeyRateLimit($apiKeyConfig) : RATE_LIMIT_MAX;
-if (!checkRateLimit() || !checkIpRateLimit()) {
+if (!checkRateLimit($rateLimit) || !checkIpRateLimit($rateLimit)) {
     sendError('Rate limit exceeded. Please wait before trying again.', 429);
 }
 
@@ -124,6 +141,9 @@ $rateLimitReset = isset($_SESSION['rate_limit']['start']) ? ($_SESSION['rate_lim
 header('X-RateLimit-Limit: ' . $rateLimit);
 header('X-RateLimit-Remaining: ' . $rateLimitRemaining);
 header('X-RateLimit-Reset: ' . $rateLimitReset);
+
+// session no longer needed — release the lock so concurrent requests aren't serialized
+session_write_close();
 
 // Update TLD data (IANA + second-level suffixes, throttled to once per day)
 updateTldDataIfNeeded();
@@ -141,6 +161,8 @@ if (!empty($_POST['dns_propagation_only'])) {
         sendError('Invalid domain name.');
     }
     header('Content-Type: application/json; charset=utf-8');
+    // session no longer needed — release the lock so concurrent requests aren't serialized
+    session_write_close();
     echo json_encode(['dns_propagation' => checkDnsPropagation($domain)]);
     exit;
 }
@@ -191,7 +213,7 @@ if ($isIpLookup) {
 
     // Fall back to system WHOIS
     if (!$whoisText) {
-        $whoisText = shell_exec("whois " . escapeshellarg($domain) . " 2>&1");
+        $whoisText = runCommandWithTimeout("whois " . escapeshellarg($domain), 8);
         $dataSource = 'whois';
         if (!$dnt) trackLookup('whois', $domain);
     }
@@ -215,8 +237,52 @@ if ($isIpLookup) {
     $dns = getDnsRecords($domain);
 }
 
-// Email security check (Issue #56) — only for domain lookups
+// Enrichment pipeline defaults (Issue #190) — declared here so the response-array
+// assembly below always has a defined value, even when the pipeline is skipped
+// for available (unregistered) domains, since the frontend hides these panes anyway.
 $emailSecurity = [];
+$sslInfo = null;
+$registrarReputation = null;
+$safeBrowsing = null;
+$virusTotal = null;
+$hibp = null;
+$screenshotUrl = null;
+$dnssec = null;
+$certTransparency = null;
+$domainAgeRisk = null;
+$abuseIpDb = null;
+$shodan = null;
+$phishTank = null;
+$urlhaus = null;
+$spamhaus = null;
+$mtaSts = null;
+$bimi = null;
+$daneTlsa = null;
+$whoisPrivacy = null;
+$hostingRisk = null;
+$httpHeaders = null;
+$redirectChain = null;
+$tlsAudit = null;
+$caaRecords = null;
+$smtpSecurity = null;
+$reverseIp = null;
+$httpVersions = null;
+$ipv6 = null;
+$responseTimes = null;
+$nsDiversity = null;
+$domainSuggestions = [];
+$techStack = null;
+$robotsTxt = null;
+$dnsPropagation = null;
+$multiDnsbl = null;
+$subdomains = [];
+$geolocation = null;
+
+// Enrichment pipeline (Issue #190) — skipped entirely for available/unregistered
+// domains, since the frontend hides every enrichment pane in that case anyway.
+if ($availability !== 'available') {
+
+// Email security check (Issue #56) — only for domain lookups
 if (!$isIpLookup && $domain) {
     $emailSecurity = checkEmailSecurity($domain);
 }
@@ -319,18 +385,8 @@ if (!$dnt && !$isIpLookup && $domain) {
     $urlhaus = checkUrlhaus($domain);
 }
 
-// Spamhaus DNSBL (Issue #100) — no API key needed
-$spamhaus = null;
-if (!$isIpLookup && !empty($dns)) {
-    foreach ($dns as $rec) {
-        if ($rec['type'] === 'A' && !empty($rec['value'])) {
-            $spamhaus = checkSpamhaus($rec['value']);
-            break;
-        }
-    }
-} elseif ($isIpLookup) {
-    $spamhaus = checkSpamhaus($domain);
-}
+// Spamhaus DNSBL (Issue #100) — derived from the multi-DNSBL result below (Issue #191);
+// checkSpamhaus() used to run a separate, duplicate zen.spamhaus.org query.
 
 // MTA-STS (Issue #101) — no API key needed
 $mtaSts = null;
@@ -458,6 +514,25 @@ if (!empty($dns)) {
     $multiDnsbl = checkMultiDnsbl($domain);
 }
 
+// Spamhaus (Issue #100/#191) — derived from the zen.spamhaus.org entry already present in
+// $multiDnsbl, instead of running checkSpamhaus() as a second, duplicate DNSBL query.
+// Mirrors checkSpamhaus()'s original ['listed' => bool, 'lists' => [...]] shape so
+// calculateSecurityScore() and the frontend's data.spamhaus.listed/.lists[].label reads
+// keep working unchanged.
+if ($multiDnsbl !== null) {
+    $zenEntry = null;
+    foreach ($multiDnsbl['lists'] as $entry) {
+        if (($entry['zone'] ?? '') === 'zen.spamhaus.org') {
+            $zenEntry = $entry;
+            break;
+        }
+    }
+    $spamhaus = [
+        'listed' => $zenEntry !== null,
+        'lists'  => $zenEntry !== null ? [$zenEntry] : [],
+    ];
+}
+
 // Subdomain discovery (Issue #46) — only for domain lookups
 $subdomains = [];
 if (!$isIpLookup && $domain) {
@@ -481,6 +556,8 @@ if (!$dnt) {
 
 // Hosting country risk (Issue #105) — computed after geolocation
 $hostingRisk = assessHostingRisk($geolocation);
+
+} // end enrichment pipeline (Issue #190)
 
 // Domain suggestions (Issue #116/#164) — now on-demand only, triggered by separate request
 // Automatic suggestions removed to speed up main lookup response
@@ -574,6 +651,7 @@ if ($jsonFormat) {
 
     $response = [
         'whois'        => htmlspecialchars($whoisOutput, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+        'domain'       => $domain,
         'is_ip'        => $isIpLookup,
         'availability' => $availability,
         'data_source'  => $dataSource,

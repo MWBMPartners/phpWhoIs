@@ -6,6 +6,45 @@
  */
 
 // ═══════════════════════════════════════════════════════════════════
+//  Subprocess timeout helper (Issue #187)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Run a shell command with a hard wall-clock timeout, portably.
+ * Prefers the `timeout` binary when present; falls back to proc_open + stream_select
+ * (macOS / hosts without GNU coreutils). Returns command output, or null on failure/timeout-with-no-output.
+ */
+function runCommandWithTimeout(string $cmd, int $timeoutSec = 8): ?string {
+    static $hasTimeout = null;
+    if ($hasTimeout === null) {
+        $hasTimeout = (bool) @shell_exec('command -v timeout 2>/dev/null');
+    }
+    if ($hasTimeout) {
+        $out = @shell_exec('timeout ' . (int)$timeoutSec . ' ' . $cmd . ' 2>&1');
+        return ($out === null || $out === '') ? null : $out;
+    }
+    $proc = @proc_open($cmd . ' 2>&1', [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($proc)) { return null; }
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+    $out = '';
+    $deadline = microtime(true) + $timeoutSec;
+    while (microtime(true) < $deadline) {
+        $status = proc_get_status($proc);
+        $out .= (string) stream_get_contents($pipes[1]);
+        if (!$status['running']) { break; }
+        $r = [$pipes[1]]; $w = null; $e = null;
+        @stream_select($r, $w, $e, 0, 200000);
+    }
+    $status = proc_get_status($proc);
+    if (!empty($status['running'])) { @proc_terminate($proc, 9); }
+    foreach ($pipes as $p) { if (is_resource($p)) { @fclose($p); } }
+    @proc_close($proc);
+    return $out === '' ? null : $out;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  Logging (Issue #43)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -162,7 +201,7 @@ function validateCsrfToken(): bool {
 /**
  * Session-based rate limiting (per-user).
  */
-function checkRateLimit(): bool {
+function checkRateLimit(int $limit = RATE_LIMIT_MAX): bool {
     $now = time();
 
     if (!isset($_SESSION['rate_limit']) || ($now - $_SESSION['rate_limit']['start']) > RATE_LIMIT_WINDOW) {
@@ -171,7 +210,7 @@ function checkRateLimit(): bool {
 
     $_SESSION['rate_limit']['count']++;
 
-    return $_SESSION['rate_limit']['count'] <= RATE_LIMIT_MAX;
+    return $_SESSION['rate_limit']['count'] <= $limit;
 }
 
 /**
@@ -179,7 +218,7 @@ function checkRateLimit(): bool {
  * Uses file-based storage in the cache directory.
  * Harder to bypass than session-based limiting.
  */
-function checkIpRateLimit(): bool {
+function checkIpRateLimit(int $limit = RATE_LIMIT_MAX): bool {
     // Use REMOTE_ADDR as primary (cannot be spoofed)
     // Only use X-Forwarded-For if behind a trusted proxy
     $ip = '';
@@ -219,7 +258,7 @@ function checkIpRateLimit(): bool {
         cleanExpiredRateLimits($rateLimitDir);
     }
 
-    return $data['count'] <= RATE_LIMIT_MAX;
+    return $data['count'] <= $limit;
 }
 
 /**
@@ -499,7 +538,7 @@ function reverseDnsLookup(string $ip): ?string {
  */
 function ipWhoisLookup(string $ip): ?string {
     $escapedIp = escapeshellarg($ip);
-    $result = shell_exec("whois {$escapedIp} 2>&1");
+    $result = runCommandWithTimeout("whois {$escapedIp}", 8);
     if ($result) {
         return $result;
     }
@@ -1307,22 +1346,20 @@ function checkDnssec(string $domain): array {
         }
     }
 
-    // Also try DNSKEY query
-    if (!$result['signed']) {
-        $dnskey = @dns_get_record($domain, DNS_ANY);
-        if ($dnskey) {
-            foreach ($dnskey as $rec) {
-                if (isset($rec['type']) && strtoupper($rec['type']) === 'DNSKEY') {
-                    $result['signed'] = true;
-                    break;
-                }
+    // Also check the same DNS_ANY result for a DNSKEY record (Issue #191 — this used to
+    // issue an identical, second dns_get_record($domain, DNS_ANY) query; $ds already has it)
+    if (!$result['signed'] && $ds) {
+        foreach ($ds as $rec) {
+            if (isset($rec['type']) && strtoupper($rec['type']) === 'DNSKEY') {
+                $result['signed'] = true;
+                break;
             }
         }
     }
 
     // Fallback: use dig if available
     if (!$result['signed']) {
-        $digOutput = @shell_exec('dig +short DS ' . escapeshellarg($domain) . ' 2>/dev/null');
+        $digOutput = @shell_exec('dig +short +time=2 +tries=1 DS ' . escapeshellarg($domain) . ' 2>/dev/null');
         if ($digOutput && trim($digOutput)) {
             $result['signed'] = true;
             $result['ds_records'] = count(array_filter(explode("\n", trim($digOutput))));
@@ -1659,7 +1696,7 @@ function checkDaneTlsa(string $domain): array {
     $host = '_443._tcp.' . $domain;
 
     // PHP dns_get_record doesn't support TLSA natively, use dig
-    $output = @shell_exec('dig +short TLSA ' . escapeshellarg($host) . ' 2>/dev/null');
+    $output = @shell_exec('dig +short +time=2 +tries=1 TLSA ' . escapeshellarg($host) . ' 2>/dev/null');
     if ($output && trim($output)) {
         $lines = array_filter(explode("\n", trim($output)));
         $result['found'] = true;
@@ -1947,7 +1984,7 @@ function checkCaaRecords(string $domain): array {
 
     // Fallback via dig
     if (!$result['found']) {
-        $output = @shell_exec('dig +short CAA ' . escapeshellarg($domain) . ' 2>/dev/null');
+        $output = @shell_exec('dig +short +time=2 +tries=1 CAA ' . escapeshellarg($domain) . ' 2>/dev/null');
         if ($output && trim($output)) {
             $lines = array_filter(explode("\n", trim($output)));
             foreach ($lines as $line) {
@@ -2054,11 +2091,16 @@ function checkHttpVersions(string $domain): array {
     $httpVersion = curl_getinfo($ch, CURLINFO_HTTP_VERSION);
     curl_close($ch);
 
-    if ($httpVersion === CURL_HTTP_VERSION_2_0 || $httpVersion === 2) {
+    if ($httpVersion === CURL_HTTP_VERSION_1_0) {
+        $result['protocol'] = 'HTTP/1.0';
+    } elseif ($httpVersion === CURL_HTTP_VERSION_1_1) {
+        $result['protocol'] = 'HTTP/1.1';
+    } elseif ($httpVersion === CURL_HTTP_VERSION_2_0) {
         $result['http2'] = true;
         $result['protocol'] = 'HTTP/2';
-    } elseif ($httpVersion === CURL_HTTP_VERSION_1_1 || $httpVersion === 1) {
-        $result['protocol'] = 'HTTP/1.1';
+    } elseif (defined('CURL_HTTP_VERSION_3') && $httpVersion === CURL_HTTP_VERSION_3) {
+        $result['http3'] = true;
+        $result['protocol'] = 'HTTP/3';
     }
 
     // Check for HTTP/3 via Alt-Svc header
@@ -2157,35 +2199,276 @@ function checkNsDiversity(string $domain): array {
 
 
 // ═══════════════════════════════════════════════════════════════════
-//  Domain name suggestions (Issue #116)
+//  Domain name suggestions (Issue #116, #164)
 // ═══════════════════════════════════════════════════════════════════
 
-function suggestAlternativeDomains(string $domain): array {
-    $parts = explode('.', $domain, 2);
-    $name = $parts[0];
-    $currentTld = $parts[1] ?? 'com';
+/**
+ * Curated list of popular TLDs checked when offering alternatives.
+ * Ordered roughly by demand — generic first, then tech/new gTLDs, then ccTLDs.
+ */
+function getPopularTlds(): array {
+    return [
+        // Classic generic
+        'com', 'net', 'org', 'info', 'biz', 'pro',
+        // Tech / new gTLDs
+        'io', 'co', 'dev', 'app', 'ai', 'tech', 'cloud', 'online', 'site', 'store', 'xyz', 'me',
+        // UK / EU
+        'co.uk', 'uk', 'eu', 'de', 'fr', 'es', 'it', 'nl', 'ch',
+        // Americas / APAC
+        'us', 'ca', 'au', 'nz', 'in', 'jp',
+    ];
+}
 
-    $altTlds = ['com', 'net', 'org', 'io', 'co', 'info', 'biz', 'dev', 'app', 'xyz', 'me', 'co.uk', 'uk'];
-    $suggestions = [];
+/**
+ * Extract the left-hand label (SLD) from a domain, honouring multi-part
+ * suffixes like co.uk. For "acme.co.uk" this returns "acme".
+ */
+function splitDomainLabel(string $domain): array {
+    $domain = strtolower($domain);
+    $registrable = extractRegistrableDomain($domain);
+    $parts = explode('.', $registrable, 2);
+    $label = $parts[0];
+    $tld = $parts[1] ?? '';
+    return ['label' => $label, 'tld' => $tld];
+}
 
-    foreach ($altTlds as $tld) {
+/**
+ * Fast per-TLD availability check using parallel RDAP requests with caching.
+ * Falls back to DNS NS presence as a "registered" signal when RDAP is unreachable.
+ *
+ * Returns an array of ['domain', 'tld', 'availability', 'cached'] entries,
+ * one per TLD (excluding the current TLD).
+ */
+function checkAlternativeTldAvailability(string $label, string $currentTld, array $tlds): array {
+    $results = [];
+    $pending = [];
+
+    foreach ($tlds as $tld) {
         if ($tld === $currentTld) {
             continue;
         }
-        $candidate = $name . '.' . $tld;
-        $whois = @shell_exec('whois ' . escapeshellarg($candidate) . ' 2>&1');
-        if ($whois) {
-            $avail = detectAvailability($whois);
-            if ($avail === 'available') {
-                $suggestions[] = $candidate;
-            }
+        $candidate = $label . '.' . $tld;
+        $cached = getCached('alt:' . $candidate);
+        if ($cached !== null) {
+            $results[$candidate] = ['domain' => $candidate, 'tld' => $tld, 'availability' => $cached, 'cached' => true];
+            continue;
         }
-        if (count($suggestions) >= 5) {
-            break; // Limit to 5 suggestions
+        $pending[$candidate] = $tld;
+    }
+
+    if (!empty($pending) && function_exists('curl_multi_init')) {
+        $mh = curl_multi_init();
+        $handles = [];
+
+        foreach ($pending as $candidate => $tld) {
+            $ch = curl_init('https://rdap.org/domain/' . urlencode($candidate));
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS      => 3,
+                CURLOPT_TIMEOUT        => 4,
+                CURLOPT_CONNECTTIMEOUT => 2,
+                CURLOPT_HTTPHEADER     => ['Accept: application/rdap+json'],
+                CURLOPT_USERAGENT      => 'mwWhoisLookup/1.0',
+                CURLOPT_PROTOCOLS      => CURLPROTO_HTTPS,
+                CURLOPT_NOSIGNAL       => 1,
+            ]);
+            curl_multi_add_handle($mh, $ch);
+            $handles[$candidate] = $ch;
+        }
+
+        $running = null;
+        do {
+            curl_multi_exec($mh, $running);
+            if ($running) {
+                curl_multi_select($mh, 1.0);
+            }
+        } while ($running > 0);
+
+        foreach ($handles as $candidate => $ch) {
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $body = curl_multi_getcontent($ch);
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
+
+            $availability = 'unknown';
+            if ($code === 404) {
+                $availability = 'available';
+            } elseif ($code >= 200 && $code < 300 && $body) {
+                $data = json_decode($body, true);
+                if (is_array($data) && isset($data['ldhName'])) {
+                    $availability = 'registered';
+                } elseif (is_array($data) && isset($data['errorCode']) && (int)$data['errorCode'] === 404) {
+                    $availability = 'available';
+                }
+            }
+
+            // DNS NS presence is strong "registered" evidence when RDAP is inconclusive
+            if ($availability === 'unknown' && @checkdnsrr($candidate, 'NS')) {
+                $availability = 'registered';
+            }
+
+            $results[$candidate] = [
+                'domain' => $candidate,
+                'tld' => $pending[$candidate],
+                'availability' => $availability,
+                'cached' => false,
+            ];
+            setCache('alt:' . $candidate, $availability);
+        }
+
+        curl_multi_close($mh);
+    } elseif (!empty($pending)) {
+        // curl_multi not available — fall back to DNS NS check only
+        foreach ($pending as $candidate => $tld) {
+            $availability = @checkdnsrr($candidate, 'NS') ? 'registered' : 'unknown';
+            $results[$candidate] = [
+                'domain' => $candidate,
+                'tld' => $tld,
+                'availability' => $availability,
+                'cached' => false,
+            ];
+            setCache('alt:' . $candidate, $availability);
         }
     }
 
+    // Preserve input TLD order
+    $ordered = [];
+    foreach ($tlds as $tld) {
+        if ($tld === $currentTld) {
+            continue;
+        }
+        $candidate = $label . '.' . $tld;
+        if (isset($results[$candidate])) {
+            $ordered[] = $results[$candidate];
+        }
+    }
+    return $ordered;
+}
+
+/**
+ * Back-compat wrapper — returns a flat list of available candidate domains
+ * (up to $limit entries). Used by older UI code paths.
+ */
+function suggestAlternativeDomains(string $domain, int $limit = 5): array {
+    $split = splitDomainLabel($domain);
+    if ($split['label'] === '' || $split['tld'] === '') {
+        return [];
+    }
+    $results = checkAlternativeTldAvailability($split['label'], $split['tld'], getPopularTlds());
+    $suggestions = [];
+    foreach ($results as $r) {
+        if ($r['availability'] === 'available') {
+            $suggestions[] = $r['domain'];
+            if (count($suggestions) >= $limit) {
+                break;
+            }
+        }
+    }
     return $suggestions;
+}
+
+/**
+ * Full TLD availability grid for the requested domain. Returns a structured
+ * payload for the frontend availability grid and JSON API.
+ */
+function getTldAvailabilityGrid(string $domain): array {
+    $split = splitDomainLabel($domain);
+    if ($split['label'] === '' || $split['tld'] === '') {
+        return ['label' => '', 'current_tld' => '', 'results' => []];
+    }
+    return [
+        'label' => $split['label'],
+        'current_tld' => $split['tld'],
+        'results' => checkAlternativeTldAvailability($split['label'], $split['tld'], getPopularTlds()),
+    ];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  TLD reference list (Issue — /tlds page)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Loads the IANA TLD list from disk (populated by updateTldDataIfNeeded()).
+ * Returns an array of lowercase TLDs with the leading dot stripped.
+ */
+function loadIanaTldList(): array {
+    if (!file_exists(IANA_TLD_PATH)) {
+        return [];
+    }
+    $lines = file(IANA_TLD_PATH, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    $tlds = [];
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '' || str_starts_with($line, '#')) {
+            continue;
+        }
+        // IANA file is UPPERCASE A-label; normalise to lowercase.
+        // Keep Punycode (xn--...) as-is; front-end can render Unicode form separately.
+        $tlds[] = strtolower($line);
+    }
+    sort($tlds, SORT_STRING);
+    return $tlds;
+}
+
+/**
+ * Classify a TLD into one of: country (ccTLD), sponsored, generic (legacy gTLD),
+ * infrastructure, or new_gtld. Classification is heuristic but matches IANA
+ * categories closely enough for reference display purposes.
+ */
+function classifyTld(string $tld): string {
+    $tld = strtolower(ltrim($tld, '.'));
+
+    if ($tld === 'arpa') {
+        return 'infrastructure';
+    }
+
+    static $sponsored = [
+        'aero', 'asia', 'cat', 'coop', 'edu', 'gov', 'int', 'jobs',
+        'mil', 'mobi', 'museum', 'post', 'tel', 'travel', 'xxx',
+    ];
+    if (in_array($tld, $sponsored, true)) {
+        return 'sponsored';
+    }
+
+    static $generic = ['com', 'net', 'org', 'info', 'biz', 'name', 'pro'];
+    if (in_array($tld, $generic, true)) {
+        return 'generic';
+    }
+
+    // ccTLDs: two-letter ASCII OR Punycode two-letter IDN ccTLDs (xn-- …).
+    // IANA's Punycode country-codes decode to a single-label country TLD.
+    if (preg_match('/^[a-z]{2}$/', $tld)) {
+        return 'country';
+    }
+    if (str_starts_with($tld, 'xn--')) {
+        // IDN ccTLDs are flagged as country; IDN gTLDs will be misclassified
+        // here but that is acceptable for a reference view.
+        return 'country';
+    }
+
+    return 'new_gtld';
+}
+
+/**
+ * Returns the IANA TLD list grouped by category, with counts.
+ * Categories: generic, country, sponsored, new_gtld, infrastructure.
+ */
+function getTldsByCategory(): array {
+    $tlds = loadIanaTldList();
+    $groups = [
+        'generic'        => [],
+        'country'        => [],
+        'sponsored'      => [],
+        'new_gtld'       => [],
+        'infrastructure' => [],
+    ];
+    foreach ($tlds as $tld) {
+        $cat = classifyTld($tld);
+        $groups[$cat][] = $tld;
+    }
+    return $groups;
 }
 
 
@@ -2546,13 +2829,13 @@ function checkMultiDnsbl(string $ip): array {
     }
 
     $reversed = implode('.', array_reverse(explode('.', $ip)));
+    // Issue #191: dnsbl.sorbs.net (SORBS, decommissioned 2024) and cbl.abuseat.org
+    // (CBL, folded into Spamhaus ZEN) are dead zones that just time out every lookup.
     $zones = [
         'zen.spamhaus.org' => 'Spamhaus ZEN',
         'b.barracudacentral.org' => 'Barracuda',
         'bl.spamcop.net' => 'SpamCop',
-        'dnsbl.sorbs.net' => 'SORBS',
         'dnsbl-1.uceprotect.net' => 'UCEPROTECT L1',
-        'cbl.abuseat.org' => 'CBL',
         'dyna.spamrats.com' => 'SpamRATS',
         'bl.mailspike.net' => 'Mailspike',
     ];
