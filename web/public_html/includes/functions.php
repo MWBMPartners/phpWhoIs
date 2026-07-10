@@ -990,6 +990,25 @@ function detectAvailability(string $text): string {
         }
     }
 
+    // Known WHOIS error signatures (Issue #216) — these mean the query failed,
+    // not that the domain is registered, so surface them as 'unknown' instead
+    // of falling through to the 'registered' default below.
+    $errorPatterns = [
+        '/network is unreachable/i',
+        '/connection refused/i',
+        '/no whois server/i',
+        '/timed out/i',
+        '/no route to host/i',
+        '/quota exceeded/i',
+        '/try again later/i',
+    ];
+
+    foreach ($errorPatterns as $p) {
+        if (preg_match($p, $text)) {
+            return 'unknown';
+        }
+    }
+
     return 'registered';
 }
 
