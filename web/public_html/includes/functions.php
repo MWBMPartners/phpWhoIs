@@ -45,6 +45,36 @@ function runCommandWithTimeout(string $cmd, int $timeoutSec = 8): ?string {
 
 
 // ═══════════════════════════════════════════════════════════════════
+//  HTTP fetch with a HARD total timeout (Issue #192)
+// ═══════════════════════════════════════════════════════════════════
+
+/** GET a URL with a HARD total timeout via curl. Returns body string, or null on failure. */
+function httpFetch(string $url, array $opts = []): ?string {
+    if (!function_exists('curl_init')) {
+        // Fallback: stream context (idle timeout is the best we can do without curl)
+        $ctx = stream_context_create(['http' => ['timeout' => $opts['timeout'] ?? 4, 'method' => $opts['method'] ?? 'GET', 'header' => $opts['header'] ?? "User-Agent: mwWhoIs\r\n", 'follow_location' => 0], 'ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
+        $r = @file_get_contents($url, false, $ctx);
+        return $r === false ? null : $r;
+    }
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => $opts['timeout'] ?? 4,      // TOTAL time cap
+        CURLOPT_CONNECTTIMEOUT => $opts['connect'] ?? 2,
+        CURLOPT_FOLLOWLOCATION => false,                       // do not auto-follow (SSRF-safe)
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_USERAGENT      => $opts['ua'] ?? 'mwWhoIs',
+        CURLOPT_MAXFILESIZE    => $opts['maxbytes'] ?? 3145728, // 3 MB default cap
+    ]);
+    if (!empty($opts['post'])) { curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, $opts['post']); }
+    if (!empty($opts['headers'])) { curl_setopt($ch, CURLOPT_HTTPHEADER, $opts['headers']); }
+    $r = curl_exec($ch);
+    curl_close($ch);
+    return ($r === false || $r === '') ? null : $r;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  Logging (Issue #43)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -777,14 +807,12 @@ function getIpGeolocation(string $ip): ?array {
         return null;
     }
 
-    $ctx = stream_context_create(['http' => ['timeout' => 3]]);
-    $response = @file_get_contents(
+    $response = httpFetch(
         'http://ip-api.com/json/' . urlencode($ip) . '?fields=status,country,countryCode,region,city,isp,org,as',
-        false,
-        $ctx
+        ['timeout' => 3]
     );
 
-    if ($response === false) {
+    if ($response === null) {
         return null;
     }
 
@@ -1378,8 +1406,7 @@ function checkDnssec(string $domain): array {
 function checkCertTransparency(string $domain): ?array {
     $url = 'https://crt.sh/?q=' . urlencode($domain) . '&output=json&deduplicate=Y';
 
-    $ctx = stream_context_create(['http' => ['timeout' => 5, 'header' => "User-Agent: mwWhoIs\r\n"]]);
-    $response = @file_get_contents($url, false, $ctx);
+    $response = httpFetch($url, ['timeout' => 5, 'maxbytes' => 2097152]);
     if (!$response) {
         return null;
     }
@@ -1495,8 +1522,7 @@ function checkShodan(string $ip, string $apiKey): ?array {
     }
 
     $url = 'https://api.shodan.io/shodan/host/' . urlencode($ip) . '?key=' . urlencode($apiKey) . '&minify=true';
-    $ctx = stream_context_create(['http' => ['timeout' => 5]]);
-    $response = @file_get_contents($url, false, $ctx);
+    $response = httpFetch($url, ['timeout' => 5]);
     if (!$response) {
         return null;
     }
@@ -1531,15 +1557,11 @@ function checkPhishTank(string $domain, string $apiKey): ?array {
         'app_key' => $apiKey,
     ]);
 
-    $ctx = stream_context_create([
-        'http' => [
-            'method' => 'POST',
-            'header' => "Content-Type: application/x-www-form-urlencoded\r\n",
-            'content' => $postData,
-            'timeout' => 5,
-        ],
+    $response = httpFetch($url, [
+        'timeout' => 5,
+        'post'    => $postData,
+        'headers' => ['Content-Type: application/x-www-form-urlencoded'],
     ]);
-    $response = @file_get_contents($url, false, $ctx);
     if (!$response) {
         return null;
     }
@@ -1566,15 +1588,11 @@ function checkUrlhaus(string $domain): ?array {
     $url = 'https://urlhaus-api.abuse.ch/v1/host/';
     $postData = http_build_query(['host' => $domain]);
 
-    $ctx = stream_context_create([
-        'http' => [
-            'method' => 'POST',
-            'header' => "Content-Type: application/x-www-form-urlencoded\r\n",
-            'content' => $postData,
-            'timeout' => 5,
-        ],
+    $response = httpFetch($url, [
+        'timeout' => 5,
+        'post'    => $postData,
+        'headers' => ['Content-Type: application/x-www-form-urlencoded'],
     ]);
-    $response = @file_get_contents($url, false, $ctx);
     if (!$response) {
         return null;
     }
@@ -1864,14 +1882,15 @@ function auditHttpHeaders(string $domain): ?array {
 function detectRedirectChain(string $domain): ?array {
     $chain = [];
     $url = 'http://' . $domain;
-    $maxRedirects = 10;
+    $maxRedirects = 5; // Issue #192: was 10 — cap total hops
+    $stillRedirecting = true;
 
     for ($i = 0; $i < $maxRedirects; $i++) {
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
-            CURLOPT_TIMEOUT => 5,
+            CURLOPT_TIMEOUT => 3, // Issue #192: was 5 — per-hop TOTAL time cap
             CURLOPT_HEADER => true,
             CURLOPT_NOBODY => true,
             CURLOPT_SSL_VERIFYPEER => false,
@@ -1887,11 +1906,15 @@ function detectRedirectChain(string $domain): ?array {
         if ($httpCode >= 300 && $httpCode < 400 && $redirectUrl) {
             $url = $redirectUrl;
         } else {
+            $stillRedirecting = false;
             break;
         }
     }
 
-    $suspicious = count($chain) > 5;
+    // Suspicious = still redirecting when we hit our own hop cap (was "count($chain) > 5"
+    // against a maxRedirects of 10; with the cap now equal to 5 that bare count comparison
+    // could never fire, and would also false-flag a chain that resolves cleanly on hop 5).
+    $suspicious = $stillRedirecting && count($chain) >= $maxRedirects;
     $httpToHttps = false;
     if (count($chain) >= 2 && str_starts_with($chain[0]['url'], 'http://') && str_starts_with(end($chain)['url'], 'https://')) {
         $httpToHttps = true;
@@ -2060,8 +2083,7 @@ function checkSmtpSecurity(string $domain): ?array {
 
 function reverseIpLookup(string $ip): ?array {
     $url = 'https://api.hackertarget.com/reverseiplookup/?q=' . urlencode($ip);
-    $ctx = stream_context_create(['http' => ['timeout' => 5, 'header' => "User-Agent: mwWhoIs\r\n"]]);
-    $response = @file_get_contents($url, false, $ctx);
+    $response = httpFetch($url, ['timeout' => 5]);
     if (!$response || str_contains($response, 'error')  || str_contains($response, 'API count') ) {
         return null;
     }
@@ -2477,14 +2499,47 @@ function getTldsByCategory(): array {
 // ═══════════════════════════════════════════════════════════════════
 
 function detectTechStack(string $domain): ?array {
-    $ctx = stream_context_create(['http' => ['timeout' => 5, 'method' => 'GET', 'header' => "User-Agent: mwWhoIs\r\n", 'follow_location' => 1, 'max_redirects' => 3], 'ssl' => ['verify_peer' => false]]);
-    $html = @file_get_contents('https://' . $domain, false, $ctx);
+    // Issue #192: needs response headers + redirect-following, which httpFetch()'s
+    // SSRF-safe/body-only contract doesn't support — use curl directly here with the
+    // same hard TOTAL timeout cap (idle-only stream timeouts let a slow response hang).
     $headers = [];
-    if (isset($http_response_header)) {
-        foreach ($http_response_header as $h) {
-            $parts = explode(':', $h, 2);
-            if (count($parts) === 2) {
-                $headers[strtolower(trim($parts[0]))] = trim($parts[1]);
+    $html = null;
+    if (function_exists('curl_init')) {
+        $ch = curl_init('https://' . $domain);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER         => true,
+            CURLOPT_TIMEOUT        => 5,       // TOTAL time cap
+            CURLOPT_CONNECTTIMEOUT => 2,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS      => 3,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_USERAGENT      => 'mwWhoIs',
+            CURLOPT_MAXFILESIZE    => 3145728, // 3 MB cap
+        ]);
+        $raw = curl_exec($ch);
+        if ($raw !== false) {
+            $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+            $rawHeaders = substr($raw, 0, $headerSize);
+            $html = substr($raw, $headerSize);
+            foreach (preg_split('/\r\n|\n/', trim($rawHeaders)) as $h) {
+                $parts = explode(':', $h, 2);
+                if (count($parts) === 2) {
+                    $headers[strtolower(trim($parts[0]))] = trim($parts[1]);
+                }
+            }
+        }
+        curl_close($ch);
+    } else {
+        // Fallback: idle timeout is the best we can do without curl
+        $ctx = stream_context_create(['http' => ['timeout' => 5, 'method' => 'GET', 'header' => "User-Agent: mwWhoIs\r\n", 'follow_location' => 1, 'max_redirects' => 3], 'ssl' => ['verify_peer' => false]]);
+        $html = @file_get_contents('https://' . $domain, false, $ctx);
+        if (isset($http_response_header)) {
+            foreach ($http_response_header as $h) {
+                $parts = explode(':', $h, 2);
+                if (count($parts) === 2) {
+                    $headers[strtolower(trim($parts[0]))] = trim($parts[1]);
+                }
             }
         }
     }
@@ -2566,7 +2621,7 @@ function analyseRobotsTxt(string $domain): ?array {
     $result = ['robots_found' => false, 'sitemap_found' => false, 'disallowed' => [], 'sitemaps' => [], 'crawl_delay' => null];
     $ctx = stream_context_create(['http' => ['timeout' => 5, 'header' => "User-Agent: mwWhoIs\r\n"], 'ssl' => ['verify_peer' => false]]);
 
-    $robots = @file_get_contents('https://' . $domain . '/robots.txt', false, $ctx);
+    $robots = httpFetch('https://' . $domain . '/robots.txt', ['timeout' => 5]);
     if ($robots && stripos($robots, '<html') === false) {
         $result['robots_found'] = true;
         foreach (explode("\n", $robots) as $line) {
