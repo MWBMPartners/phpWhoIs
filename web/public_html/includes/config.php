@@ -46,41 +46,18 @@ $config = [
             ],
         ],
 
-    // ── Enhanced Security Features ──
-    // These features activate automatically when a valid API key is provided.
-    // Leave empty ('') or null to disable. No need to comment out.
-
-        // Google Safe Browsing — checks domains against Google's malware/phishing database
-        // Get a key from https://console.cloud.google.com/apis/api/safebrowsing.googleapis.com
-            'safe_browsing_api_key' => $authKeys['safe_browsing_api_key'] ?? '',
-
-        // VirusTotal — domain reputation scores and antivirus verdicts
-        // Get a free key from https://www.virustotal.com/gui/my-apikey
-            'virustotal_api_key' => $authKeys['virustotal_api_key'] ?? '',
-
-        // Have I Been Pwned — data breach information for domains
-        // Get a key from https://haveibeenpwned.com/API/Key
-            'hibp_api_key' => $authKeys['hibp_api_key'] ?? '',
-
-        // AbuseIPDB — IP reputation and abuse reports
-        // Get a free key from https://www.abuseipdb.com/api
-            'abuseipdb_api_key' => $authKeys['abuseipdb_api_key'] ?? '',
-
-        // Shodan — exposed services/ports on resolved IP
-        // Get a free key from https://account.shodan.io/
-            'shodan_api_key' => $authKeys['shodan_api_key'] ?? '',
-
-        // PhishTank — known phishing URL database
-        // Get a free key from https://www.phishtank.com/api_info.php
-            'phishtank_api_key' => $authKeys['phishtank_api_key'] ?? '',
+    // ── Enhanced Security Features (API keys) ──
+    // API keys are NOT enumerated here. Every key defined in web/.auth/keys.php
+    // is merged into $config automatically (see the bottom of this file), so to
+    // add a NEW provider key you edit ONLY web/.auth/keys.php — never this file.
+    // Integrations stay dormant while their key is empty/absent.
+    // See web/.auth/keys.example.php for the supported keys + where to obtain each.
 
     // ── Website Screenshot ──
-        // Set 'screenshot_enabled' to true to show website preview thumbnails.
-        // Works without an API key (basic/free tier). Provide an API key to
-        // unlock higher resolution, rate limits, or premium features.
-        // Leave 'screenshot_api_key' empty ('') for basic usage.
+        // Show website preview thumbnails. Works without a key (basic/free tier);
+        // set 'screenshot_api_key' in web/.auth/keys.php to unlock higher
+        // resolution / rate limits / premium features.
             'screenshot_enabled' => true,
-            'screenshot_api_key' => $authKeys['screenshot_api_key'] ?? '',
 
     // ── Portfolio ──
     // Show the Domain Portfolio link in the footer and history bar.
@@ -98,3 +75,10 @@ $config = [
     // Types: 'standard' | 'security' (malware/threat) | 'family' (parental control).
         'dns_resolvers' => require __DIR__ . DIRECTORY_SEPARATOR . 'dns_resolvers.php',
 ];
+
+// ── Merge secret keys from web/.auth/keys.php ──
+// Every key defined in keys.php is folded into $config here, so adding a NEW
+// provider key there requires NO change to this file. The union operator (+=)
+// keeps the values already set above, so keys.php can only ADD secret keys — it
+// can never override a core config key (registrars, dns_resolvers, toggles, …).
+$config += $authKeys;
