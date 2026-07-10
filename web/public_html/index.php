@@ -1404,7 +1404,12 @@ if ($_showPortfolioIcon): ?>
         function displayResults(data) {
             // Availability badge
             var avBadge = document.getElementById('availabilityBadge');
-            if (data.availability === 'available') {
+            if (data.is_ip) {
+                // IP lookups have no domain-availability concept (Issue #217) —
+                // neutral badge, no "is registered" text and no watch button.
+                avBadge.innerHTML = '<div class="alert alert-secondary d-flex align-items-center">' +
+                    '<div><i class="bi bi-hdd-network-fill me-2"></i><strong>' + esc(currentDomain) + '</strong>&nbsp;&mdash; IP address lookup</div></div>';
+            } else if (data.availability === 'available') {
                 var regButtons = buildRegisterButtons(currentDomain);
                 avBadge.innerHTML = '<div class="alert alert-success d-flex align-items-center justify-content-between flex-wrap gap-2">' +
                     '<div><i class="bi bi-check-circle-fill me-2"></i><strong>' + esc(currentDomain) + '</strong> appears to be available!</div>' +
