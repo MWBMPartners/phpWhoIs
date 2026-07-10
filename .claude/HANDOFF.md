@@ -4,16 +4,54 @@
 > pick up without re-reading the brief, the whole codebase, or prior chat.
 > Last updated: **2026-07-10** (deep-analysis + remediation session).
 
-## ⚠️ Immediate state — 15 local commits on `beta`, PENDING PUSH
+## ⚠️ Immediate state — 22 local commits on `beta`, PENDING PUSH
 
-`local beta` (`1d7d696`) is **15 commits ahead of `origin/beta`** (`793bb29`) — a
-clean fast-forward. **Nothing has been pushed** (awaiting explicit owner go-ahead
-per git-safety rules). All changes are in `web/public_html_beta/` only;
-production `web/public_html/` is untouched. `php -l` clean across all touched files.
+`local beta` (`f50b711`) is **22 commits ahead of `origin/beta`** (`793bb29`) — a
+clean fast-forward. **Nothing has been pushed** (awaiting explicit owner go-ahead).
+`php -l` clean; all 4 workflows valid YAML; tests bootstrap fixed.
 
-When authorised: `git push origin beta`. That will trigger the beta SFTP deploy +
-auto version-bump CI. Do **not** auto-advance `alpha` with these dev commits
-(alpha realignment was a one-off; alpha becomes base-dev only when the owner switches).
+**Two sessions of work sit in these 22 commits:** (A) the deep-analysis remediation
+(15 commits, the 13 issues — see table below), and (B) a **repo restructure** to
+the iHymns/WebMS-Intra single-source deploy model (7 commits).
+
+### 🔴 BEFORE PUSHING — owner must set GitHub secrets (Settings → Secrets and variables → Actions)
+The deploy pipeline was rewritten. It now needs:
+- **`SFTP_DEV_PATH`** = server path to `public_html_dev_alpha` (NEW — for the alpha branch).
+- Confirm **`SFTP_BETA_PATH`** → `public_html_dev_beta` and **`SFTP_LIVE_PATH`** → `public_html`.
+- **All three SFTP path secrets must have NO trailing slash** (the `.auth` sibling
+  deploy derives its path via `dirname`, exactly like iHymns).
+Without `SFTP_DEV_PATH`, alpha simply won't deploy (harmless). Push to `beta` deploys
+to `public_html_dev_beta` and does NOT touch production.
+
+## Restructure session (2026-07-10 pt3) — single-source deploy (iHymns-style)
+
+The repo now matches iHymns / WebMS-Intra: ONE web-accessible source `web/public_html/`;
+branch chooses the SFTP target (`main→public_html`, `beta→public_html_dev_beta`,
+`alpha→public_html_dev_alpha`). API keys moved out of `config.php` into a gitignored
+`web/.auth/keys.php` (loaded via `dirname(__DIR__,2).'/.auth/'`; deployed above web root,
+real `keys.php` never clobbered). The 7 restructure commits:
+| SHA | What |
+|---|---|
+| `4fcab25` | consolidate `public_html_beta` → single `web/public_html/` (beta was newest); drop stale pre-header.php |
+| `f89385d` | API keys → gitignored `web/.auth/` (`.htaccess` + `keys.example.php` tracked); `.gitignore` + config.php loader (#204) |
+| `4d309e7` | rewrite `deploy.yml`: single source, main/beta/alpha → LIVE/BETA/DEV, `.auth` sibling deploy, removed beta→prod sync job |
+| `6c36f0b` | repoint version-bump/changelog/update-dns-resolvers workflows at `web/public_html/` + alpha; fixed hardcoded `push origin beta` (would corrupt beta from alpha) |
+| `7bb177e` | fix tests/bootstrap.php path (test suite was broken post-consolidation) |
+| `f50b711` | update README/DEV_NOTES/CLAUDE docs to the single-source model |
+
+Also fixed in passing: infoAppVer.php dev-status detection now reads the CI-injected
+`.env-channel` (the old `__DIR__` folder check is dead under single-source).
+
+When authorised: `git push origin beta` (clean fast-forward). Monitor deploy + CI.
+Do **not** auto-advance `alpha` with these dev commits.
+
+## Still NOT done — the "proceed with 196/197/198" fixes (restructure-first was chosen)
+These now land in the consolidated `web/public_html/` (next pass, Sonnet):
+- **#197 SSRF gate** — egress policy = **block private/reserved ranges** (owner's earlier "proceed" implies my recommended policy). `resolveAndVetHost()` + IP-pinning + no-redirect-to-internal.
+- **#198 CSRF/API-key** on the JSON + `?suggest=1` endpoints.
+- **#196 progressive-loading re-architecture** — its own focused pass (big; touches lookup.php/index.php/functions.php).
+
+### The 15 deep-analysis commits (oldest→newest)
 
 ### The 15 commits (oldest→newest)
 | SHA | Issue | What |

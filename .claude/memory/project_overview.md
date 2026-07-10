@@ -18,11 +18,12 @@ type: project
 
 **Directory Structure:**
 
-- `web/public_html_beta/` — active development (Beta)
-- `web/public_html_beta/includes/` — PHP includes (config, functions, session, footer, version)
-- `web/public_html_beta/assets/` — CSS, images, API spec
-- `web/public_html_beta/lang/` — i18n JSON files (en, es, fr, de)
-- `web/public_html/` — production (synced from beta on promotion)
+- `web/public_html/` — **the single web-accessible source for ALL branches** (single-source deploy adopted 2026-07-10, matching iHymns/WebMS-Intra). The old `web/public_html_beta/` folder was consolidated away.
+- `web/public_html/includes/` — PHP includes (config, functions, session, footer, version)
+- `web/public_html/assets/` — CSS, images, API spec
+- `web/public_html/lang/` — i18n JSON files (en, es, fr, de)
+- `web/.auth/` — gitignored secret API keys (`keys.php`); `config.php` loads them; sits above the web root on the server
+- Branch → SFTP target: `main→public_html`, `beta→public_html_dev_beta`, `alpha→public_html_dev_alpha`
 - `tests/` — PHPUnit tests
 - `.github/workflows/` — CI/CD (deploy, version-bump, changelog, test)
 
@@ -46,4 +47,4 @@ type: project
 
 **Why:** Understanding the full architecture and feature set ensures accurate work on any part of the codebase.
 
-**How to apply:** Always make changes in `public_html_beta/` first. The app name is now "DomainCheckr" (renamed from mwWhoIs). PHP includes use `includes/` subdirectory. Assets are in `assets/css/`, `assets/images/`, `assets/api/`.
+**How to apply:** Make all changes in `web/public_html/` (single source — no more `public_html_beta/`). The app name is now "DomainCheckr" (renamed from mwWhoIs). PHP includes use `includes/` subdirectory. Assets are in `assets/css/`, `assets/images/`, `assets/api/`. Secrets go in gitignored `web/.auth/keys.php`, never in `config.php`.
