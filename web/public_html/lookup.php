@@ -49,6 +49,19 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['suggest']) && $_GET['suggest'] === '1') {
     header('Content-Type: application/json');
+
+    // Auth gate (Issue #198): this endpoint used to run with NO auth check at
+    // all, letting anonymous cross-origin callers fire the parallel RDAP grid.
+    // Require the same policy as the main handler below — a valid API key OR
+    // a valid CSRF token.
+    $suggestApiKeyHeader = isset($_SERVER['HTTP_X_API_KEY']) ? trim($_SERVER['HTTP_X_API_KEY']) : '';
+    $suggestApiKeyConfig = $suggestApiKeyHeader ? validateApiKey($suggestApiKeyHeader) : null;
+    if (!$suggestApiKeyConfig && !validateCsrfToken()) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Invalid request. Please refresh the page and try again.']);
+        exit;
+    }
+
     $suggestDomain = isset($_POST['domain']) ? trim((string)$_POST['domain']) : '';
     $suggestDomain = sanitizeDomainInput($suggestDomain);
     if (!$suggestDomain || !isValidDomain($suggestDomain)) {
@@ -123,8 +136,11 @@ if ($apiKeyHeader) {
     $jsonFormat = true; // API key users always get JSON
 }
 
-// CSRF (skip for JSON API requests and API key users)
-if (!$jsonFormat && !$apiKeyConfig && !validateCsrfToken()) {
+// CSRF required unless a valid API key was supplied (Issue #198). Previously
+// `format=json` alone bypassed CSRF, which let an anonymous, cross-origin
+// `POST lookup?format=json` (no API key) run the entire outbound lookup
+// pipeline with no auth at all — usable for CSRF-to-SSRF and resource abuse.
+if (!$apiKeyConfig && !validateCsrfToken()) {
     sendError('Invalid request. Please refresh the page and try again.', 403);
 }
 
@@ -225,11 +241,9 @@ if ($isIpLookup) {
                     ? generateVerificationToken($domain, session_id())
                     : null;
                 $cachedFullResponse['rate_limit'] = ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit];
-                if ($jsonFormat) {
-                    header('Access-Control-Allow-Origin: *');
-                    header('Access-Control-Allow-Methods: POST');
-                    header('Access-Control-Allow-Headers: Content-Type');
-                }
+                // Issue #198: no wildcard CORS — the same-origin web UI authenticates
+                // via the CSRF token (no CORS needed) and API-key clients are
+                // server-to-server (CORS is a browser-only concept, so it's moot there).
                 sendJson($cachedFullResponse);
             }
         }
@@ -623,9 +637,9 @@ if (!$isIpLookup && $domain && session_id()) {
 }
 
 if ($jsonFormat) {
-    header('Access-Control-Allow-Origin: *');
-    header('Access-Control-Allow-Methods: POST');
-    header('Access-Control-Allow-Headers: Content-Type');
+    // Issue #198: no wildcard CORS — the same-origin web UI authenticates via
+    // the CSRF token (no CORS needed) and API-key clients are server-to-server
+    // (CORS is a browser-only concept, so it's moot there).
     $response = [
         'domain'       => $domain,
         'is_ip'        => $isIpLookup,

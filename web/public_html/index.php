@@ -1816,6 +1816,7 @@ if ($_showPortfolioIcon): ?>
                     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Checking alternatives...';
                     var fd = new FormData();
                     fd.append('domain', currentDomain);
+                    fd.append('csrf_token', CSRF);
                     fetch('lookup?suggest=1', { method: 'POST', body: fd })
                         .then(function (r) { return r.json(); })
                         .then(function (result) {
