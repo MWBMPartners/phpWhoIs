@@ -237,8 +237,52 @@ if ($isIpLookup) {
     $dns = getDnsRecords($domain);
 }
 
-// Email security check (Issue #56) — only for domain lookups
+// Enrichment pipeline defaults (Issue #190) — declared here so the response-array
+// assembly below always has a defined value, even when the pipeline is skipped
+// for available (unregistered) domains, since the frontend hides these panes anyway.
 $emailSecurity = [];
+$sslInfo = null;
+$registrarReputation = null;
+$safeBrowsing = null;
+$virusTotal = null;
+$hibp = null;
+$screenshotUrl = null;
+$dnssec = null;
+$certTransparency = null;
+$domainAgeRisk = null;
+$abuseIpDb = null;
+$shodan = null;
+$phishTank = null;
+$urlhaus = null;
+$spamhaus = null;
+$mtaSts = null;
+$bimi = null;
+$daneTlsa = null;
+$whoisPrivacy = null;
+$hostingRisk = null;
+$httpHeaders = null;
+$redirectChain = null;
+$tlsAudit = null;
+$caaRecords = null;
+$smtpSecurity = null;
+$reverseIp = null;
+$httpVersions = null;
+$ipv6 = null;
+$responseTimes = null;
+$nsDiversity = null;
+$domainSuggestions = [];
+$techStack = null;
+$robotsTxt = null;
+$dnsPropagation = null;
+$multiDnsbl = null;
+$subdomains = [];
+$geolocation = null;
+
+// Enrichment pipeline (Issue #190) — skipped entirely for available/unregistered
+// domains, since the frontend hides every enrichment pane in that case anyway.
+if ($availability !== 'available') {
+
+// Email security check (Issue #56) — only for domain lookups
 if (!$isIpLookup && $domain) {
     $emailSecurity = checkEmailSecurity($domain);
 }
@@ -503,6 +547,8 @@ if (!$dnt) {
 
 // Hosting country risk (Issue #105) — computed after geolocation
 $hostingRisk = assessHostingRisk($geolocation);
+
+} // end enrichment pipeline (Issue #190)
 
 // Domain suggestions (Issue #116/#164) — now on-demand only, triggered by separate request
 // Automatic suggestions removed to speed up main lookup response
