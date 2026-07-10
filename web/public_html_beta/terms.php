@@ -22,11 +22,6 @@ $vendorUrl = isset($app["Application"]["Vendor"]["Parent"]["Website"]["URL"]) &&
     ? $app["Application"]["Vendor"]["Parent"]["Website"]["URL"]
     : '#';
 ?>
-<?php
-    if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'pre-header.php')) {
-        require_once(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'pre-header.php');
-    }
-?>
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
 <head>
