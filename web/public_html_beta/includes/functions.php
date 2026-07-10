@@ -1346,15 +1346,13 @@ function checkDnssec(string $domain): array {
         }
     }
 
-    // Also try DNSKEY query
-    if (!$result['signed']) {
-        $dnskey = @dns_get_record($domain, DNS_ANY);
-        if ($dnskey) {
-            foreach ($dnskey as $rec) {
-                if (isset($rec['type']) && strtoupper($rec['type']) === 'DNSKEY') {
-                    $result['signed'] = true;
-                    break;
-                }
+    // Also check the same DNS_ANY result for a DNSKEY record (Issue #191 — this used to
+    // issue an identical, second dns_get_record($domain, DNS_ANY) query; $ds already has it)
+    if (!$result['signed'] && $ds) {
+        foreach ($ds as $rec) {
+            if (isset($rec['type']) && strtoupper($rec['type']) === 'DNSKEY') {
+                $result['signed'] = true;
+                break;
             }
         }
     }
@@ -2826,13 +2824,13 @@ function checkMultiDnsbl(string $ip): array {
     }
 
     $reversed = implode('.', array_reverse(explode('.', $ip)));
+    // Issue #191: dnsbl.sorbs.net (SORBS, decommissioned 2024) and cbl.abuseat.org
+    // (CBL, folded into Spamhaus ZEN) are dead zones that just time out every lookup.
     $zones = [
         'zen.spamhaus.org' => 'Spamhaus ZEN',
         'b.barracudacentral.org' => 'Barracuda',
         'bl.spamcop.net' => 'SpamCop',
-        'dnsbl.sorbs.net' => 'SORBS',
         'dnsbl-1.uceprotect.net' => 'UCEPROTECT L1',
-        'cbl.abuseat.org' => 'CBL',
         'dyna.spamrats.com' => 'SpamRATS',
         'bl.mailspike.net' => 'Mailspike',
     ];

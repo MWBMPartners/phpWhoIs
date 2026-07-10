@@ -385,18 +385,8 @@ if (!$dnt && !$isIpLookup && $domain) {
     $urlhaus = checkUrlhaus($domain);
 }
 
-// Spamhaus DNSBL (Issue #100) — no API key needed
-$spamhaus = null;
-if (!$isIpLookup && !empty($dns)) {
-    foreach ($dns as $rec) {
-        if ($rec['type'] === 'A' && !empty($rec['value'])) {
-            $spamhaus = checkSpamhaus($rec['value']);
-            break;
-        }
-    }
-} elseif ($isIpLookup) {
-    $spamhaus = checkSpamhaus($domain);
-}
+// Spamhaus DNSBL (Issue #100) — derived from the multi-DNSBL result below (Issue #191);
+// checkSpamhaus() used to run a separate, duplicate zen.spamhaus.org query.
 
 // MTA-STS (Issue #101) — no API key needed
 $mtaSts = null;
@@ -522,6 +512,25 @@ if (!empty($dns)) {
     }
 } elseif ($isIpLookup) {
     $multiDnsbl = checkMultiDnsbl($domain);
+}
+
+// Spamhaus (Issue #100/#191) — derived from the zen.spamhaus.org entry already present in
+// $multiDnsbl, instead of running checkSpamhaus() as a second, duplicate DNSBL query.
+// Mirrors checkSpamhaus()'s original ['listed' => bool, 'lists' => [...]] shape so
+// calculateSecurityScore() and the frontend's data.spamhaus.listed/.lists[].label reads
+// keep working unchanged.
+if ($multiDnsbl !== null) {
+    $zenEntry = null;
+    foreach ($multiDnsbl['lists'] as $entry) {
+        if (($entry['zone'] ?? '') === 'zen.spamhaus.org') {
+            $zenEntry = $entry;
+            break;
+        }
+    }
+    $spamhaus = [
+        'listed' => $zenEntry !== null,
+        'lists'  => $zenEntry !== null ? [$zenEntry] : [],
+    ];
 }
 
 // Subdomain discovery (Issue #46) — only for domain lookups
