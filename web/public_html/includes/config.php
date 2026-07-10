@@ -4,6 +4,15 @@
  * Edit these values to customise the application behaviour.
  */
 
+// ── Secret keys — loaded from the gitignored, non-web-accessible web/.auth/keys.php ──
+// (a sibling of the web root; falls back to empty so integrations stay dormant if absent)
+$authKeys = [];
+$authKeysFile = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . '.auth' . DIRECTORY_SEPARATOR . 'keys.php';
+if (is_file($authKeysFile)) {
+    $loadedAuthKeys = require $authKeysFile;
+    if (is_array($loadedAuthKeys)) { $authKeys = $loadedAuthKeys; }
+}
+
 $config = [
     // ── Domain Registration Providers ──
     // List one or more registrars. When a domain is available:
@@ -43,27 +52,27 @@ $config = [
 
         // Google Safe Browsing — checks domains against Google's malware/phishing database
         // Get a key from https://console.cloud.google.com/apis/api/safebrowsing.googleapis.com
-            'safe_browsing_api_key' => '',
+            'safe_browsing_api_key' => $authKeys['safe_browsing_api_key'] ?? '',
 
         // VirusTotal — domain reputation scores and antivirus verdicts
         // Get a free key from https://www.virustotal.com/gui/my-apikey
-            'virustotal_api_key' => '',
+            'virustotal_api_key' => $authKeys['virustotal_api_key'] ?? '',
 
         // Have I Been Pwned — data breach information for domains
         // Get a key from https://haveibeenpwned.com/API/Key
-            'hibp_api_key' => '',
+            'hibp_api_key' => $authKeys['hibp_api_key'] ?? '',
 
         // AbuseIPDB — IP reputation and abuse reports
         // Get a free key from https://www.abuseipdb.com/api
-            'abuseipdb_api_key' => '',
+            'abuseipdb_api_key' => $authKeys['abuseipdb_api_key'] ?? '',
 
         // Shodan — exposed services/ports on resolved IP
         // Get a free key from https://account.shodan.io/
-            'shodan_api_key' => '',
+            'shodan_api_key' => $authKeys['shodan_api_key'] ?? '',
 
         // PhishTank — known phishing URL database
         // Get a free key from https://www.phishtank.com/api_info.php
-            'phishtank_api_key' => '',
+            'phishtank_api_key' => $authKeys['phishtank_api_key'] ?? '',
 
     // ── Website Screenshot ──
         // Set 'screenshot_enabled' to true to show website preview thumbnails.
@@ -71,7 +80,7 @@ $config = [
         // unlock higher resolution, rate limits, or premium features.
         // Leave 'screenshot_api_key' empty ('') for basic usage.
             'screenshot_enabled' => true,
-            'screenshot_api_key' => '',
+            'screenshot_api_key' => $authKeys['screenshot_api_key'] ?? '',
 
     // ── Portfolio ──
     // Show the Domain Portfolio link in the footer and history bar.
