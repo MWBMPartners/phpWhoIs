@@ -145,8 +145,13 @@ header('X-RateLimit-Reset: ' . $rateLimitReset);
 // session no longer needed — release the lock so concurrent requests aren't serialized
 session_write_close();
 
-// Update TLD data (IANA + second-level suffixes, throttled to once per day)
-updateTldDataIfNeeded();
+// Update TLD data (IANA + second-level suffixes, throttled to once per day).
+// Issue #193: deferred to a shutdown function so it runs AFTER the response has
+// been flushed to the client (see sendJson()'s fastcgi_finish_request() call)
+// instead of one unlucky request paying the ~10s fetch cost inline.
+register_shutdown_function(function () {
+    updateTldDataIfNeeded();
+});
 
 // Parse & validate input
 $rawDomainInput = '';
@@ -164,6 +169,11 @@ if (!empty($_POST['dns_propagation_only'])) {
     // session no longer needed — release the lock so concurrent requests aren't serialized
     session_write_close();
     echo json_encode(['dns_propagation' => checkDnsPropagation($domain)]);
+    // This endpoint doesn't go through sendJson() — flush explicitly so the deferred
+    // TLD refresh above doesn't keep this (lightweight, frequently-polled) endpoint waiting.
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    }
     exit;
 }
 

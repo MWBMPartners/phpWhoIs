@@ -454,12 +454,40 @@ function updateTldDataIfNeeded(): void {
         }
     }
 
+    // Issue #193: this now runs off the request path (deferred to a shutdown function
+    // that fires after the response has been flushed to the client), so concurrent
+    // "first" requests could otherwise all race to fetch + overwrite the same files at
+    // once. Guard with a non-blocking exclusive lock — if another process already holds
+    // it, that process is already doing the refresh, so just bail out.
+    $lockFile = TLD_META_PATH . '.lock';
+    $lockHandle = @fopen($lockFile, 'c');
+    if (!$lockHandle) {
+        return;
+    }
+    if (!@flock($lockHandle, LOCK_EX | LOCK_NB)) {
+        @fclose($lockHandle);
+        return;
+    }
+
+    // Re-check under the lock — another process may have just finished the refresh
+    // while we were waiting to acquire it.
+    if (file_exists(TLD_META_PATH)) {
+        $meta = json_decode(file_get_contents(TLD_META_PATH), true);
+        if (isset($meta['checked_at']) && (time() - $meta['checked_at']) < 86400) {
+            @flock($lockHandle, LOCK_UN);
+            @fclose($lockHandle);
+            return;
+        }
+    }
+
     $ctx = stream_context_create(['http' => ['timeout' => 5]]);
+    $anySucceeded = false;
 
     // 1. Fetch IANA TLD list
     $tldResponse = @file_get_contents(IANA_TLD_URL, false, $ctx);
     if ($tldResponse !== false) {
         file_put_contents(IANA_TLD_PATH, $tldResponse);
+        $anySucceeded = true;
     }
 
     // 2. Fetch Mozilla PSL → extract ICANN second-level suffixes only
@@ -467,9 +495,18 @@ function updateTldDataIfNeeded(): void {
     if ($pslResponse !== false) {
         $suffixes = extractSecondLevelSuffixes($pslResponse);
         file_put_contents(SL_SUFFIXES_PATH, implode("\n", $suffixes));
+        $anySucceeded = true;
     }
 
-    file_put_contents(TLD_META_PATH, json_encode(['checked_at' => time()]));
+    // Only stamp checked_at when at least one fetch succeeded — a failed first
+    // fetch (e.g. a transient network hiccup) shouldn't lock in an empty state for
+    // 24h; let the very next request try the refresh again.
+    if ($anySucceeded) {
+        file_put_contents(TLD_META_PATH, json_encode(['checked_at' => time()]));
+    }
+
+    @flock($lockHandle, LOCK_UN);
+    @fclose($lockHandle);
 }
 
 /**
@@ -1258,6 +1295,12 @@ function sendJson(array $data, int $status = 200): void {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    // Issue #193: flush the response to the client NOW — any register_shutdown_function
+    // work queued by the caller (e.g. the deferred TLD/PSL refresh) then runs after the
+    // client has already received its reply, instead of the client waiting on it.
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    }
     exit;
 }
 
