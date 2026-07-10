@@ -492,7 +492,10 @@ function trackLookup(string $type, string $domain = ''): void {
     }
     $file = CACHE_DIR . DIRECTORY_SEPARATOR . 'lookup_stats.json';
     $stats = file_exists($file) ? json_decode(file_get_contents($file), true) : [];
-    if (!$stats) {
+    // Issue #218: a truncated/corrupted stats file shouldn't be treated as
+    // valid data — reset to defaults rather than risk array-access errors
+    // below on a non-array $stats.
+    if (!is_array($stats)) {
         $stats = ['total' => 0, 'cache_hits' => 0, 'rdap' => 0, 'whois' => 0, 'errors' => 0, 'popular_domains' => []];
     }
 
@@ -581,8 +584,9 @@ function checkIpRateLimit(int $limit = RATE_LIMIT_MAX): bool {
         $data = json_decode(file_get_contents($file), true);
     }
 
-    // Reset if window expired or invalid data
-    if (!$data || !isset($data['start']) || ($now - $data['start']) > RATE_LIMIT_WINDOW) {
+    // Reset if window expired or invalid/malformed data (Issue #218) — treat
+    // a corrupted rate-limit file as a miss rather than trusting its shape.
+    if (!is_array($data) || !isset($data['start']) || ($now - $data['start']) > RATE_LIMIT_WINDOW) {
         $data = ['count' => 0, 'start' => $now];
     }
 
@@ -609,7 +613,8 @@ function cleanExpiredRateLimits(string $dir): void {
     $now = time();
     foreach ($files as $file) {
         $data = json_decode(file_get_contents($file), true);
-        if (!$data || !isset($data['start']) || ($now - $data['start']) > RATE_LIMIT_WINDOW * 2) {
+        // Issue #218: treat a corrupted/malformed rate-limit file as stale too.
+        if (!is_array($data) || !isset($data['start']) || ($now - $data['start']) > RATE_LIMIT_WINDOW * 2) {
             @unlink($file);
         }
     }
@@ -712,7 +717,10 @@ function getCached(string $domain, int $ttl = CACHE_TTL): ?string {
 
     $data = json_decode(file_get_contents($file), true);
 
-    if (!$data || (time() - $data['ts']) >= $ttl) {
+    // Issue #218: guard against a truncated/corrupted cache file — treat
+    // anything that isn't a well-formed {ts, result} array as a cache miss
+    // rather than risking array-access errors on a non-array $data.
+    if (!is_array($data) || !isset($data['ts'], $data['result']) || (time() - $data['ts']) >= $ttl) {
         return null;
     }
 
@@ -1079,6 +1087,21 @@ function getDnsRecords(string $domain): array {
     }
 
     return $records;
+}
+
+/**
+ * Return the value of the first A record in a DNS record array (as produced
+ * by getDnsRecords()), or null if there isn't one. Dedupes the several
+ * copy-pasted "find the first A record to use as an IP" loops that used to
+ * be scattered across lookup.php's enrichment pipeline (Issue #218).
+ */
+function firstARecord(array $dns): ?string {
+    foreach ($dns as $rec) {
+        if (($rec['type'] ?? null) === 'A' && !empty($rec['value'])) {
+            return $rec['value'];
+        }
+    }
+    return null;
 }
 
 

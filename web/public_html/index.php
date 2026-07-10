@@ -6,6 +6,7 @@
 
 // ─── Session & CSRF ───
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'session_config.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'asset_version.php';
 $csrfToken = $_SESSION['csrf_token'];
 
 // ─── Security headers ───
@@ -183,7 +184,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'style.css'); ?>">
+    <link rel="stylesheet" href="assets/css/style.css?v=<?php echo assetVersion(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'style.css'); ?>">
 </head>
 <body>
     <!-- Skip links -->
@@ -720,7 +721,12 @@ if ($_showPortfolioIcon): ?>
         var systemDarkMQ = window.matchMedia('(prefers-color-scheme: dark)');
 
         // Load saved settings as defaults (URL params override these)
-        var savedSettings = JSON.parse(localStorage.getItem('appSettings') || '{}');
+        var savedSettings = {};
+        try {
+            savedSettings = JSON.parse(localStorage.getItem('appSettings') || '{}');
+        } catch (e) {
+            savedSettings = {}; // Issue #218: malformed localStorage shouldn't break the page
+        }
         if (!urlParams.has('hideSecScore') && savedSettings.hideSecScore) paramHideSecScore = true;
         if (!urlParams.has('hideDomainSummary') && savedSettings.hideSummary) paramHideSummary = true;
         if (paramOnlyTabs.length === 0 && savedSettings.defaultTabs && savedSettings.defaultTabs.length > 0 && savedSettings.defaultTabs.length < 6) {
@@ -769,7 +775,12 @@ if ($_showPortfolioIcon): ?>
 
         // Settings modal controls
         function loadSettingsUI() {
-            var s = JSON.parse(localStorage.getItem('appSettings') || '{}');
+            var s = {};
+            try {
+                s = JSON.parse(localStorage.getItem('appSettings') || '{}');
+            } catch (e) {
+                s = {}; // Issue #218: malformed localStorage shouldn't break the page
+            }
             document.getElementById('settingHideSecScore').checked = !!s.hideSecScore;
             document.getElementById('settingHideSummary').checked = !!s.hideSummary;
             var allTabs = ['whois', 'dns', 'email', 'ssl', 'subdomains', 'security'];
@@ -2104,6 +2115,11 @@ if ($_showPortfolioIcon): ?>
                 var firstTab = document.querySelector('#resultTabs .nav-link[data-tab="' + paramOnlyTabs[0] + '"]');
                 if (firstTab) firstTab.click();
             }
+
+            // Issue #218: reflect the current watch-list state on the button
+            // just rendered above — otherwise a domain that's already on the
+            // watch list shows the "not watched" icon until manually toggled.
+            updateWatchButtons();
         }
 
         // ── Result tabs ──

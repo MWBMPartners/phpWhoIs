@@ -414,9 +414,7 @@ $abuseIpDb = null;
 if (!$dnt && !empty($config['abuseipdb_api_key'])) {
     $checkIp = $isIpLookup ? $domain : null;
     if (!$checkIp && !empty($dns)) {
-        foreach ($dns as $rec) {
-            if ($rec['type'] === 'A' && !empty($rec['value'])) { $checkIp = $rec['value']; break; }
-        }
+        $checkIp = firstARecord($dns);
     }
     if ($checkIp) {
         $abuseIpDb = checkAbuseIPDB($checkIp, $config['abuseipdb_api_key']);
@@ -428,9 +426,7 @@ $shodan = null;
 if (!$dnt && !empty($config['shodan_api_key'])) {
     $checkIp = $isIpLookup ? $domain : null;
     if (!$checkIp && !empty($dns)) {
-        foreach ($dns as $rec) {
-            if ($rec['type'] === 'A' && !empty($rec['value'])) { $checkIp = $rec['value']; break; }
-        }
+        $checkIp = firstARecord($dns);
     }
     if ($checkIp) {
         $shodan = checkShodan($checkIp, $config['shodan_api_key']);
@@ -512,11 +508,9 @@ if (!$isIpLookup && $domain) {
 // Reverse IP (Issue #111) — skip if DNT (third-party API)
 $reverseIp = null;
 if (!$dnt && !empty($dns)) {
-    foreach ($dns as $rec) {
-        if ($rec['type'] === 'A' && !empty($rec['value'])) {
-            $reverseIp = reverseIpLookup($rec['value']);
-            break;
-        }
+    $firstA = firstARecord($dns);
+    if ($firstA !== null) {
+        $reverseIp = reverseIpLookup($firstA);
     }
 }
 
@@ -568,11 +562,9 @@ if (!$isIpLookup && $domain) {
 // Multi-DNSBL (Issue #133) — replaces single Spamhaus check
 $multiDnsbl = null;
 if (!empty($dns)) {
-    foreach ($dns as $rec) {
-        if ($rec['type'] === 'A' && !empty($rec['value'])) {
-            $multiDnsbl = checkMultiDnsbl($rec['value']);
-            break;
-        }
+    $firstA = firstARecord($dns);
+    if ($firstA !== null) {
+        $multiDnsbl = checkMultiDnsbl($firstA);
     }
 } elseif ($isIpLookup) {
     $multiDnsbl = checkMultiDnsbl($domain);
@@ -609,11 +601,9 @@ if (!$dnt) {
     if ($isIpLookup) {
         $geolocation = getIpGeolocation($domain);
     } elseif (!empty($dns)) {
-        foreach ($dns as $record) {
-            if ($record['type'] === 'A' && !empty($record['value'])) {
-                $geolocation = getIpGeolocation($record['value']);
-                break;
-            }
+        $firstA = firstARecord($dns);
+        if ($firstA !== null) {
+            $geolocation = getIpGeolocation($firstA);
         }
     }
 }

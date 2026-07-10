@@ -52,9 +52,14 @@ $stats = [];
 // Cache stats
 $cacheDir = CACHE_DIR;
 $cacheFiles = is_dir($cacheDir) ? glob($cacheDir . '/*.json') : [];
+// Issue #218: report the backend actually in use (getCacheBackend() attempts
+// a live connection) rather than just whether the Redis/Memcached PHP
+// extensions are installed — a Redis extension can be present but the
+// server unreachable, in which case the app is really running on the file
+// fallback.
 $stats['cache'] = [
     'total_entries' => count($cacheFiles),
-    'backend' => class_exists('Redis') ? 'redis' : (class_exists('Memcached') ? 'memcached' : 'file'),
+    'backend' => getCacheBackend()['type'],
 ];
 
 // Rate limit stats
