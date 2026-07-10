@@ -27,15 +27,22 @@
 			$app["Application"]["Version"]["Name"] = NULL;
 			
 			// Environment-based override (failsafe)
-			//If running from a non-beta directory, clear the dev status
-				if (str_contains(__DIR__, 'public_html_dev')){
-					$app["Application"]["Version"]["Development"]["Status"] = "Alpha";
-				}
-				elseif (str_contains(__DIR__, 'public_html_beta')){
-					$app["Application"]["Version"]["Development"]["Status"] = "Beta";
-				}
-				else{
-					$app["Application"]["Version"]["Development"]["Status"] = NULL;
+			// Single-source deploy model (#204): every branch deploys from the
+			// same web/public_html/ source, so the old folder-name check
+			// (public_html_beta / public_html_dev) can no longer distinguish
+			// channels. Read the CI/CD-injected web/public_html/.env-channel
+			// file instead (written by deploy.yml on every deploy: "live",
+			// "beta", or "alpha"). Absent locally (no deploy has run) -> NULL.
+				$app["Application"]["Version"]["Development"]["Status"] = NULL;
+				$envChannelFile = dirname(__DIR__) . DIRECTORY_SEPARATOR . '.env-channel';
+				if (is_file($envChannelFile)){
+					$envChannel = trim((string) file_get_contents($envChannelFile));
+					if ($envChannel === 'alpha'){
+						$app["Application"]["Version"]["Development"]["Status"] = "Alpha";
+					}
+					elseif ($envChannel === 'beta'){
+						$app["Application"]["Version"]["Development"]["Status"] = "Beta";
+					}
 				}
 
 			//Repo Build (populated by GitHub Actions deploy)
