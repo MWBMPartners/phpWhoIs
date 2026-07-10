@@ -2091,11 +2091,16 @@ function checkHttpVersions(string $domain): array {
     $httpVersion = curl_getinfo($ch, CURLINFO_HTTP_VERSION);
     curl_close($ch);
 
-    if ($httpVersion === CURL_HTTP_VERSION_2_0 || $httpVersion === 2) {
+    if ($httpVersion === CURL_HTTP_VERSION_1_0) {
+        $result['protocol'] = 'HTTP/1.0';
+    } elseif ($httpVersion === CURL_HTTP_VERSION_1_1) {
+        $result['protocol'] = 'HTTP/1.1';
+    } elseif ($httpVersion === CURL_HTTP_VERSION_2_0) {
         $result['http2'] = true;
         $result['protocol'] = 'HTTP/2';
-    } elseif ($httpVersion === CURL_HTTP_VERSION_1_1 || $httpVersion === 1) {
-        $result['protocol'] = 'HTTP/1.1';
+    } elseif (defined('CURL_HTTP_VERSION_3') && $httpVersion === CURL_HTTP_VERSION_3) {
+        $result['http3'] = true;
+        $result['protocol'] = 'HTTP/3';
     }
 
     // Check for HTTP/3 via Alt-Svc header
