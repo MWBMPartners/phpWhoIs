@@ -17,6 +17,13 @@ header("X-Frame-Options: DENY");
 header("X-XSS-Protection: 1; mode=block");
 header("Referrer-Policy: strict-origin-when-cross-origin");
 header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'");
+// HSTS (Issue #203) — only sent over HTTPS; a proxy/load-balancer terminating
+// TLS in front of the app sets X-Forwarded-Proto rather than $_SERVER['HTTPS'].
+$_isHttpsRequest = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+if ($_isHttpsRequest) {
+    header("Strict-Transport-Security: max-age=31536000; includeSubDomains");
+}
 
 // ─── Constants ───
 define('IANA_TLD_URL', 'https://data.iana.org/TLD/tlds-alpha-by-domain.txt');

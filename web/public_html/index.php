@@ -14,6 +14,13 @@ header("X-Frame-Options: DENY");
 header("X-XSS-Protection: 1; mode=block");
 header("Referrer-Policy: strict-origin-when-cross-origin");
 header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net; img-src 'self' data: https://image.thum.io https://api.qrserver.com https://*.gstatic.com; connect-src 'self'");
+// HSTS (Issue #203) — only sent over HTTPS; a proxy/load-balancer terminating
+// TLS in front of the app sets X-Forwarded-Proto rather than $_SERVER['HTTPS'].
+$_isHttpsRequest = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+if ($_isHttpsRequest) {
+    header("Strict-Transport-Security: max-age=31536000; includeSubDomains");
+}
 
 // ─── Config ───
 $config = [];
@@ -94,7 +101,19 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         $pageDescription = 'Free domain WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.';
     }
     
-    $pageUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+    // Host-header allow-list (Issue #203): HTTP_HOST is attacker-controlled and
+    // is used below to build the canonical/og:url meta tags. Reject anything
+    // outside a normal hostname[:port] charset and fall back to the
+    // server-configured name (SERVER_NAME comes from the vhost config, not the
+    // client-supplied Host header) rather than trusting the raw header.
+    $_rawHost = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '';
+    if (preg_match('/^[A-Za-z0-9.:-]+$/', $_rawHost)) {
+        $_safeHost = $_rawHost;
+    } else {
+        $_fallbackHost = isset($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : 'localhost';
+        $_safeHost = preg_match('/^[A-Za-z0-9.:-]+$/', $_fallbackHost) ? $_fallbackHost : 'localhost';
+    }
+    $pageUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_safeHost . $_SERVER['REQUEST_URI'];
 ?>
     <title><?php echo htmlspecialchars($pageTitle); ?></title>
     <meta name="description" content="<?php echo htmlspecialchars($pageDescription); ?>">

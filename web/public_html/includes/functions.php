@@ -393,7 +393,11 @@ function appLog(string $message, string $level = 'ERROR'): void {
     $logFile = $logDir . DIRECTORY_SEPARATOR . 'error.log';
     $timestamp = date('Y-m-d H:i:s');
     $ip = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'CLI';
-    $entry = "[{$timestamp}] [{$level}] [{$ip}] {$message}" . PHP_EOL;
+    // Strip CR/LF from the message (Issue #203) so attacker-influenced input
+    // logged verbatim (e.g. raw whois/RDAP output, a malformed domain) can't
+    // inject fake extra log lines/entries.
+    $safeMessage = str_replace(["\r", "\n"], ' ', $message);
+    $entry = "[{$timestamp}] [{$level}] [{$ip}] {$safeMessage}" . PHP_EOL;
 
     @file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
 }
