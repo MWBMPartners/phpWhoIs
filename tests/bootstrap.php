@@ -41,3 +41,7 @@ if (!defined('TLD_META_PATH')) {
 
 // Load the functions file (single-source web/public_html/ after the beta consolidation)
 require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'web' . DIRECTORY_SEPARATOR . 'public_html' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
+
+// Module registry (Issue #196, Step 1) — moduleRegistry()/runModuleChecks()/
+// deriveSpamhausFromMultiDnsbl(), depends on functions.php above.
+require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'web' . DIRECTORY_SEPARATOR . 'public_html' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'modules.php';

@@ -48,6 +48,9 @@ if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php';
 }
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
+// Module registry (Issue #196, Step 1) — moduleRegistry()/runModuleChecks()/
+// deriveSpamhausFromMultiDnsbl() used by the enrichment loop below.
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'modules.php';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -346,41 +349,20 @@ $geolocation = null;
 
 // Enrichment pipeline (Issue #190) — skipped entirely for available/unregistered
 // domains, since the frontend hides every enrichment pane in that case anyway.
+//
+// Issue #196 Step 1: the ~30 per-check blocks that used to sit inline here were
+// extracted into includes/modules.php's moduleRegistry()/runModuleChecks(). The
+// checks that stay inline below (registrar_reputation, screenshot_url,
+// domain_age_risk, whois_privacy, domain_suggestions) are the "core" response
+// keys per the Issue #196 plan — they're local/derived-from-existing-data
+// computations, not part of the dns/web/email/reputation/subdomains module
+// grouping, so runCoreLookup() extraction is deferred to a later step.
 if ($availability !== 'available') {
-
-// Email security check (Issue #56) — only for domain lookups
-if (!$isIpLookup && $domain) {
-    $emailSecurity = checkEmailSecurity($domain);
-}
-
-// SSL/TLS certificate info (Issue #19) — only for domain lookups
-$sslInfo = null;
-if (!$isIpLookup && $domain) {
-    $sslInfo = getSslInfo($domain);
-}
 
 // Registrar reputation check (Issue #51)
 $registrarReputation = null;
 if (!empty($parsed['Registrar'])) {
     $registrarReputation = checkRegistrarReputation($parsed['Registrar']);
-}
-
-// Google Safe Browsing (Issue #52) — only if API key configured; skip if DNT
-$safeBrowsing = null;
-if (!$dnt && !$isIpLookup && $domain && !empty($config['safe_browsing_api_key'])) {
-    $safeBrowsing = checkSafeBrowsing($domain, $config['safe_browsing_api_key']);
-}
-
-// VirusTotal (Issue #53) — only if API key configured; skip if DNT
-$virusTotal = null;
-if (!$dnt && !$isIpLookup && $domain && !empty($config['virustotal_api_key'])) {
-    $virusTotal = checkVirusTotal($domain, $config['virustotal_api_key']);
-}
-
-// Have I Been Pwned (Issue #65) — only if API key configured; skip if DNT
-$hibp = null;
-if (!$dnt && !$isIpLookup && $domain && !empty($config['hibp_api_key'])) {
-    $hibp = checkHibpDomain($domain, $config['hibp_api_key']);
 }
 
 // Screenshot URL (Issue #55) — generate if enabled; skip if DNT
@@ -393,79 +375,10 @@ if (!$dnt && !$isIpLookup && $domain && !empty($config['screenshot_enabled'])) {
     $screenshotUrl = $screenshotBase . '/width/600/' . urlencode('https://' . $domain);
 }
 
-// DNSSEC check (Issue #93) — no API key needed
-$dnssec = null;
-if (!$isIpLookup && $domain) {
-    $dnssec = checkDnssec($domain);
-}
-
-// Certificate Transparency (Issue #94) — skip if DNT (third-party request)
-$certTransparency = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $certTransparency = checkCertTransparency($domain);
-}
-
 // Domain age risk scoring (Issue #95) — uses existing parsed data
 $domainAgeRisk = null;
 if (!$isIpLookup && !empty($parsed)) {
     $domainAgeRisk = assessDomainAgeRisk($parsed);
-}
-
-// AbuseIPDB (Issue #96) — only if API key configured; skip if DNT
-$abuseIpDb = null;
-if (!$dnt && !empty($config['abuseipdb_api_key'])) {
-    $checkIp = $isIpLookup ? $domain : null;
-    if (!$checkIp && !empty($dns)) {
-        $checkIp = firstARecord($dns);
-    }
-    if ($checkIp) {
-        $abuseIpDb = checkAbuseIPDB($checkIp, $config['abuseipdb_api_key']);
-    }
-}
-
-// Shodan (Issue #97) — only if API key configured; skip if DNT
-$shodan = null;
-if (!$dnt && !empty($config['shodan_api_key'])) {
-    $checkIp = $isIpLookup ? $domain : null;
-    if (!$checkIp && !empty($dns)) {
-        $checkIp = firstARecord($dns);
-    }
-    if ($checkIp) {
-        $shodan = checkShodan($checkIp, $config['shodan_api_key']);
-    }
-}
-
-// PhishTank (Issue #98) — only if API key configured; skip if DNT
-$phishTank = null;
-if (!$dnt && !$isIpLookup && $domain && !empty($config['phishtank_api_key'])) {
-    $phishTank = checkPhishTank($domain, $config['phishtank_api_key']);
-}
-
-// URLhaus (Issue #99) — free, no API key; skip if DNT
-$urlhaus = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $urlhaus = checkUrlhaus($domain);
-}
-
-// Spamhaus DNSBL (Issue #100) — derived from the multi-DNSBL result below (Issue #191);
-// checkSpamhaus() used to run a separate, duplicate zen.spamhaus.org query.
-
-// MTA-STS (Issue #101) — no API key needed
-$mtaSts = null;
-if (!$isIpLookup && $domain) {
-    $mtaSts = checkMtaSts($domain);
-}
-
-// BIMI (Issue #102) — no API key needed
-$bimi = null;
-if (!$isIpLookup && $domain) {
-    $bimi = checkBimi($domain);
-}
-
-// DANE/TLSA (Issue #103) — no API key needed
-$daneTlsa = null;
-if (!$isIpLookup && $domain) {
-    $daneTlsa = checkDaneTlsa($domain);
 }
 
 // WHOIS privacy detection (Issue #104) — uses existing data
@@ -474,144 +387,69 @@ if (!$isIpLookup && $whoisText) {
     $whoisPrivacy = detectWhoisPrivacy($whoisText, $parsed);
 }
 
-// Hosting country risk (Issue #105) — uses existing geolocation data
-$hostingRisk = null;
-
-// HTTP security headers audit (Issue #106) — skip if DNT
-$httpHeaders = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $httpHeaders = auditHttpHeaders($domain);
-}
-
-// Redirect chain (Issue #107) — skip if DNT
-$redirectChain = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $redirectChain = detectRedirectChain($domain);
-}
-
-// TLS audit (Issue #108) — skip if DNT
-$tlsAudit = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $tlsAudit = auditTlsVersions($domain);
-}
-
-// CAA records (Issue #109) — no API key needed
-$caaRecords = null;
-if (!$isIpLookup && $domain) {
-    $caaRecords = checkCaaRecords($domain);
-}
-
-// SMTP security (Issue #110) — no API key needed
-$smtpSecurity = null;
-if (!$isIpLookup && $domain) {
-    $smtpSecurity = checkSmtpSecurity($domain);
-}
-
-// Reverse IP (Issue #111) — skip if DNT (third-party API)
-$reverseIp = null;
-if (!$dnt && !empty($dns)) {
-    $firstA = firstARecord($dns);
-    if ($firstA !== null) {
-        $reverseIp = reverseIpLookup($firstA);
-    }
-}
-
-// HTTP version check (Issue #112) — skip if DNT
-$httpVersions = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $httpVersions = checkHttpVersions($domain);
-}
-
-// IPv6 readiness (Issue #113) — no API key needed
-$ipv6 = null;
-if (!$isIpLookup && $domain) {
-    $ipv6 = checkIpv6Readiness($domain);
-}
-
-// Response times (Issue #114) — skip if DNT
-$responseTimes = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $responseTimes = measureResponseTimes($domain);
-}
-
-// NS diversity (Issue #115) — no API key needed
-$nsDiversity = null;
-if (!$isIpLookup && $domain) {
-    $nsDiversity = checkNsDiversity($domain);
-}
-
 // Domain suggestions (Issue #116) — only for registered/unavailable domains
 $domainSuggestions = [];
 
-// Technology stack detection (Issue #124) — skip if DNT
-$techStack = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $techStack = detectTechStack($domain);
-}
+// ═══════════════════════════════════════════════════════════════════
+//  Module registry enrichment (Issue #196 Step 1)
+//
+//  Replaces the formerly-inline dns/web/email/reputation/subdomains check
+//  blocks with a data-driven loop over includes/modules.php's
+//  moduleRegistry(). Each module's gating and function calls are byte-for-
+//  byte the same as the code they replace — only the dispatch mechanism
+//  changed. See includes/modules.php for the descriptor map and gating
+//  logic, and tests/ModulesTest.php for the registry-completeness proof.
+// ═══════════════════════════════════════════════════════════════════
+$moduleCtx = [
+    'domain' => $domain,
+    'is_ip'  => $isIpLookup,
+    'dns'    => $dns,
+    'parsed' => $parsed,
+    'dnt'    => $dnt,
+    'config' => $config,
+];
 
-// Robots.txt & sitemap analysis (Issue #125) — skip if DNT
-$robotsTxt = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $robotsTxt = analyseRobotsTxt($domain);
-}
+$dnsModule = runModuleChecks('dns', $moduleCtx);
+if (array_key_exists('dnssec', $dnsModule['data'])) { $dnssec = $dnsModule['data']['dnssec']; }
+if (array_key_exists('ipv6', $dnsModule['data'])) { $ipv6 = $dnsModule['data']['ipv6']; }
+if (array_key_exists('ns_diversity', $dnsModule['data'])) { $nsDiversity = $dnsModule['data']['ns_diversity']; }
+if (array_key_exists('dns_propagation', $dnsModule['data'])) { $dnsPropagation = $dnsModule['data']['dns_propagation']; }
 
-// DNS propagation (Issue #126)
-$dnsPropagation = null;
-if (!$isIpLookup && $domain) {
-    $dnsPropagation = checkDnsPropagation($domain);
-}
+$webModule = runModuleChecks('web', $moduleCtx);
+if (array_key_exists('ssl', $webModule['data'])) { $sslInfo = $webModule['data']['ssl']; }
+if (array_key_exists('http_headers', $webModule['data'])) { $httpHeaders = $webModule['data']['http_headers']; }
+if (array_key_exists('tls_audit', $webModule['data'])) { $tlsAudit = $webModule['data']['tls_audit']; }
+if (array_key_exists('http_versions', $webModule['data'])) { $httpVersions = $webModule['data']['http_versions']; }
+if (array_key_exists('redirect_chain', $webModule['data'])) { $redirectChain = $webModule['data']['redirect_chain']; }
+if (array_key_exists('response_times', $webModule['data'])) { $responseTimes = $webModule['data']['response_times']; }
+if (array_key_exists('tech_stack', $webModule['data'])) { $techStack = $webModule['data']['tech_stack']; }
+if (array_key_exists('robots_txt', $webModule['data'])) { $robotsTxt = $webModule['data']['robots_txt']; }
+if (array_key_exists('cert_transparency', $webModule['data'])) { $certTransparency = $webModule['data']['cert_transparency']; }
+if (array_key_exists('dane_tlsa', $webModule['data'])) { $daneTlsa = $webModule['data']['dane_tlsa']; }
+if (array_key_exists('caa_records', $webModule['data'])) { $caaRecords = $webModule['data']['caa_records']; }
 
-// Multi-DNSBL (Issue #133) — replaces single Spamhaus check
-$multiDnsbl = null;
-if (!empty($dns)) {
-    $firstA = firstARecord($dns);
-    if ($firstA !== null) {
-        $multiDnsbl = checkMultiDnsbl($firstA);
-    }
-} elseif ($isIpLookup) {
-    $multiDnsbl = checkMultiDnsbl($domain);
-}
+$emailModule = runModuleChecks('email', $moduleCtx);
+if (array_key_exists('email_security', $emailModule['data'])) { $emailSecurity = $emailModule['data']['email_security']; }
+if (array_key_exists('mta_sts', $emailModule['data'])) { $mtaSts = $emailModule['data']['mta_sts']; }
+if (array_key_exists('bimi', $emailModule['data'])) { $bimi = $emailModule['data']['bimi']; }
+if (array_key_exists('smtp_security', $emailModule['data'])) { $smtpSecurity = $emailModule['data']['smtp_security']; }
+if (array_key_exists('hibp', $emailModule['data'])) { $hibp = $emailModule['data']['hibp']; }
+if (array_key_exists('multi_dnsbl', $emailModule['data'])) { $multiDnsbl = $emailModule['data']['multi_dnsbl']; }
+if (array_key_exists('spamhaus', $emailModule['data'])) { $spamhaus = $emailModule['data']['spamhaus']; }
 
-// Spamhaus (Issue #100/#191) — derived from the zen.spamhaus.org entry already present in
-// $multiDnsbl, instead of running checkSpamhaus() as a second, duplicate DNSBL query.
-// Mirrors checkSpamhaus()'s original ['listed' => bool, 'lists' => [...]] shape so
-// calculateSecurityScore() and the frontend's data.spamhaus.listed/.lists[].label reads
-// keep working unchanged.
-if ($multiDnsbl !== null) {
-    $zenEntry = null;
-    foreach ($multiDnsbl['lists'] as $entry) {
-        if (($entry['zone'] ?? '') === 'zen.spamhaus.org') {
-            $zenEntry = $entry;
-            break;
-        }
-    }
-    $spamhaus = [
-        'listed' => $zenEntry !== null,
-        'lists'  => $zenEntry !== null ? [$zenEntry] : [],
-    ];
-}
+$reputationModule = runModuleChecks('reputation', $moduleCtx);
+if (array_key_exists('safe_browsing', $reputationModule['data'])) { $safeBrowsing = $reputationModule['data']['safe_browsing']; }
+if (array_key_exists('virustotal', $reputationModule['data'])) { $virusTotal = $reputationModule['data']['virustotal']; }
+if (array_key_exists('phishtank', $reputationModule['data'])) { $phishTank = $reputationModule['data']['phishtank']; }
+if (array_key_exists('urlhaus', $reputationModule['data'])) { $urlhaus = $reputationModule['data']['urlhaus']; }
+if (array_key_exists('abuseipdb', $reputationModule['data'])) { $abuseIpDb = $reputationModule['data']['abuseipdb']; }
+if (array_key_exists('shodan', $reputationModule['data'])) { $shodan = $reputationModule['data']['shodan']; }
+if (array_key_exists('geolocation', $reputationModule['data'])) { $geolocation = $reputationModule['data']['geolocation']; }
+if (array_key_exists('hosting_risk', $reputationModule['data'])) { $hostingRisk = $reputationModule['data']['hosting_risk']; }
 
-// Subdomain discovery (Issue #46) — only for domain lookups
-$subdomains = [];
-if (!$isIpLookup && $domain) {
-    $subdomains = discoverSubdomains($domain);
-}
-
-// IP geolocation (Issue #18) — for first A record, or for IP lookups; skip if DNT
-$geolocation = null;
-if (!$dnt) {
-    if ($isIpLookup) {
-        $geolocation = getIpGeolocation($domain);
-    } elseif (!empty($dns)) {
-        $firstA = firstARecord($dns);
-        if ($firstA !== null) {
-            $geolocation = getIpGeolocation($firstA);
-        }
-    }
-}
-
-// Hosting country risk (Issue #105) — computed after geolocation
-$hostingRisk = assessHostingRisk($geolocation);
+$subdomainsModule = runModuleChecks('subdomains', $moduleCtx);
+if (array_key_exists('subdomains', $subdomainsModule['data'])) { $subdomains = $subdomainsModule['data']['subdomains']; }
+if (array_key_exists('reverse_ip', $subdomainsModule['data'])) { $reverseIp = $subdomainsModule['data']['reverse_ip']; }
 
 } // end enrichment pipeline (Issue #190)
 
