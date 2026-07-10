@@ -5,30 +5,64 @@ info:
     Comprehensive domain intelligence API providing WHOIS/RDAP lookups, DNS records,
     SSL/TLS certificates, email security, security assessments, and much more.
 
-    ## Authentication
-    - **Web (default):** Requires a CSRF token from the session (`csrf_token` POST field).
-    - **JSON API (`?format=json`):** No CSRF required. CORS enabled.
-    - **API Key:** Send `X-API-Key` header for authenticated access with configurable rate limits.
+    ## Authentication (Issue #198)
+    The lookup API is **not anonymous**. Every `POST /lookup` request (in any of its
+    three modes — main lookup, on-demand TLD suggestions, or DNS-propagation refresh)
+    must carry one of:
+    - **`X-API-Key` header** — a valid, provisioned API key. Intended for programmatic /
+      server-to-server callers. Grants JSON responses regardless of `?format=json` and
+      may carry a higher per-key rate limit (see below).
+    - **`csrf_token` form field** — a valid CSRF token tied to the caller's session
+      (`$_SESSION['csrf_token']`). This is the same-origin browser path used by the
+      mwWhoIs web UI; it is issued to the page on load and is not obtainable by
+      third-party/cross-origin callers.
+
+    A request with neither returns `403 Invalid request`. There is **no wildcard CORS**
+    and no anonymous `?format=json` bypass — both were removed as part of #198, which
+    had previously let an anonymous, cross-origin `POST /lookup?format=json` run the
+    entire outbound lookup pipeline (WHOIS/RDAP fetch + ~35-check enrichment pipeline)
+    with no auth at all.
 
     ## Rate Limiting
-    - **Default:** 30 requests per 60-second window per session and per IP address.
-    - **API Key users:** Configurable per-key limits (up to 300+/min for premium tiers).
-    - **Headers:** `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` included in all responses.
-    - Exceeding the limit returns HTTP 429.
+    - **Default:** 30 requests per 60-second window, enforced independently per
+      session AND per IP address (both must pass).
+    - **API Key users:** configurable per-key limits (up to 300+/min for premium tiers),
+      applied to both the session and IP checks in place of the default.
+    - **Headers:** `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+      included on every successful response.
+    - Exceeding the limit returns HTTP `429` with a `Retry-After` header (seconds until
+      the current window resets) in addition to the `X-RateLimit-*` headers.
 
     ## Caching
-    - Results are cached for **15 minutes** (900 seconds).
-    - Cached responses include `"cached": true`.
+    - Full lookup responses (the entire enrichment pipeline, not just the raw WHOIS
+      text) are cached for **15 minutes** (900 seconds), keyed by domain, DNT state,
+      and response shape.
+    - Cached responses include `"cached": true`. `source=whois` requests always bypass
+      this cache so the WHOIS-diff feature keeps seeing a fresh fetch.
 
     ## Do Not Track (DNT)
-    - When `DNT: 1` header is sent, third-party lookups (geolocation, screenshots, Safe Browsing, VirusTotal, HIBP, AbuseIPDB, Shodan, PhishTank, cert transparency, reverse IP, tech stack, robots.txt) are skipped.
-    - Response includes `"dnt": true` and server sends `Tk: N`.
+    - When a `DNT: 1` header is sent, all third-party/outbound enrichment calls are
+      skipped: geolocation, screenshots, Safe Browsing, VirusTotal, HIBP, AbuseIPDB,
+      Shodan, PhishTank, certificate transparency (crt.sh), reverse IP, technology-stack
+      detection, robots.txt/sitemap analysis, HTTP security-header audit, redirect-chain
+      detection, TLS version audit, and HTTP/2//3 + response-time measurement.
+    - Checks that don't call a third party (DNSSEC, MTA-STS, BIMI, DANE/TLSA, CAA,
+      SMTP security, IPv6 readiness, NS diversity, DNS propagation, multi-DNSBL/
+      Spamhaus, WHOIS-privacy detection, subdomain discovery, domain-age risk) still run.
+    - Response includes `"dnt": true` and the server sends `Tk: N` (vs. `Tk: ?` when
+      DNT was not requested).
+
+    ## Enrichment is skipped for available domains
+    When `availability` resolves to `available` (the name is unregistered), the entire
+    enrichment pipeline is skipped and every enrichment field is returned at its
+    default value (`null` for single objects, `[]` for lists) — the frontend hides
+    those panes for unregistered names anyway, so there's no lookup cost paid for them.
 
     ## Security
     - Content Security Policy (CSP) on all pages
     - Subresource Integrity (SRI) on CDN assets
     - WHOIS contact masking available for GDPR compliance
-  version: "1.24"
+  version: "1.50.0"
   contact:
     name: MWBM Partners Ltd
   license:
@@ -42,26 +76,60 @@ paths:
   /lookup:
     post:
       operationId: domainLookup
-      summary: Perform a comprehensive domain or IP lookup
+      summary: Domain/IP lookup, on-demand TLD suggestions, or DNS-propagation refresh
       description: |
-        Returns WHOIS/RDAP data, DNS records, SSL/TLS info, email security (SPF/DMARC/DKIM/MTA-STS/BIMI),
-        DNSSEC status, security assessments (Safe Browsing, VirusTotal, PhishTank, URLhaus, Spamhaus, AbuseIPDB),
-        HTTP security headers audit, TLS version audit, technology stack detection, and much more.
+        A single endpoint with three request modes, selected by query string / body
+        fields:
+
+        1. **Main lookup** (default) — `domain` in the form body. Returns WHOIS/RDAP
+           data, DNS records, SSL/TLS info, email security (SPF/DMARC/DKIM/MTA-STS/BIMI),
+           DNSSEC status, security assessments (Safe Browsing, VirusTotal, PhishTank,
+           URLhaus, Spamhaus, AbuseIPDB), HTTP security-header audit, TLS version audit,
+           technology-stack detection, and much more — see `LookupResponse`.
+        2. **On-demand TLD suggestions** (`?suggest=1` query param, Issue #164) — body
+           `domain` only. Runs the alternative-TLD availability grid (parallel RDAP
+           checks against ~25 popular TLDs) and returns `SuggestResponse`. This replaced
+           the old behaviour of computing suggestions automatically on every main
+           lookup; `domain_suggestions` in `LookupResponse` is now always `[]`.
+        3. **DNS-propagation-only refresh** (`dns_propagation_only=1` form field) —
+           body `domain`, optional `full=1` to check every enabled resolver instead of
+           the curated ~25-resolver panel. Skips the entire lookup/enrichment pipeline
+           and returns only `DnsPropagationOnlyResponse`. Used by the frontend to poll
+           propagation status without re-running the full lookup.
+
+        All three modes share the same auth (`X-API-Key` or `csrf_token`) and rate
+        limiting.
+      security:
+        - ApiKeyAuth: []
+        - {}
       parameters:
         - name: format
           in: query
+          description: Request a JSON response (main-lookup mode only; ignored by the
+            other two modes, which always return JSON). Implied automatically when a
+            valid `X-API-Key` is supplied.
           schema:
             type: string
             enum: [json]
         - name: source
           in: query
+          description: Preferred data source for the main lookup. `whois` also bypasses
+            the full-response cache so a fresh copy is always fetched.
           schema:
             type: string
             enum: [rdap, whois]
             default: rdap
+        - name: suggest
+          in: query
+          description: Set to `1` to switch this request into on-demand TLD-suggestion
+            mode (see description above). Any other value is ignored.
+          schema:
+            type: string
+            enum: ["1"]
         - name: X-API-Key
           in: header
-          description: Optional API key for authenticated access with higher rate limits.
+          description: API key for authenticated/programmatic access. Alternative to
+            the `csrf_token` form field; see the Authentication section above.
           schema:
             type: string
       requestBody:
@@ -69,55 +137,86 @@ paths:
         content:
           application/x-www-form-urlencoded:
             schema:
-              type: object
-              required: [domain]
-              properties:
-                domain:
-                  type: string
-                  description: Domain name or IP address to look up.
-                  maxLength: 253
-                csrf_token:
-                  type: string
-                  description: CSRF token. Required unless using ?format=json or X-API-Key.
-                source:
-                  type: string
-                  enum: [rdap, whois]
+              oneOf:
+                - $ref: "#/components/schemas/LookupRequestBody"
+                - $ref: "#/components/schemas/DnsPropagationOnlyRequestBody"
+            examples:
+              mainLookup:
+                summary: Main lookup
+                value: { domain: "example.com", source: "rdap" }
+              suggest:
+                summary: On-demand TLD suggestions (use with ?suggest=1)
+                value: { domain: "example.com" }
+              dnsPropagationOnly:
+                summary: DNS-propagation-only refresh
+                value: { domain: "example.com", dns_propagation_only: "1", full: "0" }
       responses:
         "200":
-          description: Successful lookup
+          description: |
+            Successful response. Shape depends on the request mode: `LookupResponse`
+            for the main lookup, `SuggestResponse` for `?suggest=1`, or
+            `DnsPropagationOnlyResponse` for `dns_propagation_only=1`.
           headers:
             X-RateLimit-Limit:
               schema:
                 type: integer
-              description: Maximum requests per window.
+              description: Maximum requests per window for this caller (session/IP
+                default, or the API key's configured tier).
             X-RateLimit-Remaining:
               schema:
                 type: integer
-              description: Requests remaining in current window.
+              description: Requests remaining in the current window.
             X-RateLimit-Reset:
               schema:
                 type: integer
-              description: Unix timestamp when the rate limit resets.
+              description: Unix timestamp when the rate limit window resets.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/LookupResponse"
+                oneOf:
+                  - $ref: "#/components/schemas/LookupResponse"
+                  - $ref: "#/components/schemas/SuggestResponse"
+                  - $ref: "#/components/schemas/DnsPropagationOnlyResponse"
         "400":
-          description: Invalid input
+          description: Invalid input (e.g. malformed domain name)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
           description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "403":
-          description: CSRF validation failed
+          description: Missing/invalid CSRF token and no valid API key was supplied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "405":
           description: Method not allowed (POST only)
         "413":
           description: Request body exceeds 1,024 bytes
         "429":
-          description: Rate limit exceeded
+          description: Rate limit exceeded (session or IP window, or API key tier)
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds to wait before retrying — the time remaining in the
+                current rate-limit window.
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /health:
     get:
@@ -144,33 +243,275 @@ paths:
                 type: string
 
 components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        Programmatic/server-to-server access. When absent, the request must instead
+        carry a valid `csrf_token` form field tied to the caller's session (the
+        same-origin web UI path) — see the Authentication section in the top-level
+        `description`. OpenAPI's security-scheme model can't express that OR directly,
+        so this operation is marked as not strictly requiring `ApiKeyAuth` even though
+        the server requires ONE of the two.
+
   schemas:
+    LookupRequestBody:
+      type: object
+      required: [domain]
+      properties:
+        domain:
+          type: string
+          description: Domain name or IP address to look up.
+          maxLength: 253
+        csrf_token:
+          type: string
+          description: CSRF token from the caller's session. Required unless a valid
+            `X-API-Key` header is supplied.
+        source:
+          type: string
+          enum: [rdap, whois]
+          description: Overrides the `source` query parameter when both are present.
+
+    DnsPropagationOnlyRequestBody:
+      type: object
+      required: [domain, dns_propagation_only]
+      properties:
+        domain:
+          type: string
+          description: Domain name to check propagation for.
+          maxLength: 253
+        csrf_token:
+          type: string
+          description: CSRF token from the caller's session. Required unless a valid
+            `X-API-Key` header is supplied.
+        dns_propagation_only:
+          type: string
+          enum: ["1"]
+          description: Switches this request into DNS-propagation-only mode.
+        full:
+          type: string
+          enum: ["1", "0"]
+          description: When `1`, checks every enabled DNS resolver instead of the
+            curated ~25-resolver default panel.
+
+    DnsResolverResult:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Resolver identifier (config key or array index).
+        resolver:
+          type: string
+          description: Human-readable resolver name (e.g. "Google Public DNS").
+        ip:
+          type: string
+        country_code:
+          type: string
+        location:
+          type: string
+        type:
+          type: string
+          description: Resolver category (e.g. "standard", "doh").
+        answers:
+          type: array
+          items:
+            type: string
+          description: A-record IPs returned by this resolver (empty if it didn't
+            answer within the time cap).
+
+    DnsPropagation:
+      type: object
+      nullable: true
+      description: DNS-propagation check across multiple public resolvers.
+      properties:
+        resolvers:
+          type: array
+          items:
+            $ref: "#/components/schemas/DnsResolverResult"
+        consistent:
+          type: boolean
+          description: True if every responding resolver returned the same answer set.
+
+    SuggestResponse:
+      type: object
+      properties:
+        suggestions:
+          type: array
+          items:
+            type: string
+          description: Alternative-TLD domains found to be available (subset of
+            `grid.results` where `availability == "available"`). Empty array if the
+            input domain was invalid.
+        grid:
+          type: object
+          nullable: true
+          description: Full alternative-TLD availability grid. `null` when the input
+            domain couldn't be split into a label + TLD.
+          properties:
+            label:
+              type: string
+              description: The registrable domain's left-hand label (SLD).
+            current_tld:
+              type: string
+              description: The TLD of the domain that was looked up (excluded from
+                `results`).
+            results:
+              type: array
+              items:
+                type: object
+                properties:
+                  domain:
+                    type: string
+                  tld:
+                    type: string
+                  availability:
+                    type: string
+                    enum: [registered, available, unknown]
+                  cached:
+                    type: boolean
+
+    DnsPropagationOnlyResponse:
+      type: object
+      properties:
+        dns_propagation:
+          $ref: "#/components/schemas/DnsPropagation"
+
+    ParsedWhoisFields:
+      type: object
+      description: |
+        Fields extracted from the raw WHOIS/RDAP text by regex. Availability of any
+        given key depends entirely on what the registry's WHOIS output includes, so
+        treat every property as optional; registries may also return additional
+        fields not listed here.
+      properties:
+        Domain Name:
+          type: string
+        Registrar:
+          type: string
+        Creation Date:
+          type: string
+        Expiry Date:
+          type: string
+        Updated Date:
+          type: string
+        Registrant Org:
+          type: string
+        Registrant Country:
+          type: string
+        Status:
+          type: array
+          items:
+            type: string
+        Name Servers:
+          type: array
+          items:
+            type: string
+        Domain Age:
+          type: string
+          description: Human-readable age computed from Creation Date (e.g. "3 years, 2 months").
+        Expires In:
+          type: string
+          description: Human-readable countdown computed from Expiry Date (e.g. "45 days").
+        PTR Hostname:
+          type: string
+          description: Reverse-DNS hostname (IP lookups only).
+      additionalProperties: true
+
+    SslInfo:
+      type: object
+      nullable: true
+      description: SSL/TLS certificate information for the domain's HTTPS endpoint.
+        `null` if the TLS handshake failed or the host doesn't serve HTTPS.
+      properties:
+        subject:
+          type: string
+        issuer:
+          type: string
+        valid_from:
+          type: string
+          description: "Format: Y-m-d H:i:s"
+        valid_to:
+          type: string
+          description: "Format: Y-m-d H:i:s"
+        serial:
+          type: string
+        expires_in:
+          type: string
+          description: e.g. "45 days"
+        expired:
+          type: boolean
+        san:
+          type: array
+          items:
+            type: string
+          description: Subject Alternative Names, if the certificate has any.
+
+    SecurityScoreDetail:
+      type: object
+      properties:
+        name:
+          type: string
+          description: e.g. "HTTPS / SSL", "HSTS", "DNSSEC", "SPF", "DMARC", "DKIM",
+            "MTA-STS", "TLS Version", "Blocklist", "CAA Records", "Malware / Phishing".
+        status:
+          type: string
+          enum: [pass, warn, fail]
+        info:
+          type: string
+        recommendation:
+          type: string
+          nullable: true
+        guide:
+          type: string
+          nullable: true
+          description: URL to further reading, present only when `recommendation` is set.
+
+    SecurityScore:
+      type: object
+      nullable: true
+      description: Aggregated security score across 12 checks.
+      properties:
+        grade:
+          type: string
+          enum: [A, B, C, D, E, F]
+        score:
+          type: integer
+          description: Percentage of checks passed (0-100).
+        passed:
+          type: integer
+        total:
+          type: integer
+        details:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecurityScoreDetail"
+
     LookupResponse:
       type: object
+      description: |
+        Response for the main lookup mode. Every enrichment field below is `null`
+        (or `[]` for list-typed fields) when `availability` is `available` — see the
+        "Enrichment is skipped for available domains" note in the top-level
+        description. A field is also `null`/absent-of-data when the corresponding
+        third-party API key isn't configured, or when `dnt` is `true` and the field
+        depends on a third-party/outbound call (noted per-field below).
       properties:
         domain:
           type: string
         is_ip:
           type: boolean
+          description: True if the input was an IP address rather than a domain name.
         availability:
           type: string
           enum: [registered, available, unknown, "n/a"]
+          description: '"n/a" for IP-address lookups (availability doesn''t apply to IPs).'
         data_source:
           type: string
           enum: [rdap, whois]
-        whois:
-          type: string
-          description: WHOIS text (HTML-escaped in default mode).
-        raw:
-          type: string
-          description: Raw WHOIS text (JSON mode only).
-        cached:
-          type: boolean
-        dnt:
-          type: boolean
         parsed:
-          type: object
-          description: Parsed WHOIS fields (Domain Name, Registrar, dates, Name Servers, etc.)
+          $ref: "#/components/schemas/ParsedWhoisFields"
         dns:
           type: array
           items:
@@ -183,13 +524,33 @@ components:
                 type: string
               priority:
                 type: integer
-        reverse_dns:
+                description: MX priority (MX records only).
+        raw:
           type: string
           nullable: true
-          description: PTR hostname (IP lookups only).
+          description: Raw WHOIS/RDAP-derived text. Present when the request resolved
+            to JSON mode (`?format=json` or a valid `X-API-Key`); mutually exclusive
+            with `whois` below.
+        whois:
+          type: string
+          nullable: true
+          description: WHOIS text, HTML-escaped (and optionally contact-masked for
+            GDPR). Present when the request used the default (non-JSON, session/CSRF
+            web-UI) mode; mutually exclusive with `raw` above.
+        reverse_dns:
+          type: string
+          description: PTR hostname. Only present at all for IP-address lookups (key
+            is omitted entirely for domain lookups).
+        cached:
+          type: boolean
+          description: True if the full response (not just the raw WHOIS text) was
+            served from the 15-minute cache.
+        dnt:
+          type: boolean
+          description: 'Echoes whether the request sent `DNT: 1`.'
         email_security:
           type: object
-          description: SPF, DMARC, DKIM check results.
+          description: SPF, DMARC, DKIM check results. `{}` when enrichment was skipped.
           properties:
             spf:
               type: object
@@ -210,38 +571,53 @@ components:
                 selector: { type: string }
                 status: { type: string }
         ssl:
-          type: object
-          nullable: true
-          description: SSL/TLS certificate information.
+          $ref: "#/components/schemas/SslInfo"
         geolocation:
           type: object
           nullable: true
-          description: IP geolocation (country, city, ISP, AS).
+          description: IP geolocation (country, region, city, ISP, AS) for the domain's
+            first A record, or the IP itself for IP lookups. Skipped when `dnt` is true.
+          properties:
+            country: { type: string }
+            country_code: { type: string }
+            region: { type: string }
+            city: { type: string }
+            isp: { type: string }
+            org: { type: string }
+            as: { type: string }
         subdomains:
           type: array
           items:
             type: object
             properties:
               subdomain: { type: string }
-              ip: { type: string }
+              ip: { type: string, nullable: true }
         registrar_reputation:
           type: object
           nullable: true
+          description: Registrar reputation lookup, based on the parsed WHOIS
+            "Registrar" field.
         safe_browsing:
           type: object
           nullable: true
-          description: Google Safe Browsing check (requires API key).
+          description: Google Safe Browsing check. `null` if no
+            `safe_browsing_api_key` is configured, the request is an IP lookup, or
+            `dnt` is true.
         virustotal:
           type: object
           nullable: true
-          description: VirusTotal domain reputation (requires API key).
+          description: VirusTotal domain reputation. `null` if no `virustotal_api_key`
+            is configured, the request is an IP lookup, or `dnt` is true.
         screenshot_url:
           type: string
           nullable: true
+          description: Generated thumb.io screenshot URL. `null` if screenshots aren't
+            enabled in config, the request is an IP lookup, or `dnt` is true.
         hibp:
           type: array
           nullable: true
-          description: Have I Been Pwned breach data (requires API key).
+          description: Have I Been Pwned breach data. `null` if no `hibp_api_key` is
+            configured, the request is an IP lookup, or `dnt` is true.
         dnssec:
           type: object
           nullable: true
@@ -252,7 +628,8 @@ components:
         cert_transparency:
           type: object
           nullable: true
-          description: Certificate Transparency log from crt.sh.
+          description: Certificate Transparency log summary from crt.sh. `null` for
+            IP lookups or when `dnt` is true.
           properties:
             total: { type: integer }
             recent:
@@ -269,27 +646,41 @@ components:
         abuseipdb:
           type: object
           nullable: true
-          description: AbuseIPDB reputation (requires API key).
+          description: AbuseIPDB reputation for the resolved IP. `null` if no
+            `abuseipdb_api_key` is configured, no IP could be resolved, or `dnt` is true.
         shodan:
           type: object
           nullable: true
-          description: Shodan exposed services (requires API key).
+          description: Shodan exposed-services summary for the resolved IP. `null` if
+            no `shodan_api_key` is configured, no IP could be resolved, or `dnt` is true.
         phishtank:
           type: object
           nullable: true
-          description: PhishTank phishing check (requires API key).
+          description: PhishTank phishing check. `null` if no `phishtank_api_key` is
+            configured, the request is an IP lookup, or `dnt` is true.
         urlhaus:
           type: object
           nullable: true
-          description: URLhaus malware URL check (free, no key).
+          description: URLhaus malware-URL check (free, no key). `null` for IP lookups
+            or when `dnt` is true.
         spamhaus:
           type: object
           nullable: true
-          description: Spamhaus DNSBL check.
+          description: Derived from the Spamhaus ZEN entry in `multi_dnsbl` (a single
+            shared DNSBL query, not a separate lookup).
+          properties:
+            listed: { type: boolean }
+            lists:
+              type: array
+              items:
+                type: object
+                properties:
+                  zone: { type: string }
+                  label: { type: string }
         multi_dnsbl:
           type: object
           nullable: true
-          description: Multi-DNSBL check (8 blocklists).
+          description: Multi-DNSBL check (6 blocklists) against the resolved IP.
           properties:
             ip: { type: string }
             listed: { type: boolean }
@@ -320,7 +711,7 @@ components:
           nullable: true
           properties:
             found: { type: boolean }
-            records: { type: array }
+            records: { type: array, items: { type: object } }
         whois_privacy:
           type: object
           nullable: true
@@ -330,6 +721,8 @@ components:
         hosting_risk:
           type: object
           nullable: true
+          description: Computed from `geolocation`, so also affected by `dnt`
+            (geolocation is skipped when DNT is on).
           properties:
             risk: { type: string, enum: [low, medium, high] }
             country: { type: string }
@@ -338,7 +731,8 @@ components:
         http_headers:
           type: object
           nullable: true
-          description: HTTP security headers audit with A-F grade.
+          description: HTTP security-headers audit with A-F grade. `null` for IP
+            lookups or when `dnt` is true.
           properties:
             grade: { type: string }
             pass: { type: integer }
@@ -355,7 +749,8 @@ components:
         redirect_chain:
           type: object
           nullable: true
-          description: HTTP redirect chain analysis.
+          description: HTTP redirect-chain analysis. `null` for IP lookups or when
+            `dnt` is true.
           properties:
             chain:
               type: array
@@ -370,14 +765,17 @@ components:
         tls_audit:
           type: object
           nullable: true
-          description: TLS version and cipher suite audit.
+          description: TLS version and cipher-suite audit. `null` for IP lookups or
+            when `dnt` is true.
           properties:
             versions:
               type: object
               description: Map of TLS version to support boolean.
             cipher: { type: string, nullable: true }
             protocol: { type: string, nullable: true }
-            insecure: { type: boolean }
+            insecure:
+              type: boolean
+              description: True if TLS 1.0/1.1 is accepted.
         caa_records:
           type: object
           nullable: true
@@ -402,7 +800,8 @@ components:
         reverse_ip:
           type: object
           nullable: true
-          description: Reverse IP lookup (shared hosting).
+          description: Reverse-IP lookup (shared hosting detection). `null` when `dnt`
+            is true or no A record was found.
           properties:
             ip: { type: string }
             count: { type: integer }
@@ -410,6 +809,8 @@ components:
         http_versions:
           type: object
           nullable: true
+          description: HTTP/2 and HTTP/3 support. `null` for IP lookups or when `dnt`
+            is true.
           properties:
             http2: { type: boolean }
             http3: { type: boolean }
@@ -423,6 +824,8 @@ components:
         response_times:
           type: object
           nullable: true
+          description: DNS/TTFB/total response-time measurements. `null` for IP
+            lookups or when `dnt` is true.
           properties:
             dns_ms: { type: integer, nullable: true }
             ttfb_ms: { type: integer, nullable: true }
@@ -431,7 +834,7 @@ components:
           type: object
           nullable: true
           properties:
-            nameservers: { type: array }
+            nameservers: { type: array, items: { type: string } }
             unique_networks: { type: integer }
             diverse: { type: boolean }
             warning: { type: string, nullable: true }
@@ -439,10 +842,14 @@ components:
           type: array
           items:
             type: string
-          description: Available alternative domains (registered domains only).
+          description: |
+            Deprecated / always `[]`. Automatic suggestions were removed for
+            performance (Issue #116/#164); use `POST /lookup?suggest=1` instead.
         tech_stack:
           type: array
           nullable: true
+          description: Detected technologies (CMS, JS framework, CDN, etc). `null`
+            for IP lookups or when `dnt` is true.
           items:
             type: object
             properties:
@@ -451,6 +858,8 @@ components:
         robots_txt:
           type: object
           nullable: true
+          description: robots.txt / sitemap analysis. `null` for IP lookups or when
+            `dnt` is true.
           properties:
             robots_found: { type: boolean }
             sitemap_found: { type: boolean }
@@ -458,33 +867,17 @@ components:
             sitemaps: { type: array, items: { type: string } }
             crawl_delay: { type: integer, nullable: true }
         dns_propagation:
-          type: object
-          nullable: true
-          properties:
-            resolvers:
-              type: array
-              items:
-                type: object
-                properties:
-                  resolver: { type: string }
-                  ip: { type: string }
-                  answers: { type: array, items: { type: string } }
-            consistent: { type: boolean }
+          $ref: "#/components/schemas/DnsPropagation"
         security_score:
-          type: object
-          nullable: true
-          description: Aggregated security score (A-F grade, 12 checks).
-          properties:
-            grade: { type: string }
-            score: { type: integer }
-            passed: { type: integer }
-            total: { type: integer }
+          $ref: "#/components/schemas/SecurityScore"
         verification_token:
           type: string
           nullable: true
-          description: DNS TXT verification token for domain ownership proof.
+          description: DNS TXT verification token for domain-ownership proof. `null`
+            for IP lookups or if no session is available.
         rate_limit:
           type: object
+          description: Mirrors the `X-RateLimit-*` response headers in the JSON body.
           properties:
             used: { type: integer }
             remaining: { type: integer }

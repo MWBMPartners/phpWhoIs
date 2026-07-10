@@ -602,6 +602,19 @@ function checkIpRateLimit(int $limit = RATE_LIMIT_MAX): bool {
 }
 
 /**
+ * Seconds remaining until the current (session-based) rate-limit window
+ * resets — used for the `Retry-After` header on 429 responses (Issue #245).
+ * Mirrors the X-RateLimit-Reset computation in lookup.php; checkRateLimit()
+ * always populates $_SESSION['rate_limit']['start'] before this is called.
+ */
+function rateLimitRetryAfterSeconds(): int {
+    if (isset($_SESSION['rate_limit']['start'])) {
+        return max(1, ($_SESSION['rate_limit']['start'] + RATE_LIMIT_WINDOW) - time());
+    }
+    return RATE_LIMIT_WINDOW;
+}
+
+/**
  * Remove expired rate limit files.
  */
 function cleanExpiredRateLimits(string $dir): void {

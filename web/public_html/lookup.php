@@ -77,6 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['suggest']) && $_GET['s
     }
     // Rate-limit the suggest endpoint just like the main lookup.
     if (!checkRateLimit() || !checkIpRateLimit()) {
+        header('Retry-After: ' . rateLimitRetryAfterSeconds());
         http_response_code(429);
         echo json_encode(['error' => 'Rate limit exceeded.']);
         exit;
@@ -154,6 +155,7 @@ if (!$apiKeyConfig && !validateCsrfToken()) {
 // Rate limit — use API key tier limit if applicable
 $rateLimit = $apiKeyConfig ? getApiKeyRateLimit($apiKeyConfig) : RATE_LIMIT_MAX;
 if (!checkRateLimit($rateLimit) || !checkIpRateLimit($rateLimit)) {
+    header('Retry-After: ' . rateLimitRetryAfterSeconds());
     sendError('Rate limit exceeded. Please wait before trying again.', 429);
 }
 
