@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [aed2e12] - 2026-07-11T08:34:57Z
+
+**refactor: extract enrichment into module registry (no behaviour change)**
+
+- Commit: [`aed2e12`](https://github.com/MWBMPartners/phpWhoIs/commit/aed2e1247e648e19780ab0b744784ed29b815db8)
+
+
 ## [b8dd9d0] - 2026-07-10T09:50:33Z
 
 **feat: enhance application ID assignment logic and add bundle ID**
