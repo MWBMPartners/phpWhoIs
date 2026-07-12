@@ -377,6 +377,201 @@ function fetchViaVettedCurl(string $url, array $curlOpts = [], int $maxHops = 3)
 
 
 // ═══════════════════════════════════════════════════════════════════
+//  SSRF-safe curl_multi batch helper (Issue #196 Step 2)
+//
+//  Runs several outbound HTTP requests CONCURRENTLY via curl_multi, while
+//  preserving every #197 SSRF invariant for EVERY handle in the batch:
+//  redirects are never auto-followed, only http(s) is ever dialled, only
+//  ports 80/443 are ever dialled, and — for any request whose host is
+//  user-controlled — the connection is pinned to a pre-vetted IP via
+//  CURLOPT_RESOLVE, exactly like fetchViaVettedCurl()/httpFetch() already do
+//  for the single-request paths. Callers targeting a FIXED third-party API
+//  host (not user-controlled — e.g. safebrowsing.googleapis.com,
+//  virustotal.com, api.shodan.io, ip-api.com) omit 'pin_ip' and curl resolves
+//  the host normally, exactly like httpFetch()/checkVirusTotal() etc. do
+//  today; callers targeting the user-supplied lookup domain/host itself MUST
+//  call resolveAndVetHost() first and pass the vetted IP as 'pin_ip'.
+//
+//  Modelled on the curl_multi_exec()/curl_multi_select() loop
+//  checkAlternativeTldAvailability() already uses (Issue #196 plan).
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Build the CURLOPT_* option set for ONE request in a curlMultiBatch() batch —
+ * a PURE function (no curl handle, no I/O) so the SSRF invariants can be
+ * asserted on directly in unit tests without a network round-trip.
+ *
+ * $req: ['url' => string, 'pin_ip' => ?string, 'post' => ?string, 'headers' => ?array]
+ *
+ * Returns ['ok' => true, 'opts' => array] when the request is safe to open,
+ * or ['ok' => false, 'error' => string] when it must be REJECTED outright —
+ * the caller (curlMultiBatch()) must never open a connection for a rejected
+ * request.
+ *
+ * Rejected when:
+ *   - the URL doesn't parse to a host + scheme at all;
+ *   - the scheme isn't http/https;
+ *   - the (explicit, or scheme-default) port isn't 80/443 — mirrors
+ *     fetchViaVettedCurl()'s port restriction, since a CURLOPT_RESOLVE pin
+ *     (or the bare-IP-literal check below) only ever covers the standard
+ *     ports;
+ *   - a 'pin_ip' was supplied but fails isPublicIp() — the caller vetted a
+ *     host that turned out to be private/reserved, or passed a bad value;
+ *   - NO 'pin_ip' was supplied AND the URL's host is itself a raw IP literal
+ *     that fails isPublicIp() — an unpinned request has no vetting at all, so
+ *     a literal private/reserved/loopback/metadata IP target is refused
+ *     outright rather than silently connected to. (A bare HOSTNAME with no
+ *     pin_ip — e.g. a fixed third-party API host — is allowed through; it is
+ *     the caller's responsibility, per the #197 contract, to only omit
+ *     pin_ip for hosts that are NOT user-controlled.)
+ */
+function curlMultiHandleOpts(array $req): array {
+    $url = $req['url'] ?? '';
+    $host = parse_url($url, PHP_URL_HOST);
+    $scheme = parse_url($url, PHP_URL_SCHEME);
+    $port = parse_url($url, PHP_URL_PORT);
+
+    if (!$host || !$scheme) {
+        return ['ok' => false, 'error' => 'unparsable_url'];
+    }
+    if (!in_array(strtolower($scheme), ['http', 'https'], true)) {
+        return ['ok' => false, 'error' => 'bad_scheme'];
+    }
+    $effectivePort = $port !== null ? (int) $port : (strtolower($scheme) === 'https' ? 443 : 80);
+    if (!in_array($effectivePort, [80, 443], true)) {
+        return ['ok' => false, 'error' => 'bad_port'];
+    }
+
+    // parse_url(PHP_URL_HOST) returns an IPv6 literal WITH its URL brackets
+    // still attached (e.g. "[::1]"), which filter_var(..., FILTER_VALIDATE_IP)
+    // does NOT recognise as a valid IP — strip them before validating, or a
+    // bracketed private/reserved IPv6 literal URL (e.g. "http://[::1]/") would
+    // silently fail the "is this host itself a private IP?" check below and
+    // be let through unpinned, straight to curl.
+    $hostForIpCheck = $host;
+    if (strlen($hostForIpCheck) > 1 && $hostForIpCheck[0] === '[' && substr($hostForIpCheck, -1) === ']') {
+        $hostForIpCheck = substr($hostForIpCheck, 1, -1);
+    }
+
+    $pinIp = $req['pin_ip'] ?? null;
+    if ($pinIp !== null) {
+        if (!isPublicIp($pinIp)) {
+            return ['ok' => false, 'error' => 'private_ip'];
+        }
+    } elseif (filter_var($hostForIpCheck, FILTER_VALIDATE_IP) && !isPublicIp($hostForIpCheck)) {
+        return ['ok' => false, 'error' => 'private_ip'];
+    }
+
+    $opts = [
+        CURLOPT_URL            => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => false,     // never auto-follow (SSRF-safe — Issue #197)
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_USERAGENT      => 'mwWhoIs',
+        CURLOPT_NOSIGNAL       => 1,
+    ];
+    if (defined('CURLOPT_PROTOCOLS')) { $opts[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+    if (defined('CURLOPT_REDIR_PROTOCOLS')) { $opts[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+
+    if ($pinIp !== null) {
+        $bracketed = bracketIp($pinIp);
+        $opts[CURLOPT_RESOLVE] = [$host . ':443:' . $bracketed, $host . ':80:' . $bracketed];
+    }
+
+    if (!empty($req['post'])) {
+        $opts[CURLOPT_POST] = true;
+        $opts[CURLOPT_POSTFIELDS] = $req['post'];
+    }
+    if (!empty($req['headers'])) {
+        $opts[CURLOPT_HTTPHEADER] = $req['headers'];
+    }
+
+    return ['ok' => true, 'opts' => $opts];
+}
+
+/**
+ * Fire several HTTP requests concurrently via curl_multi, applying
+ * curlMultiHandleOpts()'s SSRF gate to EVERY request before it is ever added
+ * to the multi handle — a rejected request never opens a connection.
+ *
+ * $requests: key => ['url'=>string, 'pin_ip'=>?string, 'post'=>?string, 'headers'=>?array]
+ * $totalTimeout: hard per-handle CURLOPT_TIMEOUT (seconds) AND the wall-clock
+ *   cap on the whole multi loop (defence-in-depth on top of the per-handle
+ *   timeout, in case curl_multi_select() ever undersleeps).
+ *
+ * Returns key => ['status'=>int, 'body'=>?string, 'errno'=>int] for EVERY key
+ * in $requests:
+ *   - a request curlMultiHandleOpts() rejected gets status=0, body=null,
+ *     errno=-1 (never connected);
+ *   - if curl_multi_init() doesn't exist at all, every request gets
+ *     status=0, body=null, errno=-2 — callers MUST treat this the same as a
+ *     transport failure and fall back to their serial code path, exactly
+ *     like checkAlternativeTldAvailability() already falls back today when
+ *     curl_multi_init isn't available.
+ */
+function curlMultiBatch(array $requests, int $totalTimeout = 8): array {
+    $results = [];
+    $pending = [];
+
+    foreach ($requests as $key => $req) {
+        $built = curlMultiHandleOpts($req);
+        if (!$built['ok']) {
+            $results[$key] = ['status' => 0, 'body' => null, 'errno' => -1];
+            continue;
+        }
+        $pending[$key] = $built['opts'];
+    }
+
+    if (empty($pending)) {
+        return $results; // nothing safe to run — no curl_multi_init() call at all
+    }
+
+    if (!function_exists('curl_multi_init')) {
+        foreach ($pending as $key => $opts) {
+            $results[$key] = ['status' => 0, 'body' => null, 'errno' => -2];
+        }
+        return $results;
+    }
+
+    $mh = curl_multi_init();
+    $handles = [];
+    foreach ($pending as $key => $opts) {
+        $opts[CURLOPT_TIMEOUT] = $totalTimeout;
+        $opts[CURLOPT_CONNECTTIMEOUT] = min(3, $totalTimeout);
+        $ch = curl_init();
+        curl_setopt_array($ch, $opts);
+        curl_multi_add_handle($mh, $ch);
+        $handles[$key] = $ch;
+    }
+
+    $deadline = microtime(true) + $totalTimeout;
+    $running = null;
+    do {
+        $status = curl_multi_exec($mh, $running);
+        if ($running) {
+            curl_multi_select($mh, 0.5);
+        }
+    } while ($running > 0 && $status === CURLM_OK && microtime(true) < $deadline);
+
+    foreach ($handles as $key => $ch) {
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $errno = curl_errno($ch);
+        $body = curl_multi_getcontent($ch);
+        curl_multi_remove_handle($mh, $ch);
+        curl_close($ch);
+        $results[$key] = [
+            'status' => $httpCode,
+            'body'   => ($body === '' || $body === false || $body === null) ? null : $body,
+            'errno'  => $errno,
+        ];
+    }
+    curl_multi_close($mh);
+
+    return $results;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  Logging (Issue #43)
 // ═══════════════════════════════════════════════════════════════════
 
