@@ -1501,15 +1501,54 @@ if ($_showPortfolioIcon): ?>
         // ── Bulk lookup ──
         var bulkResultsData = [];
 
+        // bulkGen mirrors the lookupGen pattern above: it guards against a
+        // second bulk submit racing a still-running first one (both target
+        // the same #bulkResults element by id) by letting a stale run's
+        // callbacks recognise they've been superseded and stop touching the
+        // DOM / advancing their own queue.
+        var bulkGen = 0;
+
+        // postLookupBulk mirrors postLookup() but inspects the HTTP status
+        // BEFORE parsing the body (Issue #213), so a 429 can be told apart
+        // from a genuine per-domain error. On 429 it throws an Error with
+        // isRateLimited=true and retryAfter (seconds, read from the
+        // Retry-After header the server always sends on 429 — see
+        // lookup.php — defaulting to 60 if the header is missing or
+        // unparseable) instead of resolving, so the caller can pause and
+        // retry rather than rendering an error row. Any other status still
+        // resolves via r.json() exactly like postLookup(), so non-429
+        // responses (including per-domain errors such as an invalid
+        // domain) parse and render exactly as before.
+        function postLookupBulk(url, domain, token) {
+            var fd = new FormData();
+            fd.append('domain', domain);
+            fd.append('csrf_token', CSRF);
+            if (token) {
+                fd.append('lookup_token', token);
+            }
+            return fetch(url, { method: 'POST', body: fd }).then(function (r) {
+                if (r.status === 429) {
+                    var retryAfter = parseInt(r.headers.get('Retry-After'), 10);
+                    if (!isFinite(retryAfter) || retryAfter <= 0) {
+                        retryAfter = 60;
+                    }
+                    var err = new Error('Rate limit exceeded');
+                    err.isRateLimited = true;
+                    err.retryAfter = retryAfter;
+                    throw err;
+                }
+                return r.json();
+            });
+        }
+
         function triggerBulkLookup(domains) {
+            var gen = ++bulkGen;
             showLoading(true);
             hideResults();
             bulkResultsData = [];
             var acc = document.getElementById('bulkResults');
             acc.innerHTML = '';
             acc.style.display = '';
-            var done = 0;
-            var total = domains.length;
 
             // Show progress bar
             var progressEl = document.getElementById('bulkProgress');
@@ -1518,63 +1557,145 @@ if ($_showPortfolioIcon): ?>
             var progressPercent = document.getElementById('bulkProgressPercent');
             progressEl.style.display = '';
             progressBar.style.width = '0%';
-            progressText.textContent = 'Looking up 0 of ' + total + '...';
+            progressBar.classList.remove('bg-success', 'bg-warning');
+            progressText.textContent = 'Looking up 0 of ' + domains.length + '...';
             progressPercent.textContent = '0%';
 
-            domains.forEach(function (domain, i) {
-                setTimeout(function () {
-                    // Issue #196 Step 6: bulk only ever reads availability,
-                    // whois, parsed and data_source (see the accordion item
-                    // markup and the CSV/JSON export handlers below) — all
-                    // core fields — so route it through the lighter
-                    // modules=core endpoint instead of the full response.
-                    postLookup('lookup?modules=core&nocache=' + Date.now(), domain)
-                        .then(function (data) {
-                            // Store for export (Issue #49)
-                            bulkResultsData.push({ domain: domain, data: data });
+            var BULK_STAGGER_MS = 1000;
+            // Per-domain retry cap (Issue #213): a domain that keeps getting
+            // 429'd (e.g. the window never clears) is retried this many
+            // times before it's given up on and rendered as a real error
+            // row, so the queue can never stall forever on one domain.
+            var BULK_MAX_RETRIES = 3;
 
-                            var badgeClass = data.availability === 'available' ? 'bg-success' : 'bg-info';
-                            var badgeText = data.availability === 'available' ? 'Available' : 'Registered';
-                            var regBtn = data.availability === 'available' ? ' ' + buildRegisterButtons(domain) : '';
-                            var item = document.createElement('div');
-                            item.className = 'accordion-item';
-                            item.innerHTML =
-                                '<h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-' + i + '">' +
-                                esc(domain) + ' <span class="badge ' + badgeClass + ' ms-2">' + badgeText + '</span>' + regBtn +
-                                '</button></h2>' +
-                                '<div id="bulk-' + i + '" class="accordion-collapse collapse"><div class="accordion-body"><pre>' +
-                                esc(data.whois || data.error || 'No data') + '</pre></div></div>';
-                            acc.appendChild(item);
-                        })
-                        .catch(function (err) {
-                            var item = document.createElement('div');
-                            item.className = 'accordion-item';
-                            item.innerHTML =
-                                '<h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-' + i + '">' +
-                                esc(domain) + ' <span class="badge bg-danger ms-2">Error</span>' +
-                                '</button></h2>' +
-                                '<div id="bulk-' + i + '" class="accordion-collapse collapse"><div class="accordion-body"><div class="alert alert-danger mb-0"><i class="bi bi-exclamation-triangle-fill me-2"></i>' +
-                                esc(err.message || 'Lookup failed') + '</div></div></div>';
-                            acc.appendChild(item);
-                        })
-                        .finally(function () {
-                            ++done;
-                            var pct = Math.round((done / total) * 100);
-                            progressBar.style.width = pct + '%';
-                            progressBar.setAttribute('aria-valuenow', pct);
-                            progressText.textContent = 'Looking up ' + done + ' of ' + total + '...';
-                            progressPercent.textContent = pct + '%';
-                            if (done === total) {
-                                showLoading(false);
-                                progressText.textContent = 'Complete — ' + total + ' domains looked up';
-                                progressBar.classList.add('bg-success');
-                                if (bulkResultsData.length > 0) {
-                                    document.getElementById('bulkExportButtons').style.display = 'flex';
-                                }
-                            }
-                        });
-                }, i * 1000);
+            var queue = domains.map(function (domain) {
+                return { domain: domain, retries: 0 };
             });
+            var total = queue.length;
+            var completed = 0;
+            var countdownTimer = null;
+
+            function updateProgress() {
+                var pct = Math.round((completed / total) * 100);
+                progressBar.style.width = pct + '%';
+                progressBar.setAttribute('aria-valuenow', pct);
+                progressText.textContent = 'Looking up ' + completed + ' of ' + total + '...';
+                progressPercent.textContent = pct + '%';
+            }
+
+            function renderResultItem(domain, index, data) {
+                var badgeClass = data.availability === 'available' ? 'bg-success' : 'bg-info';
+                var badgeText = data.availability === 'available' ? 'Available' : 'Registered';
+                var regBtn = data.availability === 'available' ? ' ' + buildRegisterButtons(domain) : '';
+                var item = document.createElement('div');
+                item.className = 'accordion-item';
+                item.innerHTML =
+                    '<h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-' + index + '">' +
+                    esc(domain) + ' <span class="badge ' + badgeClass + ' ms-2">' + badgeText + '</span>' + regBtn +
+                    '</button></h2>' +
+                    '<div id="bulk-' + index + '" class="accordion-collapse collapse"><div class="accordion-body"><pre>' +
+                    esc(data.whois || data.error || 'No data') + '</pre></div></div>';
+                acc.appendChild(item);
+            }
+
+            function renderErrorItem(domain, index, message) {
+                var item = document.createElement('div');
+                item.className = 'accordion-item';
+                item.innerHTML =
+                    '<h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-' + index + '">' +
+                    esc(domain) + ' <span class="badge bg-danger ms-2">Error</span>' +
+                    '</button></h2>' +
+                    '<div id="bulk-' + index + '" class="accordion-collapse collapse"><div class="accordion-body"><div class="alert alert-danger mb-0"><i class="bi bi-exclamation-triangle-fill me-2"></i>' +
+                    esc(message || 'Lookup failed') + '</div></div></div>';
+                acc.appendChild(item);
+            }
+
+            function finishBulk() {
+                showLoading(false);
+                progressText.textContent = 'Complete — ' + total + ' domains looked up';
+                progressBar.classList.add('bg-success');
+                if (bulkResultsData.length > 0) {
+                    document.getElementById('bulkExportButtons').style.display = 'flex';
+                }
+            }
+
+            // Pauses the whole queue for retryAfterSeconds, showing a live
+            // countdown in the progress text, then resolves so processing
+            // can resume exactly where it left off (Issue #213).
+            function pauseForRateLimit(retryAfterSeconds) {
+                return new Promise(function (resolve) {
+                    var remaining = Math.max(1, retryAfterSeconds);
+                    progressBar.classList.add('bg-warning');
+                    function render() {
+                        progressText.textContent = 'Rate limit reached — resuming in ' + remaining + 's… (' + completed + ' of ' + total + ' done)';
+                    }
+                    render();
+                    countdownTimer = setInterval(function () {
+                        if (gen !== bulkGen) {
+                            clearInterval(countdownTimer);
+                            countdownTimer = null;
+                            resolve();
+                            return;
+                        }
+                        remaining--;
+                        if (remaining <= 0) {
+                            clearInterval(countdownTimer);
+                            countdownTimer = null;
+                            progressBar.classList.remove('bg-warning');
+                            resolve();
+                            return;
+                        }
+                        render();
+                    }, 1000);
+                });
+            }
+
+            // Processes the queue one domain at a time (sequential, not
+            // parallel-staggered) so a 429 can pause the *whole* queue —
+            // not just the domain that triggered it — and resume from
+            // exactly where it left off once the Retry-After window has
+            // elapsed. Issue #196 Step 6: bulk only ever reads
+            // availability, whois, parsed and data_source (see
+            // renderResultItem() and the CSV/JSON export handlers below) —
+            // all core fields — so it routes through the lighter
+            // modules=core endpoint instead of the full response.
+            function processNext(index) {
+                if (gen !== bulkGen) return; // superseded by a newer bulk run
+                if (index >= queue.length) {
+                    finishBulk();
+                    return;
+                }
+                var entry = queue[index];
+                postLookupBulk('lookup?modules=core&nocache=' + Date.now(), entry.domain)
+                    .then(function (data) {
+                        if (gen !== bulkGen) return;
+                        bulkResultsData.push({ domain: entry.domain, data: data }); // Store for export (Issue #49)
+                        renderResultItem(entry.domain, index, data);
+                        completed++;
+                        updateProgress();
+                        setTimeout(function () { processNext(index + 1); }, BULK_STAGGER_MS);
+                    })
+                    .catch(function (err) {
+                        if (gen !== bulkGen) return;
+                        if (err && err.isRateLimited && entry.retries < BULK_MAX_RETRIES) {
+                            entry.retries++;
+                            pauseForRateLimit(err.retryAfter).then(function () {
+                                if (gen !== bulkGen) return;
+                                processNext(index); // retry the same domain, queue position unchanged
+                            });
+                            return;
+                        }
+                        var message = (err && err.isRateLimited)
+                            ? 'Rate limited after ' + BULK_MAX_RETRIES + ' retries — please try again later.'
+                            : ((err && err.message) || 'Lookup failed');
+                        renderErrorItem(entry.domain, index, message);
+                        completed++;
+                        updateProgress();
+                        setTimeout(function () { processNext(index + 1); }, BULK_STAGGER_MS);
+                    });
+            }
+
+            processNext(0);
         }
 
         // ── Bulk export (Issue #49) ──
