@@ -1933,10 +1933,24 @@ function sendError(string $message, int $status = 400): void {
 /**
  * Check common subdomains for a domain and return which ones resolve.
  *
- * @param  string $domain  The base domain (e.g. example.com)
- * @return array           Array of ['subdomain' => string, 'ip' => string|null]
+ * Issue #196 Step 2: ~37 prefixes used to be resolved with ~37 SERIAL
+ * gethostbyname() calls (worst case very slow — each one blocks on its own
+ * DNS round-trip). When `dig` is available, resolve them all CONCURRENTLY
+ * using the same background-subshell `.part`->`mv` pattern
+ * checkDnsPropagation() already uses (Issue #194), capped at ~4s total.
+ * Falls back to the original serial gethostbyname() loop when `dig` isn't
+ * on the host. Output shape is IDENTICAL either way:
+ * [['subdomain' => string, 'ip' => string], ...], in prefix-list order,
+ * containing only the prefixes that actually resolved.
+ *
+ * @param  string    $domain        The base domain (e.g. example.com)
+ * @param  bool|null $digAvailable  Override the `dig`-availability
+ *                                   auto-detection (dependency injection for
+ *                                   tests); null (default) auto-detects via
+ *                                   `command -v dig`.
+ * @return array                    Array of ['subdomain' => string, 'ip' => string]
  */
-function discoverSubdomains(string $domain): array {
+function discoverSubdomains(string $domain, ?bool $digAvailable = null): array {
     $prefixes = [
         'www', 'mail', 'ftp', 'smtp', 'pop', 'imap',
         'webmail', 'api', 'cdn', 'dev', 'staging', 'test',
@@ -1947,6 +1961,24 @@ function discoverSubdomains(string $domain): array {
         'media', 'static', 'assets', 'img', 'images',
     ];
 
+    if ($digAvailable === null) {
+        static $hasDig = null;
+        if ($hasDig === null) {
+            $hasDig = (bool) @shell_exec('command -v dig 2>/dev/null');
+        }
+        $digAvailable = $hasDig;
+    }
+
+    return $digAvailable
+        ? discoverSubdomainsViaDig($domain, $prefixes)
+        : discoverSubdomainsSerial($domain, $prefixes);
+}
+
+/**
+ * The ORIGINAL serial gethostbyname()-based implementation, kept intact as
+ * the fallback for hosts without a `dig` binary (Issue #196 Step 2).
+ */
+function discoverSubdomainsSerial(string $domain, array $prefixes): array {
     $results = [];
     foreach ($prefixes as $prefix) {
         $fqdn = $prefix . '.' . $domain;
@@ -1957,6 +1989,88 @@ function discoverSubdomains(string $domain): array {
                 'subdomain' => $fqdn,
                 'ip' => $ip,
             ];
+        }
+    }
+
+    return $results;
+}
+
+/**
+ * Parse one FQDN's raw `dig +short A` output into the discoverSubdomains()
+ * entry shape, or null if it didn't resolve. Pure — no I/O — so the exact
+ * same parsing discoverSubdomainsViaDig() applies after polling temp files
+ * can be unit-tested directly against synthetic dig output. Only the first
+ * line that is itself a literal IPv4 address is used — `dig +short A` can
+ * also emit intermediate CNAME lines for an aliased name, which this skips,
+ * matching gethostbyname()'s A-record-only, CNAME-transparent contract.
+ */
+function parseDigSubdomainOutput(string $fqdn, ?string $output): ?array {
+    if ($output === null || trim($output) === '') {
+        return null;
+    }
+
+    $lines = array_filter(array_map('trim', explode("\n", trim($output))));
+    foreach ($lines as $line) {
+        if (filter_var($line, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return ['subdomain' => $fqdn, 'ip' => $line];
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Parallel `dig`-based subdomain discovery — fires one background `dig`
+ * subshell per prefix (the same `.part`->`mv` pattern checkDnsPropagation()
+ * uses, Issue #194) instead of resolving them one at a time, then polls for
+ * the results with a ~4s hard cap (0.5s initial sleep + up to 3.5s of 100ms
+ * polls — identical budget to checkDnsPropagation()'s).
+ */
+function discoverSubdomainsViaDig(string $domain, array $prefixes): array {
+    $tmpDir = sys_get_temp_dir();
+    $pid = getmypid();
+    $jobs = [];
+
+    foreach ($prefixes as $i => $prefix) {
+        $fqdn = $prefix . '.' . $domain;
+        $tmpFile = $tmpDir . DIRECTORY_SEPARATOR . 'subdomain_' . $pid . '_' . $i;
+        $jobs[$i] = ['fqdn' => $fqdn, 'file' => $tmpFile];
+        // See checkDnsPropagation()'s comment on why this MUST be a
+        // parenthesised subshell (so the whole `dig ...; mv ...` sequence
+        // backgrounds together) writing to a `.part` file that's only
+        // renamed into place once `dig` has actually finished — a bare
+        // `dig ... > $tmpFile &` would create $tmpFile the instant the shell
+        // forks, before dig has produced any output.
+        $cmd = '( dig +short +time=2 +tries=1 A ' . escapeshellarg($fqdn) . ' > '
+             . escapeshellarg($tmpFile . '.part') . ' 2>/dev/null; mv '
+             . escapeshellarg($tmpFile . '.part') . ' ' . escapeshellarg($tmpFile) . ' ) &';
+        @exec($cmd);
+    }
+
+    // Wait for all background processes (max ~4s total, mirrors checkDnsPropagation()).
+    usleep(500000);
+    $waited = 0;
+    while ($waited < 35) {
+        $allDone = true;
+        foreach ($jobs as $job) {
+            if (!file_exists($job['file'])) {
+                $allDone = false;
+                break;
+            }
+        }
+        if ($allDone) break;
+        usleep(100000);
+        $waited++;
+    }
+
+    $results = [];
+    foreach ($jobs as $job) {
+        $output = @file_get_contents($job['file']);
+        @unlink($job['file']);
+        @unlink($job['file'] . '.part'); // in case dig never finished within the time cap
+        $entry = parseDigSubdomainOutput($job['fqdn'], $output === false ? null : $output);
+        if ($entry !== null) {
+            $results[] = $entry;
         }
     }
 
