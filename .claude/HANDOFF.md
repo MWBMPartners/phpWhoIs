@@ -4,12 +4,25 @@
 > pick up without re-reading the brief, the whole codebase, or prior chat.
 > Last updated: **2026-07-10** (deep-analysis + remediation session).
 
-## ⚠️ Immediate state — 39 local commits on `beta`, PENDING PUSH
+## ⚠️ Immediate state (2026-07-11) — #196 in progress; 2 unpushed commits
 
-`local beta` (`8cae4e0`) is **39 commits ahead of `origin/beta`** (`793bb29`) — a
-clean fast-forward. **Nothing has been pushed** (awaiting explicit owner go-ahead).
-Verified pre-PR: all PHP `php -l` clean, all workflows valid YAML, SSRF/CSRF/functional
-smoke-tests pass, server returns correct status codes (lookup w/o CSRF → 403, not 500).
+The pre-PR batch below (39 commits) **was PUSHED** to `origin/beta`; CI's version-bump +
+changelog ran green on the new single-source structure (now v1.50.1, `a6e6532`) — validating
+the workflow restructure end-to-end. `origin/main` untouched. **No PR open yet.**
+
+**Now building #196 (progressive-loading re-arch)** — plan + live status at
+`.claude/plans/196-progressive-loading.md`. 7 steps, each lands green:
+- ✅ Step 1 module-registry extraction (byte-identical) — `aed2e12`, **pushed**, CI green.
+- ✅ Step 3 per-module caches — `1cf0aa6` (local, unpushed).
+- ✅ Step 4 module endpoints `?modules=` + rate-exempt `lookup_token` — `2b12736` (local). 84 PHPUnit tests green.
+- ⬜ Step 5 frontend renderer split · ⬜ Step 6 progressive switch-on · ⬜ Step 7 docs.
+- ⬜ Step 2 (deferred to LAST) — SSRF-safe curl_multi parallelisation (risk + sandbox-DNS-hang; modules run serial-within-module until then, bounded by #192 timeouts).
+
+**Local `beta` is currently 2 commits ahead of `origin/beta` (Steps 3+4), unpushed.**
+`php -l` clean; tree clean. Sandbox caveat: DNS resolver hangs on CAA/TLSA → verify #196 via
+IP lookups / core / unit tests (see the plan doc).
+
+### (historical) pre-PR batch — 39 commits, since pushed
 
 **Four tranches sit in these 39 commits:** (A) deep-analysis remediation (15 commits);
 (B) single-source deploy **restructure** (8 commits incl. the config auto-merge);
