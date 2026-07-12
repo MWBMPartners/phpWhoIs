@@ -48,9 +48,29 @@ if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php';
 }
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
-// Module registry (Issue #196, Step 1) — moduleRegistry()/runModuleChecks()/
-// deriveSpamhausFromMultiDnsbl() used by the enrichment loop below.
+// Module registry + endpoints (Issue #196, Steps 1/3/4) — moduleRegistry()/
+// runModuleChecks()/deriveSpamhausFromMultiDnsbl() used by the enrichment
+// loop below, plus the `?modules=` dispatcher (handleModuleRequest()) wired
+// in further down.
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'modules.php';
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Module-request collision guard (Issue #196 Step 4) — `?modules=` is a
+//  distinct endpoint from the two below (each has its own auth/rate-limit
+//  handling) and must run BEFORE either of them, so a request combining
+//  `modules` with `suggest`/`dns_propagation_only` is rejected outright
+//  rather than silently falling through to whichever branch happens to be
+//  checked first.
+// ═══════════════════════════════════════════════════════════════════
+
+if (isset($_GET['modules']) && trim((string)$_GET['modules']) !== '' &&
+    ((isset($_GET['suggest']) && $_GET['suggest'] === '1') || !empty($_POST['dns_propagation_only']))) {
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(400);
+    echo json_encode(['error' => 'The modules parameter cannot be combined with suggest or dns_propagation_only.']);
+    exit;
+}
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -155,6 +175,18 @@ if (!$apiKeyConfig && !validateCsrfToken()) {
     sendError('Invalid request. Please refresh the page and try again.', 403);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//  Module endpoint dispatch (Issue #196, Step 4) — `?modules=core|score|
+//  dns|web|email|reputation|subdomains`. Runs AFTER the auth gate above
+//  (every module request is already authenticated) and BEFORE the
+//  unconditional rate-limit call below (handleModuleRequest() applies its
+//  own rate limiting, with a lookup_token exemption). Exits; never returns.
+// ═══════════════════════════════════════════════════════════════════
+$moduleParam = isset($_GET['modules']) ? strtolower(trim((string)$_GET['modules'])) : '';
+if ($moduleParam !== '') {
+    handleModuleRequest($moduleParam, $apiKeyConfig, $dnt, $config);
+}
+
 // Rate limit — use API key tier limit if applicable
 $rateLimit = $apiKeyConfig ? getApiKeyRateLimit($apiKeyConfig) : RATE_LIMIT_MAX;
 if (!checkRateLimit($rateLimit) || !checkIpRateLimit($rateLimit)) {
@@ -253,6 +285,16 @@ if ($isIpLookup) {
                     ? generateVerificationToken($domain, session_id())
                     : null;
                 $cachedFullResponse['rate_limit'] = ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit];
+                // Issue #196 Step 4: additive field — lets a UI that already
+                // rendered this cached legacy response start firing
+                // `?modules=` follow-up fetches (e.g. modules=score) without
+                // an extra modules=core round trip, exempt from rate-limit
+                // counting for 180s. Freshly minted on every response (never
+                // cached — see the unset() below) since it's a short-lived,
+                // per-caller token.
+                $cachedFullResponse['lookup_token'] = ($domain && session_id())
+                    ? issueLookupToken($domain, resolveLookupTokenBinding($apiKeyConfig, $apiKeyHeader))
+                    : null;
                 // Issue #198: no wildcard CORS — the same-origin web UI authenticates
                 // via the CSRF token (no CORS needed) and API-key clients are
                 // server-to-server (CORS is a browser-only concept, so it's moot there).
@@ -530,6 +572,15 @@ if ($jsonFormat) {
         'multi_dnsbl' => $multiDnsbl,
         'security_score' => $securityScore,
         'verification_token' => $verificationToken,
+        // Issue #196 Step 4: additive field — freshly minted here (never
+        // cached, see the unset() below) rather than reused from
+        // $verificationToken's guard: unlike domain-ownership verification,
+        // lookup_token exemption is meaningful for IP lookups too (the
+        // email/reputation modules apply to IPs), so it deliberately omits
+        // the `!$isIpLookup` check.
+        'lookup_token' => ($domain && session_id())
+            ? issueLookupToken($domain, resolveLookupTokenBinding($apiKeyConfig, $apiKeyHeader))
+            : null,
         'rate_limit' => ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit],
         'dnt' => $dnt,
     ];
@@ -537,11 +588,11 @@ if ($jsonFormat) {
         $response['reverse_dns'] = $reverseDns;
     }
     // Full-response cache (Issue #189) — store everything EXCEPT the per-request/
-    // per-session fields (verification_token, rate_limit), which are re-injected
-    // fresh on every cache hit above.
+    // per-session fields (verification_token, rate_limit, lookup_token), which
+    // are re-injected fresh on every cache hit above.
     if (!$isIpLookup) {
         $responseToCache = $response;
-        unset($responseToCache['verification_token'], $responseToCache['rate_limit']);
+        unset($responseToCache['verification_token'], $responseToCache['rate_limit'], $responseToCache['lookup_token']);
         setCache($fullKey, json_encode($responseToCache));
     }
     sendJson($response);
@@ -604,6 +655,15 @@ if ($jsonFormat) {
         'multi_dnsbl' => $multiDnsbl,
         'security_score' => $securityScore,
         'verification_token' => $verificationToken,
+        // Issue #196 Step 4: additive field — freshly minted here (never
+        // cached, see the unset() below) rather than reused from
+        // $verificationToken's guard: unlike domain-ownership verification,
+        // lookup_token exemption is meaningful for IP lookups too (the
+        // email/reputation modules apply to IPs), so it deliberately omits
+        // the `!$isIpLookup` check.
+        'lookup_token' => ($domain && session_id())
+            ? issueLookupToken($domain, resolveLookupTokenBinding($apiKeyConfig, $apiKeyHeader))
+            : null,
         'rate_limit' => ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit],
         'dnt' => $dnt,
     ];
@@ -614,7 +674,7 @@ if ($jsonFormat) {
     // branch above for what's stored and why.
     if (!$isIpLookup) {
         $responseToCache = $response;
-        unset($responseToCache['verification_token'], $responseToCache['rate_limit']);
+        unset($responseToCache['verification_token'], $responseToCache['rate_limit'], $responseToCache['lookup_token']);
         setCache($fullKey, json_encode($responseToCache));
     }
     sendJson($response);
