@@ -2937,6 +2937,44 @@ function assessHostingRisk(?array $geolocation): ?array {
 
 
 // ═══════════════════════════════════════════════════════════════════
+//  Letter-grade thresholds (Issue #218)
+// ═══════════════════════════════════════════════════════════════════
+//
+// Two A–F scales exist in this file and grade two DIFFERENT things — they
+// are intentionally not the same numbers and must not be forced to match:
+//
+//  - HTTP_HEADERS_GRADE_THRESHOLDS (auditHttpHeaders, below): a narrow
+//    presence/absence check over exactly 8 specific HTTP response headers
+//    (HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy,
+//    Permissions-Policy, COOP, CORP).
+//  - SECURITY_SCORE_GRADE_THRESHOLDS (calculateSecurityScore): an 11-way
+//    aggregate composite (HTTPS/SSL, HSTS, DNSSEC, SPF, DMARC, DKIM,
+//    MTA-STS, TLS version, blocklist status, CAA records, malware/phishing)
+//    of which the header check is only one contributing sub-signal.
+//
+// What WAS accidental is that each site duplicated its own if/elseif chain
+// to map a percentage to a grade. gradeFromPercent() below centralises that
+// mapping logic so future edits can't let the two *chains* drift apart,
+// while keeping the two *threshold tables* explicitly separate and named.
+
+const HTTP_HEADERS_GRADE_THRESHOLDS = ['A' => 87, 'B' => 75, 'C' => 62, 'D' => 50, 'E' => 37];
+const SECURITY_SCORE_GRADE_THRESHOLDS = ['A' => 90, 'B' => 75, 'C' => 60, 'D' => 45, 'E' => 30];
+
+/**
+ * Maps a pass-percentage to a letter grade using a threshold table ordered
+ * highest-to-lowest (e.g. ['A' => 90, 'B' => 75, ...]). Falls through to 'F'.
+ */
+function gradeFromPercent(float $pct, array $thresholds): string {
+    foreach ($thresholds as $grade => $min) {
+        if ($pct >= $min) {
+            return $grade;
+        }
+    }
+    return 'F';
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  HTTP Security Headers audit (Issue #106)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -2994,19 +3032,11 @@ function auditHttpHeaders(string $domain): ?array {
         }
     }
 
-    $grade = 'F';
     $pct = ($pass / $total) * 100;
-    if ($pct >= 87) {
-        $grade = 'A';
-    } elseif ($pct >= 75) {
-        $grade = 'B';
-    } elseif ($pct >= 62) {
-        $grade = 'C';
-    } elseif ($pct >= 50) {
-        $grade = 'D';
-    } elseif ($pct >= 37) {
-        $grade = 'E';
-    }
+    // Issue #218: thresholds are named + documented above — this grades header
+    // presence only, and is intentionally a different scale from the aggregate
+    // calculateSecurityScore() grade below.
+    $grade = gradeFromPercent($pct, HTTP_HEADERS_GRADE_THRESHOLDS);
 
     return ['grade' => $grade, 'pass' => $pass, 'total' => $total, 'headers' => $results];
 }
@@ -4146,18 +4176,10 @@ function calculateSecurityScore(array $data): array {
     }
     $total = count($details);
     $pct = $total > 0 ? round(($passed / $total) * 100) : 0;
-    $grade = 'F';
-    if ($pct >= 90) {
-        $grade = 'A';
-    } elseif ($pct >= 75) {
-        $grade = 'B';
-    } elseif ($pct >= 60) {
-        $grade = 'C';
-    } elseif ($pct >= 45) {
-        $grade = 'D';
-    } elseif ($pct >= 30) {
-        $grade = 'E';
-    }
+    // Issue #218: thresholds are named + documented above (see
+    // SECURITY_SCORE_GRADE_THRESHOLDS) — this is the canonical, authoritative
+    // security-score grade; its cutoffs are unchanged from before.
+    $grade = gradeFromPercent($pct, SECURITY_SCORE_GRADE_THRESHOLDS);
 
     return ['grade' => $grade, 'score' => $pct, 'passed' => $passed, 'total' => $total, 'details' => $details];
 }
