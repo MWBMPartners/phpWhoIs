@@ -2397,23 +2397,12 @@ if ($_showPortfolioIcon): ?>
             document.getElementById('slot-multi_dnsbl').innerHTML = dbHtml;
         }
 
-        // Subdomains (Issue #46)
-        // NOTE: intentionally overwrites the WHOLE subdomainsPane (not just
-        // this renderer's own slot) — this reproduces a pre-existing quirk
-        // in the legacy monolithic displayResults(), where this block set
-        // subdomainsPane.innerHTML (assignment, not +=) and therefore wiped
-        // out any reverse_ip/tech_stack/robots_txt content rendered earlier
-        // into the same pane. Preserved verbatim through Step 5 (zero
-        // behaviour change there, since the legacy call order was fixed:
-        // web always rendered before subdomains). Issue #196 Step 6 fires
-        // the 'web' and 'subdomains' module fetches CONCURRENTLY, so this
-        // dormant quirk is now a live, timing-dependent race: if the
-        // 'subdomains' response happens to land AFTER 'web's, its
-        // tech_stack/robots_txt cards (also rendered into this pane) get
-        // wiped — visual only, no data loss (lastLookupData still has
-        // everything; a tab re-render or another lookup restores it).
-        // Deliberately NOT fixed here — flagged as a follow-up, out of
-        // scope for the Step 6 switch-on commit.
+        // Subdomains (Issue #46) — writes into its OWN slot (slot-subdomains),
+        // NOT the whole subdomainsPane. The 'web' module (tech_stack/robots_txt)
+        // renders into sibling slots in the same pane and #196 Step 6 fires
+        // 'web' + 'subdomains' CONCURRENTLY, so overwriting the pane would race
+        // and wipe web's cards. (Fixes the pre-existing pane-overwrite quirk
+        // that Step 5 preserved verbatim.)
         function renderSubdomains(data) {
             if (!(data.subdomains && data.subdomains.length)) return;
             document.getElementById('resultTabs').style.display = '';
@@ -2422,7 +2411,7 @@ if ($_showPortfolioIcon): ?>
                 subHtml += '<tr><td>' + esc(s.subdomain) + '</td><td><code>' + esc(s.ip) + '</code></td></tr>';
             });
             subHtml += '</tbody></table></div></div>';
-            document.getElementById('subdomainsPane').innerHTML = subHtml;
+            document.getElementById('slot-subdomains').innerHTML = subHtml;
         }
 
         // ── renderModule: the seam triggerLookup()'s progressive flow calls

@@ -870,6 +870,41 @@ function handleModuleRequest(string $moduleParam, ?array $apiKeyConfig, bool $dn
             $modulesAvailable = array_keys(moduleRegistry());
         }
 
+        // Core-local computations (Issue #196): cheap local/derived-from-WHOIS
+        // values that belong in the core response — mirrors the legacy
+        // lookup.php core block (registrar_reputation #51, screenshot_url #55,
+        // domain_age_risk #95, whois_privacy #104, domain_suggestions #116,
+        // verification_token #136). Gated identically to the legacy path.
+        $registrarReputation = null;
+        $screenshotUrl       = null;
+        $domainAgeRisk       = null;
+        $whoisPrivacy        = null;
+        $domainSuggestions   = [];
+        if ($core['availability'] !== 'available') {
+            if (!empty($core['parsed']['Registrar'])) {
+                $registrarReputation = checkRegistrarReputation($core['parsed']['Registrar']);
+            }
+            if (!$dnt && !$core['is_ip'] && $core['domain'] && !empty($config['screenshot_enabled'])) {
+                $screenshotBase = 'https://image.thum.io/get';
+                if (!empty($config['screenshot_api_key'])) {
+                    $screenshotBase .= '/auth/' . urlencode($config['screenshot_api_key']);
+                }
+                $screenshotUrl = $screenshotBase . '/width/600/' . urlencode('https://' . $core['domain']);
+            }
+            if (!$core['is_ip'] && !empty($core['parsed'])) {
+                $domainAgeRisk = assessDomainAgeRisk($core['parsed']);
+            }
+            if (!$core['is_ip'] && $core['raw']) {
+                $whoisPrivacy = detectWhoisPrivacy($core['raw'], $core['parsed']);
+            }
+        }
+        // verification_token is computed regardless of availability (matches
+        // legacy); session_id() is still readable after session_write_close().
+        $verificationToken = null;
+        if (!$core['is_ip'] && $core['domain'] && session_id()) {
+            $verificationToken = generateVerificationToken($core['domain'], session_id());
+        }
+
         // Warm mod:core so the enrichment-gate below (and modules=score)
         // can read availability/dns/parsed without repeating the WHOIS/
         // RDAP fetch or a redundant getDnsRecords() call.
@@ -896,6 +931,12 @@ function handleModuleRequest(string $moduleParam, ?array $apiKeyConfig, bool $dn
                 'dns'               => $core['dns'],
                 'raw'               => $core['raw'],
                 'cached'            => $core['cached'],
+                'registrar_reputation' => $registrarReputation,
+                'domain_age_risk'   => $domainAgeRisk,
+                'whois_privacy'     => $whoisPrivacy,
+                'screenshot_url'    => $screenshotUrl,
+                'domain_suggestions' => $domainSuggestions,
+                'verification_token' => $verificationToken,
                 'lookup_token'      => $lookupToken,
                 'modules_available' => $modulesAvailable,
                 'rate_limit'        => $rateLimitField,
@@ -922,6 +963,12 @@ function handleModuleRequest(string $moduleParam, ?array $apiKeyConfig, bool $dn
                 'parsed'            => $core['parsed'],
                 'dns'               => $core['dns'],
                 'cached'            => $core['cached'],
+                'registrar_reputation' => $registrarReputation,
+                'domain_age_risk'   => $domainAgeRisk,
+                'whois_privacy'     => $whoisPrivacy,
+                'screenshot_url'    => $screenshotUrl,
+                'domain_suggestions' => $domainSuggestions,
+                'verification_token' => $verificationToken,
                 'lookup_token'      => $lookupToken,
                 'modules_available' => $modulesAvailable,
                 'rate_limit'        => $rateLimitField,
