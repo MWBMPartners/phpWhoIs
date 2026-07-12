@@ -1392,24 +1392,27 @@ function checkEmailSecurity(string $domain): array {
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Get geolocation info for an IP address using ip-api.com (free, no key needed).
- * Rate limit: 45 requests/minute.
+ * Build the ip-api.com request spec for getIpGeolocation() — shared with the
+ * batched reputation runner (Issue #196 Step 2, runReputationModuleChecks())
+ * so the URL/params can never drift between the serial and curl_multi paths.
  */
-function getIpGeolocation(string $ip): ?array {
-    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+function geolocationRequest(string $ip): array {
+    return ['url' => 'http://ip-api.com/json/' . urlencode($ip) . '?fields=status,country,countryCode,region,city,isp,org,as'];
+}
+
+/**
+ * Parse an ip-api.com response body into getIpGeolocation()'s return shape.
+ * IGNORES $httpCode — matches the legacy httpFetch()-based implementation,
+ * which has no way to see the HTTP status code at all; only body
+ * presence/shape gates the result. The batched path must replicate this
+ * exactly (not tighten it) for byte-identical output.
+ */
+function parseGeolocationResponse(int $httpCode, ?string $body): ?array {
+    if ($body === null) {
         return null;
     }
 
-    $response = httpFetch(
-        'http://ip-api.com/json/' . urlencode($ip) . '?fields=status,country,countryCode,region,city,isp,org,as',
-        ['timeout' => 3]
-    );
-
-    if ($response === null) {
-        return null;
-    }
-
-    $data = json_decode($response, true);
+    $data = json_decode($body, true);
     if (!$data || $data['status'] !== 'success') {
         return null;
     }
@@ -1423,6 +1426,21 @@ function getIpGeolocation(string $ip): ?array {
         'org' => isset($data['org']) ? $data['org'] : '',
         'as' => isset($data['as']) ? $data['as'] : '',
     ];
+}
+
+/**
+ * Get geolocation info for an IP address using ip-api.com (free, no key needed).
+ * Rate limit: 45 requests/minute.
+ */
+function getIpGeolocation(string $ip): ?array {
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+        return null;
+    }
+
+    $req = geolocationRequest($ip);
+    $response = httpFetch($req['url'], ['timeout' => 3]);
+
+    return parseGeolocationResponse(0, $response);
 }
 
 
@@ -1761,13 +1779,10 @@ function checkRegistrarReputation(string $registrar): ?array {
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Check a domain against the Google Safe Browsing API.
- *
- * @param  string $domain  The domain to check
- * @param  string $apiKey  Google Safe Browsing API key
- * @return array           ['safe' => bool, 'threats' => array]
+ * Build the Safe Browsing request spec — shared with the batched reputation
+ * runner (Issue #196 Step 2).
  */
-function checkSafeBrowsing(string $domain, string $apiKey): array {
+function safeBrowsingRequest(string $domain, string $apiKey): array {
     $url = 'https://safebrowsing.googleapis.com/v4/threatMatches:find?key=' . urlencode($apiKey);
     $payload = json_encode([
         'client' => ['clientId' => 'mwwhois', 'clientVersion' => '1.0'],
@@ -1782,23 +1797,18 @@ function checkSafeBrowsing(string $domain, string $apiKey): array {
         ],
     ]);
 
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => $payload,
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-        CURLOPT_TIMEOUT => 5,
-    ]);
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+    return ['url' => $url, 'post' => $payload, 'headers' => ['Content-Type: application/json']];
+}
 
-    if ($httpCode !== 200 || !$response) {
+/**
+ * Parse a Safe Browsing response into checkSafeBrowsing()'s return shape.
+ */
+function parseSafeBrowsingResponse(int $httpCode, ?string $body): array {
+    if ($httpCode !== 200 || !$body) {
         return ['safe' => true, 'threats' => [], 'error' => 'API unavailable'];
     }
 
-    $data = json_decode($response, true);
+    $data = json_decode($body, true);
     if (!empty($data['matches'])) {
         $threats = array_map(function ($m) {
             return $m['threatType'];
@@ -1809,36 +1819,56 @@ function checkSafeBrowsing(string $domain, string $apiKey): array {
     return ['safe' => true, 'threats' => []];
 }
 
+/**
+ * Check a domain against the Google Safe Browsing API.
+ *
+ * @param  string $domain  The domain to check
+ * @param  string $apiKey  Google Safe Browsing API key
+ * @return array           ['safe' => bool, 'threats' => array]
+ */
+function checkSafeBrowsing(string $domain, string $apiKey): array {
+    $req = safeBrowsingRequest($domain, $apiKey);
+
+    $ch = curl_init($req['url']);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $req['post'],
+        CURLOPT_HTTPHEADER => $req['headers'],
+        CURLOPT_TIMEOUT => 5,
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return parseSafeBrowsingResponse($httpCode, $response === false ? null : $response);
+}
+
 
 // ═══════════════════════════════════════════════════════════════════
 //  VirusTotal domain reputation (Issue #53)
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Query VirusTotal for domain reputation.
- *
- * @param  string $domain  The domain to check
- * @param  string $apiKey  VirusTotal API key
- * @return array|null      Reputation info or null on failure
+ * Build the VirusTotal request spec — shared with the batched reputation
+ * runner (Issue #196 Step 2).
  */
-function checkVirusTotal(string $domain, string $apiKey): ?array {
-    $url = 'https://www.virustotal.com/api/v3/domains/' . urlencode($domain);
+function virusTotalRequest(string $domain, string $apiKey): array {
+    return [
+        'url' => 'https://www.virustotal.com/api/v3/domains/' . urlencode($domain),
+        'headers' => ['x-apikey: ' . $apiKey],
+    ];
+}
 
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER => ['x-apikey: ' . $apiKey],
-        CURLOPT_TIMEOUT => 5,
-    ]);
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($httpCode !== 200 || !$response) {
+/**
+ * Parse a VirusTotal response into checkVirusTotal()'s return shape.
+ */
+function parseVirusTotalResponse(int $httpCode, ?string $body): ?array {
+    if ($httpCode !== 200 || !$body) {
         return null;
     }
 
-    $data = json_decode($response, true);
+    $data = json_decode($body, true);
     if (empty($data['data']['attributes']['last_analysis_stats'])) {
         return null;
     }
@@ -1852,6 +1882,29 @@ function checkVirusTotal(string $domain, string $apiKey): ?array {
         'reputation'  => $data['data']['attributes']['reputation'] ?? 0,
         'categories'  => $data['data']['attributes']['categories'] ?? [],
     ];
+}
+
+/**
+ * Query VirusTotal for domain reputation.
+ *
+ * @param  string $domain  The domain to check
+ * @param  string $apiKey  VirusTotal API key
+ * @return array|null      Reputation info or null on failure
+ */
+function checkVirusTotal(string $domain, string $apiKey): ?array {
+    $req = virusTotalRequest($domain, $apiKey);
+
+    $ch = curl_init($req['url']);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => $req['headers'],
+        CURLOPT_TIMEOUT => 5,
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return parseVirusTotalResponse($httpCode, $response === false ? null : $response);
 }
 
 
@@ -2082,27 +2135,26 @@ function assessDomainAgeRisk(array $parsed): ?array {
 //  AbuseIPDB integration (Issue #96)
 // ═══════════════════════════════════════════════════════════════════
 
-function checkAbuseIPDB(string $ip, string $apiKey): ?array {
-    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+/**
+ * Build the AbuseIPDB request spec — shared with the batched reputation
+ * runner (Issue #196 Step 2).
+ */
+function abuseIpdbRequest(string $ip, string $apiKey): array {
+    return [
+        'url' => 'https://api.abuseipdb.com/api/v2/check?' . http_build_query(['ipAddress' => $ip, 'maxAgeInDays' => 90]),
+        'headers' => ['Key: ' . $apiKey, 'Accept: application/json'],
+    ];
+}
+
+/**
+ * Parse an AbuseIPDB response into checkAbuseIPDB()'s return shape.
+ */
+function parseAbuseIpdbResponse(int $httpCode, ?string $body): ?array {
+    if ($httpCode !== 200 || !$body) {
         return null;
     }
 
-    $ch = curl_init();
-    curl_setopt_array($ch, [
-        CURLOPT_URL => 'https://api.abuseipdb.com/api/v2/check?' . http_build_query(['ipAddress' => $ip, 'maxAgeInDays' => 90]),
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 5,
-        CURLOPT_HTTPHEADER => ['Key: ' . $apiKey, 'Accept: application/json'],
-    ]);
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($httpCode !== 200 || !$response) {
-        return null;
-    }
-
-    $data = json_decode($response, true);
+    $data = json_decode($body, true);
     if (!isset($data['data'])) {
         return null;
     }
@@ -2118,23 +2170,52 @@ function checkAbuseIPDB(string $ip, string $apiKey): ?array {
     ];
 }
 
+function checkAbuseIPDB(string $ip, string $apiKey): ?array {
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+        return null;
+    }
+
+    $req = abuseIpdbRequest($ip, $apiKey);
+
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $req['url'],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 5,
+        CURLOPT_HTTPHEADER => $req['headers'],
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return parseAbuseIpdbResponse($httpCode, $response === false ? null : $response);
+}
+
 
 // ═══════════════════════════════════════════════════════════════════
 //  Shodan integration (Issue #97)
 // ═══════════════════════════════════════════════════════════════════
 
-function checkShodan(string $ip, string $apiKey): ?array {
-    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+/**
+ * Build the Shodan request spec — shared with the batched reputation runner
+ * (Issue #196 Step 2).
+ */
+function shodanRequest(string $ip, string $apiKey): array {
+    return ['url' => 'https://api.shodan.io/shodan/host/' . urlencode($ip) . '?key=' . urlencode($apiKey) . '&minify=true'];
+}
+
+/**
+ * Parse a Shodan response into checkShodan()'s return shape. IGNORES
+ * $httpCode — matches the legacy httpFetch()-based implementation, which has
+ * no way to see the HTTP status; only body presence/shape (including the
+ * body-level "error" key) gates the result.
+ */
+function parseShodanResponse(int $httpCode, ?string $body): ?array {
+    if (!$body) {
         return null;
     }
 
-    $url = 'https://api.shodan.io/shodan/host/' . urlencode($ip) . '?key=' . urlencode($apiKey) . '&minify=true';
-    $response = httpFetch($url, ['timeout' => 5]);
-    if (!$response) {
-        return null;
-    }
-
-    $data = json_decode($response, true);
+    $data = json_decode($body, true);
     if (!is_array($data) || isset($data['error'])) {
         return null;
     }
@@ -2151,29 +2232,50 @@ function checkShodan(string $ip, string $apiKey): ?array {
     ];
 }
 
+function checkShodan(string $ip, string $apiKey): ?array {
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+        return null;
+    }
+
+    $req = shodanRequest($ip, $apiKey);
+    $response = httpFetch($req['url'], ['timeout' => 5]);
+
+    return parseShodanResponse(0, $response);
+}
+
 
 // ═══════════════════════════════════════════════════════════════════
 //  PhishTank integration (Issue #98)
 // ═══════════════════════════════════════════════════════════════════
 
-function checkPhishTank(string $domain, string $apiKey): ?array {
-    $url = 'https://checkurl.phishtank.com/checkurl/';
+/**
+ * Build the PhishTank request spec — shared with the batched reputation
+ * runner (Issue #196 Step 2).
+ */
+function phishTankRequest(string $domain, string $apiKey): array {
     $postData = http_build_query([
         'url' => 'https://' . $domain,
         'format' => 'json',
         'app_key' => $apiKey,
     ]);
 
-    $response = httpFetch($url, [
-        'timeout' => 5,
-        'post'    => $postData,
+    return [
+        'url' => 'https://checkurl.phishtank.com/checkurl/',
+        'post' => $postData,
         'headers' => ['Content-Type: application/x-www-form-urlencoded'],
-    ]);
-    if (!$response) {
+    ];
+}
+
+/**
+ * Parse a PhishTank response into checkPhishTank()'s return shape. IGNORES
+ * $httpCode — matches the legacy httpFetch()-based implementation.
+ */
+function parsePhishTankResponse(int $httpCode, ?string $body): ?array {
+    if (!$body) {
         return null;
     }
 
-    $data = json_decode($response, true);
+    $data = json_decode($body, true);
     if (!isset($data['results'])) {
         return null;
     }
@@ -2186,25 +2288,45 @@ function checkPhishTank(string $domain, string $apiKey): ?array {
     ];
 }
 
+function checkPhishTank(string $domain, string $apiKey): ?array {
+    $req = phishTankRequest($domain, $apiKey);
+
+    $response = httpFetch($req['url'], [
+        'timeout' => 5,
+        'post'    => $req['post'],
+        'headers' => $req['headers'],
+    ]);
+
+    return parsePhishTankResponse(0, $response);
+}
+
 
 // ═══════════════════════════════════════════════════════════════════
 //  URLhaus malware check (Issue #99)
 // ═══════════════════════════════════════════════════════════════════
 
-function checkUrlhaus(string $domain): ?array {
-    $url = 'https://urlhaus-api.abuse.ch/v1/host/';
-    $postData = http_build_query(['host' => $domain]);
-
-    $response = httpFetch($url, [
-        'timeout' => 5,
-        'post'    => $postData,
+/**
+ * Build the URLhaus request spec — shared with the batched reputation runner
+ * (Issue #196 Step 2).
+ */
+function urlhausRequest(string $domain): array {
+    return [
+        'url' => 'https://urlhaus-api.abuse.ch/v1/host/',
+        'post' => http_build_query(['host' => $domain]),
         'headers' => ['Content-Type: application/x-www-form-urlencoded'],
-    ]);
-    if (!$response) {
+    ];
+}
+
+/**
+ * Parse a URLhaus response into checkUrlhaus()'s return shape. IGNORES
+ * $httpCode — matches the legacy httpFetch()-based implementation.
+ */
+function parseUrlhausResponse(int $httpCode, ?string $body): ?array {
+    if (!$body) {
         return null;
     }
 
-    $data = json_decode($response, true);
+    $data = json_decode($body, true);
     if (!is_array($data)) {
         return null;
     }
@@ -2215,6 +2337,18 @@ function checkUrlhaus(string $domain): ?array {
         'blacklists'   => $data['blacklists'] ?? [],
         'tags'         => array_slice($data['tags'] ?? [], 0, 10),
     ];
+}
+
+function checkUrlhaus(string $domain): ?array {
+    $req = urlhausRequest($domain);
+
+    $response = httpFetch($req['url'], [
+        'timeout' => 5,
+        'post'    => $req['post'],
+        'headers' => $req['headers'],
+    ]);
+
+    return parseUrlhausResponse(0, $response);
 }
 
 

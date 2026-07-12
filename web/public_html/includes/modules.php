@@ -18,10 +18,18 @@
  * the lookup_token HMAC (moduleTokenSecret()/issueLookupToken()/
  * validateLookupToken()/resolveLookupTokenBinding()), and the
  * handleModuleRequest() dispatcher wired into lookup.php behind
- * `?modules=`. Deliberately NOT included: curlMultiBatch() (Step 2,
- * parallelisation — not part of this pass; module checks still run
- * serially within a module).
+ * `?modules=`.
  *
+ * Step 2 (SCOPED — see functions.php's curlMultiBatch()): the 'reputation'
+ * module's checks (all fixed, non-user-controlled third-party API hosts) are
+ * now batched via runReputationModuleChecks(), fired in ONE curlMultiBatch()
+ * call instead of one curl_exec() at a time (falling back to the identical
+ * serial check*() calls when curl_multi is unavailable). dns/web/email/
+ * subdomains deliberately stay on the generic, fully-serial dispatch loop
+ * below — see functions.php's curlMultiBatch() doc comment and Issue #196's
+ * plan for why the redirect-following web checks were left out of this pass.
+ *
+
  * The "core" response keys (domain, is_ip, availability, data_source,
  * parsed, dns, raw/whois, cached, reverse_dns, registrar_reputation,
  * domain_age_risk, whois_privacy, screenshot_url, domain_suggestions,
@@ -261,6 +269,17 @@ function moduleRegistry(): array
  */
 function runModuleChecks(string $module, array $ctx): array
 {
+    // Issue #196 Step 2: the 'reputation' module's checks all hit FIXED
+    // third-party API hosts (not the user-controlled lookup domain) —
+    // exactly the case curlMultiBatch() exists for. Route it through the
+    // dedicated batched runner (which falls back to the identical serial
+    // calls below when curl_multi is unavailable) instead of the generic
+    // one-at-a-time dispatch loop. Every other module keeps the generic
+    // loop unchanged.
+    if ($module === 'reputation') {
+        return runReputationModuleChecks($ctx);
+    }
+
     $registry = moduleRegistry();
     if (!isset($registry[$module])) {
         return ['data' => [], 'skipped' => []];
@@ -359,6 +378,158 @@ function runModuleChecks(string $module, array $ctx): array
             continue;
         }
     }
+
+    return ['data' => $data, 'skipped' => $skipped];
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Batched reputation module runner (Issue #196 Step 2)
+//
+//  The 'reputation' module's checks (safe_browsing, virustotal, phishtank,
+//  urlhaus, abuseipdb, shodan, geolocation) each hit a FIXED, non-user-
+//  controlled third-party API host — exactly the case curlMultiBatch() is
+//  for (see its doc comment in functions.php: fixed hosts are looked up via
+//  curl's own DNS, same as httpFetch()/checkVirusTotal() etc. do today — no
+//  IP pinning is needed or applied here). Instead of the generic
+//  runModuleChecks() loop issuing these one at a time, this runner:
+//    1. Applies the EXACT SAME per-check gating moduleRegistry()['reputation']
+//       already encodes (dnt / domain_only / api key / first_a_or_ip
+//       resolution) — read straight from the registry so gating can never
+//       drift between this runner and the generic loop's semantics;
+//    2. builds every eligible check's request via its request-builder
+//       function (see reputationNetworkCheckSpecs()) and fires them all in
+//       ONE curlMultiBatch() call;
+//    3. parses each response with that SAME check's response-parser function
+//       — the identical parser checkSafeBrowsing()/checkVirusTotal()/etc.
+//       use internally for their own (still-intact) serial single-request
+//       path, so batched and serial output can never drift apart;
+//    4. falls back to calling the ORIGINAL check*() functions serially
+//       (exactly what the generic runModuleChecks() loop would have done)
+//       when curl_multi is unavailable — see curlMultiBatch()'s own
+//       unavailable-fallback contract;
+//    5. derives 'hosting_risk' from whatever 'geolocation' resolved to,
+//       UNCONDITIONALLY, exactly like the generic loop's derived-check branch.
+//
+//  Output shape is IDENTICAL to what the generic loop would have produced:
+//  ['data' => [...same keys...], 'skipped' => [...same reason strings...]].
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Maps each network-issuing 'reputation' check-key to the request-builder +
+ * response-parser function pair extracted from its check*() function
+ * (functions.php). Deliberately excludes 'hosting_risk' — it never makes an
+ * outbound call; it is derived locally from 'geolocation' after the batch
+ * resolves (see runReputationModuleChecks()).
+ *
+ * @return array<string, array{request: string, parse: string}>
+ */
+function reputationNetworkCheckSpecs(): array
+{
+    return [
+        'safe_browsing' => ['request' => 'safeBrowsingRequest', 'parse' => 'parseSafeBrowsingResponse'],
+        'virustotal'    => ['request' => 'virusTotalRequest',    'parse' => 'parseVirusTotalResponse'],
+        'phishtank'     => ['request' => 'phishTankRequest',     'parse' => 'parsePhishTankResponse'],
+        'urlhaus'       => ['request' => 'urlhausRequest',       'parse' => 'parseUrlhausResponse'],
+        'abuseipdb'     => ['request' => 'abuseIpdbRequest',     'parse' => 'parseAbuseIpdbResponse'],
+        'shodan'        => ['request' => 'shodanRequest',        'parse' => 'parseShodanResponse'],
+        'geolocation'   => ['request' => 'geolocationRequest',   'parse' => 'parseGeolocationResponse'],
+    ];
+}
+
+/**
+ * The batched replacement for runModuleChecks('reputation', $ctx) — see the
+ * section comment above for the full contract. $ctx has the same shape
+ * runModuleChecks() takes.
+ *
+ * @param array{domain:string,is_ip:bool,dns:array,parsed:array,dnt:bool,config:array} $ctx
+ * @return array{data: array<string, mixed>, skipped: array<string, string>}
+ */
+function runReputationModuleChecks(array $ctx): array
+{
+    $registry = moduleRegistry()['reputation'];
+    $domain = $ctx['domain'] ?? '';
+    $isIp   = !empty($ctx['is_ip']);
+    $dns    = $ctx['dns'] ?? [];
+    $dnt    = !empty($ctx['dnt']);
+    $config = $ctx['config'] ?? [];
+
+    $data = [];
+    $skipped = [];
+    $specs = reputationNetworkCheckSpecs();
+
+    // Phase 1 — gating. Mirrors runModuleChecks()'s generic descriptor-driven
+    // gating exactly (same order of checks: dnt, domain_only, api key, then
+    // subject resolution for first_a_or_ip checks) so a check that would be
+    // skipped by the generic loop is skipped here for the exact same reason.
+    $eligible = []; // checkKey => ['subject' => string, 'apiKey' => ?string]
+    foreach ($registry as $checkKey => $desc) {
+        if ($checkKey === 'hosting_risk') {
+            continue; // derived, handled in Phase 3 below — never a network call
+        }
+
+        if ($desc['dnt'] && $dnt) {
+            $skipped[$checkKey] = 'dnt';
+            continue;
+        }
+        if (!empty($desc['domain_only']) && ($isIp || !$domain)) {
+            $skipped[$checkKey] = 'is_ip';
+            continue;
+        }
+        if (!empty($desc['key']) && empty($config[$desc['key']])) {
+            $skipped[$checkKey] = 'no_api_key';
+            continue;
+        }
+
+        if ($desc['args'] === 'domain') {
+            $subject = $domain;
+        } else { // 'first_a_or_ip' — abuseipdb, shodan, geolocation
+            $subject = $isIp ? $domain : (!empty($dns) ? firstARecord($dns) : null);
+            if (!$subject) {
+                $skipped[$checkKey] = 'no_a_record';
+                continue;
+            }
+        }
+
+        $eligible[$checkKey] = [
+            'subject' => $subject,
+            'apiKey'  => !empty($desc['key']) ? $config[$desc['key']] : null,
+        ];
+    }
+
+    // Phase 2 — resolve every eligible check, batched when possible.
+    if (!empty($eligible) && function_exists('curl_multi_init')) {
+        $requests = [];
+        foreach ($eligible as $checkKey => $info) {
+            $builder = $specs[$checkKey]['request'];
+            $requests[$checkKey] = $info['apiKey'] !== null
+                ? $builder($info['subject'], $info['apiKey'])
+                : $builder($info['subject']);
+        }
+
+        $responses = curlMultiBatch($requests, 8);
+
+        foreach ($eligible as $checkKey => $info) {
+            $resp = $responses[$checkKey] ?? ['status' => 0, 'body' => null, 'errno' => -1];
+            $parser = $specs[$checkKey]['parse'];
+            $data[$checkKey] = $parser($resp['status'], $resp['body']);
+        }
+    } elseif (!empty($eligible)) {
+        // SERIAL fallback (Issue #196 Step 2) — curl_multi is unavailable;
+        // call the exact same check*() functions the pre-batching generic
+        // loop used, one at a time, so hosts without curl_multi still work.
+        foreach ($eligible as $checkKey => $info) {
+            $fn = $registry[$checkKey]['fn'];
+            $data[$checkKey] = $info['apiKey'] !== null
+                ? $fn($info['subject'], $info['apiKey'])
+                : $fn($info['subject']);
+        }
+    }
+
+    // Phase 3 — hosting_risk, derived from geolocation. UNCONDITIONAL,
+    // exactly like runModuleChecks()'s generic derived-check branch (it runs
+    // even when 'geolocation' was skipped/null, e.g. under DNT).
+    $geolocation = $data['geolocation'] ?? null;
+    $data['hosting_risk'] = assessHostingRisk($geolocation);
 
     return ['data' => $data, 'skipped' => $skipped];
 }
