@@ -27,7 +27,10 @@ construction + syntax + trace, NOT a rendered check. Load the app and confirm: c
 fast, tabs fill progressively with skeletons, DNT hides reputation, available/IP trim, no
 stale bleed on re-search.
 
-**Local `beta` is 8 commits ahead of `origin/beta`, unpushed, clean fast-forward.**
+**Local `beta` is 19 commits ahead of `origin/beta`, unpushed, clean fast-forward.**
+(8 = #196; then #212, #213, #218-safe cleanup, PHP-8.4 fix, CI intl; then promoted features
+#246 SSL cert depth [chain trust/hostname/key-alg, closed] + #225 EPP status explainers [open,
+browser-verify]; then #218 deferred appLog wiring + grade-threshold unify. 171 tests green.)
 `php -l` clean; 149 tests green; tree clean. Sandbox caveat: DNS hangs on CAA/TLSA → the
 web-module live domain path can't be exercised here (environmental, not a code bug).
 
