@@ -43,10 +43,20 @@ web-module live domain path can't be exercised here (environmental, not a code b
 - **Safe fixes/hardening:** #202 admin key via header + Referrer-Policy · #203 HSTS + host allow-list + appLog newline · #214 SW cache bound · #215 RDAP-404 confirm · #216 availability-unknown · #217 IP display · #218 firstARecord/guards/cache-backend.
 - **Docs/infra:** #245 OpenAPI refresh (51-prop schema, X-API-Key auth, Retry-After now sent on 429). #204 CLOSED (`.auth` + auto-merge). Created 5 **Milestones**, the **DomainCheckr Development** project (#14), assigned all 64 issues.
 
-### 🟡 Still open for the owner
-- **Enable the GitHub Wiki** (Settings → Features → Wikis) + create any first page — then the Home content in `scratchpad/wiki-Home.md` can be pushed (GitHub needs the wiki initialised via UI before the `.wiki.git` repo exists).
-- **Deferred (not in this PR, need decisions):** #196 progressive re-arch (big) · #211 watch/monitor wiring · #212 IDN support · #213 bulk-vs-rate-limit · the `for consideration` features #219–#247 · the `stash@{0}` broken-edit decision (#186).
-- Minor: PHP 8.4 `session.sid_length` deprecation in session_config.php (pre-existing forward-compat nit).
+### Backlog cleared this session (2026-07-11) — all closed, on `beta` unpushed
+- **#196** progressive-loading re-arch — CODE-COMPLETE (7 steps, 149→155 tests). Open, awaiting push + browser verify.
+- **#212** IDN/punycode support (`dfe86b2` + CI `b8a9f36`) — closed.
+- **#213** bulk 429 graceful pause/resume (`dd34a1e`) — closed.
+- **#218** cleanup batch safe subset (`f04a21a`, `29682a4`) — done; strict_types/module-split/appLog/grade-thresholds deferred (issue left open to track).
+- PHP 8.4 `session.sid_length` deprecation — FIXED (`a51766a`; it was corrupting JSON responses).
+- All of #187–#210, #214–#217 verified + **closed**.
+
+### 🟡 Still needs an OWNER DECISION (autonomous backlog is otherwise exhausted)
+- **#211 watch/monitor pipeline** — the missing link is client→server watch registration + the model: **(a)** anonymous/global watch list, **(b)** per-session, or **(c)** requires the account system (#163). monitor.php (#200) + the RSS feed + CDATA are already fixed/hardened; only the registration+model is blocked. **Needs your call before building.**
+- **Enable the GitHub Wiki** (Settings → Features → Wikis) + first page → then `scratchpad/wiki-Home.md` can be pushed.
+- **`for consideration` features #219–#247** and the older feature backlog **#146–#181** — promote the ones you want built.
+- **`stash@{0}`** broken infoAppVer edit (#186) — salvage or `git stash drop`.
+- **Stale `origin` URL** (`Salem874/mwWhoIs` → redirects to `MWBMPartners/phpWhoIs`) — `git remote set-url` when ready.
 
 ### 🔴 BEFORE PUSHING — owner must set GitHub secrets (Settings → Secrets and variables → Actions)
 The deploy pipeline was rewritten. It now needs:
