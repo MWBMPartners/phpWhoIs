@@ -1300,24 +1300,47 @@ if ($_showPortfolioIcon): ?>
             });
         }
 
-        // ── Main lookup ──
+        // ── Main lookup (Issue #196 Step 6: progressive core-first loading +
+        // concurrent module fetches) ──
+
+        // Shared POST helper for the core/module endpoints. Builds the
+        // standard FormData (domain, csrf_token, optional lookup_token) and
+        // resolves with the parsed JSON body. Deliberately does NOT gate on
+        // r.ok — every core/module error path (400 invalid domain, 429 rate
+        // limit) still returns a valid JSON body with an `error` field, so
+        // callers just check data.error; a genuinely broken response (no
+        // body, non-JSON) still rejects the promise via r.json() itself.
+        function postLookup(url, domain, token) {
+            var fd = new FormData();
+            fd.append('domain', domain);
+            fd.append('csrf_token', CSRF);
+            if (token) {
+                fd.append('lookup_token', token);
+            }
+            return fetch(url, { method: 'POST', body: fd }).then(function (r) {
+                return r.json();
+            });
+        }
+
+        // lookupGen is a monotonically-increasing generation counter. Every
+        // triggerLookup() call bumps it and closes over its own `gen`. Every
+        // async callback below (the core fetch, every module fetch, every
+        // retry) checks `gen === lookupGen` before touching the DOM — so if
+        // the user fires a second lookup while the first one's module
+        // fetches are still in flight, the stale generation's late-arriving
+        // responses are silently dropped instead of clobbering the second
+        // lookup's results.
+        var lookupGen = 0;
+
         function triggerLookup(domain) {
+            var gen = ++lookupGen;
             currentDomain = domain;
             showLoading(true);
             hideResults();
 
-            var fd = new FormData();
-            fd.append('domain', domain);
-            fd.append('csrf_token', CSRF);
-
-            fetch('lookup?nocache=' + Date.now(), { method: 'POST', body: fd })
-                .then(function (r) {
-                    if (!r.ok) {
-                        throw new Error('Server error: ' + r.status);
-                    }
-                    return r.json();
-                })
+            postLookup('lookup?modules=core&nocache=' + Date.now(), domain)
                 .then(function (data) {
+                    if (gen !== lookupGen) return; // superseded by a newer lookup
                     showLoading(false);
                     if (data.error) {
                         showError(data.error);
@@ -1331,14 +1354,127 @@ if ($_showPortfolioIcon): ?>
                     }
                     rawWhoisText = data.whois || '';
                     lastLookupData = data;
-                    displayResults(data);
+                    renderCore(data);
                     saveToHistory(currentDomain, data);
+                    if (!data.modules_available || !data.modules_available.length) {
+                        return; // available domain, or nothing left to enrich
+                    }
+                    startModuleFetches(data, gen);
                 })
                 .catch(function (err) {
+                    if (gen !== lookupGen) return;
                     showLoading(false);
                     showError('Lookup failed: ' + err.message);
                 });
         }
+
+        // Fires the enrichment module fetches CONCURRENTLY, then — once
+        // they've all settled — the score module (which reads their
+        // server-side per-module caches). `core` is the modules=core
+        // response; `gen` is this lookup's generation.
+        function startModuleFetches(core, gen) {
+            var mods = core.modules_available.filter(function (m) { return m !== 'score'; });
+            var promises = [];
+
+            mods.forEach(function (m) {
+                if (m === 'reputation' && core.dnt) {
+                    // Reputation is nothing but fixed 3rd-party API calls
+                    // under DNT (every check except the geolocation-derived
+                    // hosting_risk is individually dnt-gated server-side
+                    // too) — skip the round trip entirely instead of
+                    // fetching an almost-empty envelope.
+                    renderReputationSkippedDnt();
+                    return;
+                }
+                renderModuleSkeleton(m, core.dnt);
+                setTabSpinner(m, true);
+                var p = postLookup('lookup?modules=' + m + '&nocache=' + Date.now(), core.domain, core.lookup_token)
+                    .then(function (res) {
+                        if (gen !== lookupGen) return;
+                        setTabSpinner(m, false);
+                        if (res && res.status === 'error') {
+                            renderModuleFailed(m);
+                        } else {
+                            renderModule(m, res);
+                        }
+                    })
+                    .catch(function () {
+                        if (gen !== lookupGen) return;
+                        setTabSpinner(m, false, true);
+                        renderModuleFailed(m);
+                    });
+                promises.push(p);
+            });
+
+            Promise.allSettled(promises).then(function () {
+                if (gen !== lookupGen) return;
+                // core.modules_available is populated from moduleRegistry()'s
+                // 5 grouping-module keys only (dns/web/email/reputation/
+                // subdomains) — it never contains 'score' (see
+                // includes/modules.php's handleModuleRequest()). Score has
+                // its own gate instead, mirroring the legacy inline gate
+                // (`if (!$isIpLookup && $domain)` in the same file's
+                // modules=score branch): fire it whenever this wasn't an IP
+                // lookup and there was at least one enrichment module to
+                // fetch in the first place (i.e. not an "available" domain,
+                // where startModuleFetches() is never even called).
+                if (core.is_ip || !mods.length) return;
+                renderModuleSkeleton('score', core.dnt);
+                setTabSpinner('score', true);
+                postLookup('lookup?modules=score&nocache=' + Date.now(), core.domain, core.lookup_token)
+                    .then(function (res) {
+                        if (gen !== lookupGen) return;
+                        setTabSpinner('score', false);
+                        if (res && res.status === 'error') {
+                            renderModuleFailed('score');
+                        } else {
+                            renderModule('score', res);
+                        }
+                    })
+                    .catch(function () {
+                        if (gen !== lookupGen) return;
+                        setTabSpinner('score', false, true);
+                        renderModuleFailed('score');
+                    });
+            });
+        }
+
+        // Re-fires a single failed module fetch from its "Retry" link,
+        // reusing the still-current lookup's lookup_token (valid ~180s from
+        // issuance; if it has since expired the request is simply counted
+        // against the normal rate limit instead of being rejected — never a
+        // hard failure).
+        function retryModule(name) {
+            if (!lastLookupData || !lastLookupData.domain) return;
+            var gen = lookupGen;
+            renderModuleSkeleton(name, lastLookupData.dnt);
+            setTabSpinner(name, true);
+            postLookup('lookup?modules=' + name + '&nocache=' + Date.now(), lastLookupData.domain, lastLookupData.lookup_token)
+                .then(function (res) {
+                    if (gen !== lookupGen) return;
+                    setTabSpinner(name, false);
+                    if (res && res.status === 'error') {
+                        renderModuleFailed(name);
+                    } else {
+                        renderModule(name, res);
+                    }
+                })
+                .catch(function () {
+                    if (gen !== lookupGen) return;
+                    setTabSpinner(name, false, true);
+                    renderModuleFailed(name);
+                });
+        }
+
+        // Event delegation for the "Retry" links renderModuleFailed()
+        // generates dynamically (so a plain addEventListener at creation
+        // time isn't an option).
+        document.addEventListener('click', function (e) {
+            var link = e.target.closest ? e.target.closest('[data-retry-module]') : null;
+            if (!link) return;
+            e.preventDefault();
+            retryModule(link.getAttribute('data-retry-module'));
+        });
 
         // ── Bulk lookup ──
         var bulkResultsData = [];
@@ -1365,12 +1501,12 @@ if ($_showPortfolioIcon): ?>
 
             domains.forEach(function (domain, i) {
                 setTimeout(function () {
-                    var fd = new FormData();
-                    fd.append('domain', domain);
-                    fd.append('csrf_token', CSRF);
-
-                    fetch('lookup?nocache=' + Date.now(), { method: 'POST', body: fd })
-                        .then(function (r) { return r.json(); })
+                    // Issue #196 Step 6: bulk only ever reads availability,
+                    // whois, parsed and data_source (see the accordion item
+                    // markup and the CSV/JSON export handlers below) — all
+                    // core fields — so route it through the lighter
+                    // modules=core endpoint instead of the full response.
+                    postLookup('lookup?modules=core&nocache=' + Date.now(), domain)
                         .then(function (data) {
                             // Store for export (Issue #49)
                             bulkResultsData.push({ domain: domain, data: data });
@@ -1454,15 +1590,14 @@ if ($_showPortfolioIcon): ?>
         });
 
         // ── Display results ──
-        // Issue #196 Step 5: displayResults() is split into slot-based
-        // per-key renderers. renderCore() renders the core (always-present)
-        // fields AND stamps pre-created empty placeholder <div id="slot-*">
-        // elements into every result pane — one slot per render KEY, in the
-        // exact position that key's content occupies today — so a later
-        // renderModule() call can only ever fill an already-positioned slot
-        // and can never reorder the pane's layout. For Step 5 this is still
-        // driven by a single synchronous full-response object (zero network
-        // change); Step 6 will call renderModule() per async module fetch.
+        // Issue #196: display is split into slot-based per-key renderers.
+        // renderCore() renders the core (always-present) fields AND stamps
+        // pre-created empty placeholder <div id="slot-*"> elements into
+        // every result pane — one slot per render KEY, in the exact position
+        // that key's content occupies today — so a later renderModule() call
+        // (fired progressively, per async module fetch — see triggerLookup()/
+        // startModuleFetches()) can only ever fill an already-positioned slot
+        // and can never reorder the pane's layout.
         function stampResultSlots() {
             document.getElementById('parsedFields').innerHTML =
                 '<div id="slot-security_score"></div>' +
@@ -1563,12 +1698,17 @@ if ($_showPortfolioIcon): ?>
             }
             dsBadge.style.display = '';
 
-            // Parsed fields card — core summary table + its reputation/email
-            // summary alerts (renderSummaryAlert). Kept as one combined slot
-            // (slot-parsed) because the legacy markup nests the alert <div>s
+            // Parsed fields card — core summary table + a dedicated
+            // #slot-alerts div for the reputation/email/core summary alerts
+            // (renderSummaryAlert). Kept nested inside this same slot
+            // (slot-parsed) because the legacy markup put the alert <div>s
             // INSIDE the same card-body, below the table, before the card is
-            // closed — splitting them into independent sibling slots would
-            // visually move the alerts outside the bordered card.
+            // closed — splitting them into an independent sibling slot would
+            // visually move the alerts outside the bordered card. Issue #196
+            // Step 6: #slot-alerts lets renderSummaryAlert() be called again
+            // later (from renderModule()) as each module's alert-bearing
+            // keys arrive, appending into the same slot instead of
+            // re-rendering the whole card.
             if (data.parsed && Object.keys(data.parsed).length) {
                 var html = '<div class="card"><div class="card-header"><strong>Domain Summary</strong></div><div class="card-body"><table class="table table-sm mb-0">';
                 for (var key in data.parsed) {
@@ -1584,11 +1724,11 @@ if ($_showPortfolioIcon): ?>
                     }
                     html += '<tr' + cls + '><td class="fw-bold">' + esc(key) + '</td><td>' + esc(val) + '</td></tr>';
                 }
-                html += '</table>';
-                html += renderSummaryAlert(data);
-                html += '</div></div>';
+                html += '</table><div id="slot-alerts"></div></div></div>';
                 document.getElementById('slot-parsed').innerHTML = html;
                 document.getElementById('parsedFields').style.display = '';
+                renderedAlertKeys = {};
+                renderSummaryAlert(data);
             }
 
             // Formatted WHOIS
@@ -1736,78 +1876,114 @@ if ($_showPortfolioIcon): ?>
         // usage/logic, verbatim, writing into its own pre-stamped slot.
         // A missing key leaves its slot empty, exactly as today.
 
-        // Reputation/email summary alerts shown inside the core summary card
-        // (safe_browsing, virustotal, registrar_reputation, domain_age_risk,
-        // whois_privacy, hosting_risk, phishtank, urlhaus, spamhaus,
-        // abuseipdb). Returns an HTML fragment; called from renderCore so it
-        // stays nested inside the same card-body as the summary table
-        // (matches legacy markup exactly).
+        // Reputation/email/core summary alerts, appended into the summary
+        // card's #slot-alerts div (safe_browsing, virustotal,
+        // registrar_reputation, domain_age_risk, whois_privacy,
+        // hosting_risk, phishtank, urlhaus, spamhaus, abuseipdb). Issue #196
+        // Step 6: these keys arrive at different times now —
+        // registrar_reputation/domain_age_risk/whois_privacy travel with
+        // core, spamhaus with the email module, the rest with the
+        // reputation module — so renderSummaryAlert() is called once per
+        // arrival (from renderCore for the core response, and from
+        // renderModule('email'|'reputation', ...) for their module
+        // responses) and renders ONLY the keys present in the just-arrived
+        // `data` that haven't already been shown for this lookup
+        // (renderedAlertKeys, reset per lookup in renderCore). Net effect:
+        // the same alert set, markup and left-to-right order the old
+        // single-shot render produced — just filled in progressively
+        // instead of all at once, with no duplicates.
+        var renderedAlertKeys = {};
+        var ALERT_KEY_ORDER = [
+            'safe_browsing', 'virustotal', 'registrar_reputation', 'domain_age_risk',
+            'whois_privacy', 'hosting_risk', 'phishtank', 'urlhaus', 'spamhaus', 'abuseipdb'
+        ];
+        function alertHtmlForKey(key, data) {
+            switch (key) {
+                case 'safe_browsing':
+                    // Safe Browsing warning (Issue #52)
+                    if (data.safe_browsing && !data.safe_browsing.safe) {
+                        return '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-shield-exclamation me-1" aria-hidden="true"></i><strong>Security Warning:</strong> This domain is flagged by Google Safe Browsing — ' + esc(data.safe_browsing.threats.join(', ')) + '</div>';
+                    }
+                    return '';
+                case 'virustotal':
+                    // VirusTotal reputation (Issue #53)
+                    if (data.virustotal) {
+                        var vt = data.virustotal;
+                        var vtClass = vt.malicious > 0 ? 'alert-danger' : (vt.suspicious > 0 ? 'alert-warning' : 'alert-info');
+                        var vtIcon = vt.malicious > 0 ? 'bi-shield-x' : (vt.suspicious > 0 ? 'bi-shield-exclamation' : 'bi-shield-check');
+                        return '<div class="alert ' + vtClass + ' mt-2 mb-0 small"><i class="bi ' + vtIcon + ' me-1" aria-hidden="true"></i><strong>VirusTotal:</strong> ' + vt.malicious + ' malicious, ' + vt.suspicious + ' suspicious, ' + vt.harmless + ' clean detections</div>';
+                    }
+                    return '';
+                case 'registrar_reputation':
+                    // Registrar reputation flag (Issue #51)
+                    if (data.registrar_reputation) {
+                        var repClass = data.registrar_reputation.rating === 'warning' ? 'alert-danger' : 'alert-warning';
+                        var repIcon = data.registrar_reputation.rating === 'warning' ? 'bi-exclamation-triangle-fill' : 'bi-exclamation-circle-fill';
+                        return '<div class="alert ' + repClass + ' mt-2 mb-0 small"><i class="bi ' + repIcon + ' me-1" aria-hidden="true"></i><strong>Registrar Notice:</strong> ' + esc(data.registrar_reputation.reason) + '</div>';
+                    }
+                    return '';
+                case 'domain_age_risk':
+                    // Domain age risk (Issue #95)
+                    if (data.domain_age_risk) {
+                        var dar = data.domain_age_risk;
+                        var darClass = dar.risk === 'high' ? 'alert-danger' : (dar.risk === 'medium' ? 'alert-warning' : 'alert-info');
+                        var darIcon = dar.risk === 'high' ? 'bi-exclamation-triangle-fill' : (dar.risk === 'medium' ? 'bi-exclamation-circle' : 'bi-info-circle');
+                        if (dar.risk !== 'low') {
+                            return '<div class="alert ' + darClass + ' mt-2 mb-0 small"><i class="bi ' + darIcon + ' me-1" aria-hidden="true"></i><strong>Domain Age:</strong> ' + esc(dar.reason) + ' (' + dar.days_old + ' days)</div>';
+                        }
+                    }
+                    return '';
+                case 'whois_privacy':
+                    // WHOIS privacy (Issue #104)
+                    if (data.whois_privacy && data.whois_privacy.privacy_enabled) {
+                        return '<div class="alert alert-info mt-2 mb-0 small"><i class="bi bi-shield-lock me-1" aria-hidden="true"></i><strong>WHOIS Privacy:</strong> Registrant data is protected (' + esc(data.whois_privacy.indicators.slice(0, 3).join(', ')) + ')</div>';
+                    }
+                    return '';
+                case 'hosting_risk':
+                    // Hosting risk (Issue #105)
+                    if (data.hosting_risk && data.hosting_risk.risk !== 'low') {
+                        var hrClass = data.hosting_risk.risk === 'high' ? 'alert-danger' : 'alert-warning';
+                        return '<div class="alert ' + hrClass + ' mt-2 mb-0 small"><i class="bi bi-geo-alt me-1" aria-hidden="true"></i><strong>Hosting:</strong> ' + esc(data.hosting_risk.reason) + ' (' + esc(data.hosting_risk.country) + ')</div>';
+                    }
+                    return '';
+                case 'phishtank':
+                    // PhishTank (Issue #98)
+                    if (data.phishtank && data.phishtank.is_phish) {
+                        return '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-bug me-1" aria-hidden="true"></i><strong>PhishTank:</strong> This domain is flagged as a known phishing site</div>';
+                    }
+                    return '';
+                case 'urlhaus':
+                    // URLhaus (Issue #99)
+                    if (data.urlhaus && data.urlhaus.urls_total > 0) {
+                        return '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-radioactive me-1" aria-hidden="true"></i><strong>URLhaus:</strong> ' + data.urlhaus.urls_total + ' malware URL(s) associated with this domain</div>';
+                    }
+                    return '';
+                case 'spamhaus':
+                    // Spamhaus (Issue #100)
+                    if (data.spamhaus && data.spamhaus.listed) {
+                        return '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-envelope-x me-1" aria-hidden="true"></i><strong>Spamhaus:</strong> IP is listed on ' + data.spamhaus.lists.length + ' blocklist(s): ' + esc(data.spamhaus.lists.map(function(l){ return l.label; }).join(', ')) + '</div>';
+                    }
+                    return '';
+                case 'abuseipdb':
+                    // AbuseIPDB (Issue #96)
+                    if (data.abuseipdb && data.abuseipdb.abuse_score > 0) {
+                        var abuseClass = data.abuseipdb.abuse_score > 50 ? 'alert-danger' : 'alert-warning';
+                        return '<div class="alert ' + abuseClass + ' mt-2 mb-0 small"><i class="bi bi-flag me-1" aria-hidden="true"></i><strong>AbuseIPDB:</strong> Abuse confidence ' + data.abuseipdb.abuse_score + '%, ' + data.abuseipdb.total_reports + ' report(s)' + (data.abuseipdb.is_tor ? ' — Tor exit node' : '') + '</div>';
+                    }
+                    return '';
+            }
+            return '';
+        }
         function renderSummaryAlert(data) {
-            var html = '';
-
-            // Safe Browsing warning (Issue #52)
-            if (data.safe_browsing && !data.safe_browsing.safe) {
-                html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-shield-exclamation me-1" aria-hidden="true"></i><strong>Security Warning:</strong> This domain is flagged by Google Safe Browsing — ' + esc(data.safe_browsing.threats.join(', ')) + '</div>';
-            }
-
-            // VirusTotal reputation (Issue #53)
-            if (data.virustotal) {
-                var vt = data.virustotal;
-                var vtClass = vt.malicious > 0 ? 'alert-danger' : (vt.suspicious > 0 ? 'alert-warning' : 'alert-info');
-                var vtIcon = vt.malicious > 0 ? 'bi-shield-x' : (vt.suspicious > 0 ? 'bi-shield-exclamation' : 'bi-shield-check');
-                html += '<div class="alert ' + vtClass + ' mt-2 mb-0 small"><i class="bi ' + vtIcon + ' me-1" aria-hidden="true"></i><strong>VirusTotal:</strong> ' + vt.malicious + ' malicious, ' + vt.suspicious + ' suspicious, ' + vt.harmless + ' clean detections</div>';
-            }
-
-            // Registrar reputation flag (Issue #51)
-            if (data.registrar_reputation) {
-                var repClass = data.registrar_reputation.rating === 'warning' ? 'alert-danger' : 'alert-warning';
-                var repIcon = data.registrar_reputation.rating === 'warning' ? 'bi-exclamation-triangle-fill' : 'bi-exclamation-circle-fill';
-                html += '<div class="alert ' + repClass + ' mt-2 mb-0 small"><i class="bi ' + repIcon + ' me-1" aria-hidden="true"></i><strong>Registrar Notice:</strong> ' + esc(data.registrar_reputation.reason) + '</div>';
-            }
-
-            // Domain age risk (Issue #95)
-            if (data.domain_age_risk) {
-                var dar = data.domain_age_risk;
-                var darClass = dar.risk === 'high' ? 'alert-danger' : (dar.risk === 'medium' ? 'alert-warning' : 'alert-info');
-                var darIcon = dar.risk === 'high' ? 'bi-exclamation-triangle-fill' : (dar.risk === 'medium' ? 'bi-exclamation-circle' : 'bi-info-circle');
-                if (dar.risk !== 'low') {
-                    html += '<div class="alert ' + darClass + ' mt-2 mb-0 small"><i class="bi ' + darIcon + ' me-1" aria-hidden="true"></i><strong>Domain Age:</strong> ' + esc(dar.reason) + ' (' + dar.days_old + ' days)</div>';
-                }
-            }
-
-            // WHOIS privacy (Issue #104)
-            if (data.whois_privacy && data.whois_privacy.privacy_enabled) {
-                html += '<div class="alert alert-info mt-2 mb-0 small"><i class="bi bi-shield-lock me-1" aria-hidden="true"></i><strong>WHOIS Privacy:</strong> Registrant data is protected (' + esc(data.whois_privacy.indicators.slice(0, 3).join(', ')) + ')</div>';
-            }
-
-            // Hosting risk (Issue #105)
-            if (data.hosting_risk && data.hosting_risk.risk !== 'low') {
-                var hrClass = data.hosting_risk.risk === 'high' ? 'alert-danger' : 'alert-warning';
-                html += '<div class="alert ' + hrClass + ' mt-2 mb-0 small"><i class="bi bi-geo-alt me-1" aria-hidden="true"></i><strong>Hosting:</strong> ' + esc(data.hosting_risk.reason) + ' (' + esc(data.hosting_risk.country) + ')</div>';
-            }
-
-            // PhishTank (Issue #98)
-            if (data.phishtank && data.phishtank.is_phish) {
-                html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-bug me-1" aria-hidden="true"></i><strong>PhishTank:</strong> This domain is flagged as a known phishing site</div>';
-            }
-
-            // URLhaus (Issue #99)
-            if (data.urlhaus && data.urlhaus.urls_total > 0) {
-                html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-radioactive me-1" aria-hidden="true"></i><strong>URLhaus:</strong> ' + data.urlhaus.urls_total + ' malware URL(s) associated with this domain</div>';
-            }
-
-            // Spamhaus (Issue #100)
-            if (data.spamhaus && data.spamhaus.listed) {
-                html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-envelope-x me-1" aria-hidden="true"></i><strong>Spamhaus:</strong> IP is listed on ' + data.spamhaus.lists.length + ' blocklist(s): ' + esc(data.spamhaus.lists.map(function(l){ return l.label; }).join(', ')) + '</div>';
-            }
-
-            // AbuseIPDB (Issue #96)
-            if (data.abuseipdb && data.abuseipdb.abuse_score > 0) {
-                var abuseClass = data.abuseipdb.abuse_score > 50 ? 'alert-danger' : 'alert-warning';
-                html += '<div class="alert ' + abuseClass + ' mt-2 mb-0 small"><i class="bi bi-flag me-1" aria-hidden="true"></i><strong>AbuseIPDB:</strong> Abuse confidence ' + data.abuseipdb.abuse_score + '%, ' + data.abuseipdb.total_reports + ' report(s)' + (data.abuseipdb.is_tor ? ' — Tor exit node' : '') + '</div>';
-            }
-
-            return html;
+            var slot = document.getElementById('slot-alerts');
+            if (!slot) return;
+            ALERT_KEY_ORDER.forEach(function (key) {
+                if (renderedAlertKeys[key]) return;
+                if (!Object.prototype.hasOwnProperty.call(data, key)) return;
+                renderedAlertKeys[key] = true;
+                var alertHtml = alertHtmlForKey(key, data);
+                if (alertHtml) slot.insertAdjacentHTML('beforeend', alertHtml);
+            });
         }
 
         // IP geolocation (Issue #18)
@@ -2227,8 +2403,17 @@ if ($_showPortfolioIcon): ?>
         // in the legacy monolithic displayResults(), where this block set
         // subdomainsPane.innerHTML (assignment, not +=) and therefore wiped
         // out any reverse_ip/tech_stack/robots_txt content rendered earlier
-        // into the same pane. Preserved verbatim for Step 5 (zero behaviour
-        // change) — worth a deliberate fix in a follow-up, not in scope here.
+        // into the same pane. Preserved verbatim through Step 5 (zero
+        // behaviour change there, since the legacy call order was fixed:
+        // web always rendered before subdomains). Issue #196 Step 6 fires
+        // the 'web' and 'subdomains' module fetches CONCURRENTLY, so this
+        // dormant quirk is now a live, timing-dependent race: if the
+        // 'subdomains' response happens to land AFTER 'web's, its
+        // tech_stack/robots_txt cards (also rendered into this pane) get
+        // wiped — visual only, no data loss (lastLookupData still has
+        // everything; a tab re-render or another lookup restores it).
+        // Deliberately NOT fixed here — flagged as a follow-up, out of
+        // scope for the Step 6 switch-on commit.
         function renderSubdomains(data) {
             if (!(data.subdomains && data.subdomains.length)) return;
             document.getElementById('resultTabs').style.display = '';
@@ -2240,13 +2425,27 @@ if ($_showPortfolioIcon): ?>
             document.getElementById('subdomainsPane').innerHTML = subHtml;
         }
 
-        // ── renderModule: the seam Step 6 will call once per async module
-        // response. For Step 5 it's called synchronously from
-        // displayResults() with the SAME full legacy response each time —
-        // each renderer below picks its own key(s) back out of it. ──
+        // ── renderModule: the seam triggerLookup()'s progressive flow calls
+        // once per async module response (core → renderCore(); each of
+        // dns/web/email/reputation/subdomains/score → renderModule() as its
+        // own fetch resolves — see startModuleFetches()/retryModule()).
+        // Each renderer picks its own key(s) back out of res.data. ──
         function renderModule(name, res) {
             Object.assign(lastLookupData, res.data);
             var data = res.data;
+            // Clear this module's owned slots before dispatching its per-key
+            // renderers (each of which is a no-op — "if (!data.xxx) return;"
+            // — when its key is missing/null, e.g. gated by DNT or simply
+            // not applicable). Without this, a slot renderModuleSkeleton()
+            // filled with a loading placeholder would stay stuck showing
+            // that placeholder forever once the real (empty) response
+            // lands, instead of reverting to empty exactly as it would if
+            // the key had never been requested at all (matches the "a
+            // missing key leaves its slot empty" per-key renderer contract).
+            (MODULE_SLOTS[name] || []).forEach(function (id) {
+                var el = document.getElementById(id);
+                if (el) el.innerHTML = '';
+            });
             switch (name) {
                 case 'dns':
                     renderDnssec(data);
@@ -2269,10 +2468,12 @@ if ($_showPortfolioIcon): ?>
                     renderEmailSecurity(data);
                     renderSmtp(data);
                     renderMultiDnsbl(data);
+                    renderSummaryAlert(data); // spamhaus
                     break;
                 case 'reputation':
                     renderGeolocation(data);
                     renderShodan(data);
+                    renderSummaryAlert(data); // safe_browsing, virustotal, phishtank, urlhaus, abuseipdb, hosting_risk
                     break;
                 case 'subdomains':
                     // reverse_ip before subdomains — matches legacy execution
@@ -2288,14 +2489,91 @@ if ($_showPortfolioIcon): ?>
             }
         }
 
-        function displayResults(data) {
-            if (!renderCore(data)) return;
-            renderModule('dns', { data: data });
-            renderModule('web', { data: data });
-            renderModule('email', { data: data });
-            renderModule('reputation', { data: data });
-            renderModule('subdomains', { data: data });
-            renderModule('score', { data: data });
+        // ── Module dispatch metadata (Issue #196 Step 6) ──
+
+        // Which pre-stamped slot(s) each module owns — used to place loading
+        // skeletons and, on failure, a single Retry prompt. Order matters:
+        // renderModuleFailed() puts its alert in the FIRST slot only.
+        var MODULE_SLOTS = {
+            dns: ['slot-dnssec', 'slot-ipv6', 'slot-ns_diversity', 'slot-dns_propagation'],
+            web: ['slot-ssl', 'slot-http_headers', 'slot-tls_audit', 'slot-caa', 'slot-http_versions',
+                'slot-redirect_chain', 'slot-response_times', 'slot-tech_stack', 'slot-robots_txt'],
+            email: ['slot-email_security', 'slot-smtp', 'slot-multi_dnsbl'],
+            reputation: ['slot-geolocation', 'slot-shodan'],
+            subdomains: ['slot-reverse_ip', 'slot-subdomains'],
+            score: ['slot-security_score', 'slot-security_details']
+        };
+
+        // Which nav-link tab(s) each module's content lands in — purely
+        // cosmetic (a small spinner while in flight; a dot if it failed).
+        var MODULE_TABS = {
+            dns: ['rtab-dns'],
+            web: ['rtab-ssl', 'rtab-subdomains'],
+            email: ['rtab-email'],
+            reputation: ['rtab-ssl'],
+            subdomains: ['rtab-subdomains'],
+            score: ['rtab-security']
+        };
+
+        var tabPendingCount = {};
+        function setTabSpinner(name, loading, failed) {
+            (MODULE_TABS[name] || []).forEach(function (tabId) {
+                var tab = document.getElementById(tabId);
+                if (!tab) return;
+                tabPendingCount[tabId] = Math.max(0, (tabPendingCount[tabId] || 0) + (loading ? 1 : -1));
+                var oldSpinner = tab.querySelector('.tab-mod-spinner');
+                if (oldSpinner) oldSpinner.remove();
+                var oldDot = tab.querySelector('.tab-mod-faildot');
+                if (oldDot) oldDot.remove();
+                if (tabPendingCount[tabId] > 0) {
+                    tab.insertAdjacentHTML('beforeend', ' <span class="spinner-border spinner-border-sm tab-mod-spinner" aria-hidden="true"></span>');
+                } else if (failed) {
+                    tab.insertAdjacentHTML('beforeend', ' <span class="tab-mod-faildot text-danger" title="Some data failed to load">●</span>');
+                }
+            });
+        }
+
+        // Bootstrap 5.3 placeholder-glow loading card(s), one per slot the
+        // module owns. `dnt` is accepted for symmetry with the module fetch
+        // call but not branched on here: the per-key renderers already
+        // no-op correctly once a DNT-gated check comes back null in the real
+        // response, so there's nothing to special-case before it arrives.
+        function renderModuleSkeleton(name, dnt) {
+            document.getElementById('resultTabs').style.display = '';
+            var placeholder = '<div class="card mt-2 placeholder-glow" aria-hidden="true"><div class="card-body">' +
+                '<span class="placeholder col-5"></span> <span class="placeholder col-3"></span><br>' +
+                '<span class="placeholder col-7 mt-1"></span></div></div>';
+            (MODULE_SLOTS[name] || []).forEach(function (id) {
+                var el = document.getElementById(id);
+                if (el) el.innerHTML = placeholder;
+            });
+        }
+
+        // Replaces a module's skeleton(s) with a single warning + Retry link
+        // (only in the module's first owned slot, to avoid duplicate links);
+        // its other slots are just cleared.
+        function renderModuleFailed(name) {
+            var slots = MODULE_SLOTS[name] || [];
+            slots.forEach(function (id, idx) {
+                var el = document.getElementById(id);
+                if (!el) return;
+                el.innerHTML = idx === 0
+                    ? '<div class="alert alert-warning small mt-2 mb-0 d-flex align-items-center justify-content-between gap-2">' +
+                      '<span><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>Could not load this section.</span>' +
+                      '<a href="#" class="alert-link" data-retry-module="' + esc(name) + '">Retry</a></div>'
+                    : '';
+            });
+        }
+
+        // Reputation is skipped entirely under DNT (see startModuleFetches)
+        // — show a muted note in its two slots instead of a skeleton.
+        function renderReputationSkippedDnt() {
+            document.getElementById('resultTabs').style.display = '';
+            var note = '<div class="alert alert-secondary small mt-2 mb-0"><i class="bi bi-eye-slash me-1" aria-hidden="true"></i>Skipped — Do Not Track is enabled.</div>';
+            ['slot-geolocation', 'slot-shodan'].forEach(function (id) {
+                var el = document.getElementById(id);
+                if (el) el.innerHTML = note;
+            });
         }
 
         // ── Result tabs ──
@@ -2394,14 +2672,12 @@ if ($_showPortfolioIcon): ?>
             btn.disabled = true;
             btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Fetching fresh...';
 
-            var fd = new FormData();
-            fd.append('domain', currentDomain);
-            fd.append('csrf_token', CSRF);
-
-            fetch('lookup?nocache=' + Date.now() + '&source=whois', { method: 'POST', body: fd })
-                .then(function (r) {
-                    return r.json();
-                })
+            // Issue #196 Step 6: this only ever reads data.whois/data.error —
+            // both core fields — so route it through modules=core&source=whois
+            // instead of the full response. No lookup_token: a refresh is a
+            // new WHOIS fetch in its own right and should count against the
+            // rate limit exactly like the original lookup did.
+            postLookup('lookup?modules=core&nocache=' + Date.now() + '&source=whois', currentDomain)
                 .then(function (data) {
                     btn.disabled = false;
                     btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Refresh &amp; Diff';
@@ -2521,10 +2797,21 @@ if ($_showPortfolioIcon): ?>
             document.getElementById('parsedFields').innerHTML = '';
             document.getElementById('actionButtons').style.cssText = 'display:none !important';
             document.getElementById('emptyState').style.display = 'none';
-            // Reset active tab to WHOIS (Issue #178)
+            // Reset active tab to WHOIS (Issue #178), and — Issue #196 Step 6 —
+            // clear any in-flight/failed module tab spinners left over from a
+            // previous (possibly still-settling) lookup. The pane innerHTML
+            // resets above already discard every skeleton/failure slot; nav
+            // tabs are static markup, never regenerated, so their spinner/dot
+            // decorations need clearing explicitly here.
+            tabPendingCount = {};
+            renderedAlertKeys = {};
             document.querySelectorAll('#resultTabs .nav-link').forEach(function (t) {
                 t.classList.remove('active');
                 t.setAttribute('aria-selected', 'false');
+                var spinner = t.querySelector('.tab-mod-spinner');
+                if (spinner) spinner.remove();
+                var dot = t.querySelector('.tab-mod-faildot');
+                if (dot) dot.remove();
             });
             var whoisTab = document.getElementById('rtab-whois');
             if (whoisTab) {
