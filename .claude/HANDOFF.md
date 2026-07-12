@@ -10,17 +10,26 @@ The pre-PR batch below (39 commits) **was PUSHED** to `origin/beta`; CI's versio
 changelog ran green on the new single-source structure (now v1.50.1, `a6e6532`) — validating
 the workflow restructure end-to-end. `origin/main` untouched. **No PR open yet.**
 
-**Now building #196 (progressive-loading re-arch)** — plan + live status at
-`.claude/plans/196-progressive-loading.md`. 7 steps, each lands green:
-- ✅ Step 1 module-registry extraction (byte-identical) — `aed2e12`, **pushed**, CI green.
-- ✅ Step 3 per-module caches — `1cf0aa6` (local, unpushed).
-- ✅ Step 4 module endpoints `?modules=` + rate-exempt `lookup_token` — `2b12736` (local). 84 PHPUnit tests green.
-- ⬜ Step 5 frontend renderer split · ⬜ Step 6 progressive switch-on · ⬜ Step 7 docs.
-- ⬜ Step 2 (deferred to LAST) — SSRF-safe curl_multi parallelisation (risk + sandbox-DNS-hang; modules run serial-within-module until then, bounded by #192 timeouts).
+**#196 (progressive-loading re-arch) — ✅ CODE-COMPLETE (all 7 steps).** Plan + per-step
+status/commits: `.claude/plans/196-progressive-loading.md`. Step 1 (`aed2e12`) is pushed +
+CI-green; **8 more commits (Steps 3–7 + 2) are local on `beta`, unpushed, clean fast-forward.**
+- Backend fully verified: **149 PHPUnit tests / 629 assertions green**, live `php -S` smoke
+  (modules=core returns the completed core payload + clean JSON, back-compat 51 keys).
+- The module API: `POST /lookup?modules=core|dns|web|email|reputation|subdomains|score`,
+  rate-exempt HMAC `lookup_token`, per-module caches; progressive core-first frontend;
+  reputation+subdomains parallelised (curl_multi/dig, SSRF-safe); OpenAPI documented.
+- Found+fixed along the way: PHP 8.4 `session.sid_length` deprecation that was corrupting
+  ALL JSON API responses (`a51766a`); a bracketed-IPv6 SSRF bypass in the batch helper.
 
-**Local `beta` is currently 2 commits ahead of `origin/beta` (Steps 3+4), unpushed.**
-`php -l` clean; tree clean. Sandbox caveat: DNS resolver hangs on CAA/TLSA → verify #196 via
-IP lookups / core / unit tests (see the plan doc).
+**⬜ REMAINING for #196:** (1) push the 8 commits; (2) **browser/visual verification of the
+progressive UX** — no browser in the build sandbox, so Steps 5–6 (frontend) are verified by
+construction + syntax + trace, NOT a rendered check. Load the app and confirm: core paints
+fast, tabs fill progressively with skeletons, DNT hides reputation, available/IP trim, no
+stale bleed on re-search.
+
+**Local `beta` is 8 commits ahead of `origin/beta`, unpushed, clean fast-forward.**
+`php -l` clean; 149 tests green; tree clean. Sandbox caveat: DNS hangs on CAA/TLSA → the
+web-module live domain path can't be exercised here (environmental, not a code bug).
 
 ### (historical) pre-PR batch — 39 commits, since pushed
 

@@ -3,14 +3,19 @@
 Durable copy of the Fable 5 architecture plan (the scratchpad copy was lost in a
 session restart). Web source dir: `web/public_html/`. 7 ordered steps, each lands green.
 
-## STATUS (2026-07-11)
-- ✅ **Step 1** — module registry extraction (byte-identical). Commit `aed2e12`. **Pushed** (on origin/beta, CI green).
-- ✅ **Step 3** — per-module caches, legacy warms them. Commit `1cf0aa6`. Local (unpushed).
-- ✅ **Step 4** — module endpoints `?modules=` + rate-exempt `lookup_token`. Commit `2b12736`. Local (unpushed).
-- ⬜ **Step 5** — frontend renderer split (slot-based per-key renderers, still single response).
-- ⬜ **Step 6** — progressive switch-on (concurrent module fetches, skeletons, Bulk/Diff routing).
-- ⬜ **Step 7** — docs (OpenAPI `modules` param + schemas + `lookup_token`; docs.php; changelog).
-- ⬜ **Step 2** (DEFERRED to last) — SSRF-safe `curl_multi` parallelisation of web/reputation + dig-batch subdomains. Deferred because it rewrites the security-critical outbound path to be concurrent (highest risk) and this sandbox's DNS hangs on CAA/TLSA (can't fully live-verify). Modules run serial-within-module until then (bounded by the per-check hard timeouts from #192).
+## STATUS — ✅ ALL STEPS COMPLETE (2026-07-11), code-complete + 149 tests green
+All 7 steps implemented. `Step 1` (`aed2e12`) is pushed + CI-green; Steps 3–7 + 2
+are **8 local commits on `beta`, unpushed, clean fast-forward.** Remaining: PUSH +
+final **browser/visual verification of the progressive UX** (no browser in the build
+sandbox — backend fully verified via 149 PHPUnit tests + live `php -S` smoke).
+
+- ✅ **Step 1** — module registry extraction (byte-identical). `aed2e12` (pushed, CI green).
+- ✅ **Step 3** — per-module caches. `1cf0aa6`.
+- ✅ **Step 4** — module endpoints `?modules=` + rate-exempt `lookup_token`. `2b12736`.
+- ✅ **Step 5** — frontend renderer split (slot-based, 45/45 keys). `1554dcb`.
+- ✅ **Step 6** — progressive switch-on. `90dbc6b` + fixes `34b549e` (complete core payload: added registrar_reputation/domain_age_risk/whois_privacy/screenshot_url/domain_suggestions/verification_token; fixed subdomains slot race) + `a51766a` (PHP 8.4 session ini_set was corrupting JSON responses). Live-verified: core fields present, clean JSON, back-compat 51 keys.
+- ✅ **Step 7** — OpenAPI module API docs (`?modules=`, `lookup_token`, CoreLookupResponse/ModuleResponse/ScoreResponse). `2e3bb24`.
+- ✅ **Step 2** — SSRF-safe `curl_multi`: `curlMultiBatch()` helper + 31 SSRF unit tests (caught+fixed a bracketed-IPv6 bypass) `6e7dfe9`; reputation batch `af5c7f4`; dig-batch subdomains `9587560`. Redirect-followers (auditHttpHeaders/detectRedirectChain/detectTechStack) + getSslInfo deliberately LEFT serial on the vetted path (lower risk). Serial fallbacks for no-curl_multi / no-dig.
 
 ## Module grouping (transport bundles; frontend renders per RESPONSE KEY, not per module)
 - **core** (blocking, <3s): domain,is_ip,availability,data_source,parsed,dns,raw/whois,cached,reverse_dns(IP), registrar_reputation,domain_age_risk,whois_privacy (local), screenshot_url(DNT+config), domain_suggestions([]), verification_token,rate_limit,dnt, + lookup_token, + modules_available[].
