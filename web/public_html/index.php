@@ -1769,6 +1769,98 @@ if ($_showPortfolioIcon): ?>
                 '<div id="slot-security_details"></div>';
         }
 
+        // ── EPP domain-status codes (Issue #225) ──
+        // Status codes are the most-Googled WHOIS field, and raw values like
+        // "clientTransferProhibited" are opaque registry jargon. This maps
+        // ICANN's standard EPP status codes to a plain-English label/
+        // description + a severity tier, so renderEppStatusChips() (called
+        // from renderCore()'s Domain Summary table below) can turn the raw
+        // "Status" values into chips with a tooltip and an ICANN reference
+        // link instead of plain text. client* codes are set by the sponsoring
+        // registrar, server* by the registry — functionally the same thing
+        // from an end user's point of view, so each pair shares wording.
+        var EPP_STATUS_CODES = {
+            ok: { label: 'OK', desc: 'Normal status — no restrictions; the domain is in good standing.', severity: 'ok' },
+            addPeriod: { label: 'Add Grace Period', desc: 'Domain was registered within the last few days and can still be deleted by the registrar for a full refund.', severity: 'info' },
+            autoRenewPeriod: { label: 'Auto-Renew Grace Period', desc: 'Domain was automatically renewed and is in a short grace period where that renewal can still be reversed.', severity: 'info' },
+            inactive: { label: 'Inactive', desc: 'Domain has no active name servers configured, so it will not resolve.', severity: 'warn' },
+            pendingCreate: { label: 'Pending Create', desc: 'A registration request has been received and is being processed.', severity: 'info' },
+            pendingRenew: { label: 'Pending Renew', desc: 'A renewal request has been received and is being processed.', severity: 'info' },
+            pendingRestore: { label: 'Pending Restore', desc: 'Domain is being restored from the redemption period, awaiting registry confirmation.', severity: 'info' },
+            pendingTransfer: { label: 'Pending Transfer', desc: 'A transfer request has been received and is awaiting approval or the auto-approval window.', severity: 'info' },
+            pendingUpdate: { label: 'Pending Update', desc: 'An update to the domain’s data has been received and is being processed.', severity: 'info' },
+            pendingDelete: { label: 'Pending Delete', desc: 'Domain is scheduled for deletion and will be released soon unless it is restored.', severity: 'danger' },
+            redemptionPeriod: { label: 'Redemption Period', desc: 'Domain was deleted and can only be restored by the registrant, at a cost, before it is permanently released.', severity: 'danger' },
+            renewPeriod: { label: 'Renew Period', desc: 'Domain was just renewed and is in a short grace period where that renewal can still be reversed.', severity: 'info' },
+            transferPeriod: { label: 'Transfer Period', desc: 'Domain was just transferred to a new registrar and is in a short post-transfer grace period.', severity: 'info' },
+            clientDeleteProhibited: { label: 'Client Delete Prohibited', desc: 'The current registrar has blocked deletion of this domain.', severity: 'info' },
+            serverDeleteProhibited: { label: 'Server Delete Prohibited', desc: 'The registry has blocked deletion of this domain.', severity: 'info' },
+            clientHold: { label: 'Client Hold', desc: 'The registrar has removed this domain from the DNS zone — the website and email will not work.', severity: 'danger' },
+            serverHold: { label: 'Server Hold', desc: 'The registry has removed this domain from the DNS zone — the website and email will not work.', severity: 'danger' },
+            clientRenewProhibited: { label: 'Client Renew Prohibited', desc: 'The current registrar has blocked renewal of this domain.', severity: 'warn' },
+            serverRenewProhibited: { label: 'Server Renew Prohibited', desc: 'The registry has blocked renewal of this domain.', severity: 'warn' },
+            clientTransferProhibited: { label: 'Client Transfer Prohibited', desc: 'The current registrar has locked this domain against transfer — usually a good sign, set intentionally to prevent unauthorised transfers.', severity: 'info' },
+            serverTransferProhibited: { label: 'Server Transfer Prohibited', desc: 'The registry has locked this domain against transfer — usually a good sign, set intentionally to prevent unauthorised transfers.', severity: 'info' },
+            clientUpdateProhibited: { label: 'Client Update Prohibited', desc: 'The current registrar has blocked changes to this domain’s data.', severity: 'info' },
+            serverUpdateProhibited: { label: 'Server Update Prohibited', desc: 'The registry has blocked changes to this domain’s data.', severity: 'info' }
+        };
+        var EPP_STATUS_BADGE_CLASS = { ok: 'bg-success', info: 'bg-secondary', warn: 'bg-warning text-dark', danger: 'bg-danger' };
+
+        // Normalises one raw "Domain Status" entry down to the canonical
+        // camelCase EPP code used as EPP_STATUS_CODES' keys. Handles the two
+        // shapes this app's parsed data can contain: a bare/registry WHOIS
+        // code that often has a reference URL appended by the registry
+        // (e.g. "clientTransferProhibited https://icann.org/epp#..." —
+        // see formatRdapResponse()/parseWhoisFields() in includes/functions.php),
+        // and RDAP's space-separated form (e.g. "client transfer prohibited",
+        // per RFC 8056). Never throws — worst case it returns the trimmed
+        // raw text unchanged, which renderEppStatusChips() then shows as an
+        // unrecognised/neutral chip.
+        function normalizeEppStatusCode(raw) {
+            var s = String(raw || '').trim();
+            s = s.replace(/\s+(https?:\/\/\S+)$/i, '').trim(); // strip a trailing registry-appended URL
+            if (!s || s.indexOf(' ') === -1) {
+                return s; // already a bare token (EPP camelCase, or an unrecognised single word)
+            }
+            return s.toLowerCase().split(/\s+/).map(function (word, i) {
+                return i === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1);
+            }).join('');
+        }
+
+        // Renders one or more raw EPP/RDAP status strings as a row of
+        // Bootstrap badge "chips": known codes get a severity colour, a
+        // plain-English tooltip, and a link to ICANN's EPP status-code
+        // reference; unrecognised codes still render safely as a neutral
+        // chip showing the raw code so an unexpected/future status can
+        // never break the summary table.
+        function renderEppStatusChips(statuses) {
+            var list = Array.isArray(statuses) ? statuses : [statuses];
+            var chips = list.filter(function (s) { return s !== null && s !== undefined && String(s).trim() !== ''; }).map(function (raw) {
+                var code = normalizeEppStatusCode(raw);
+                // hasOwnProperty guard: `code` is derived from external WHOIS/RDAP
+                // text, so a crafted status string (e.g. one that normalises to
+                // "__proto__" or "constructor") must not resolve to an inherited
+                // Object.prototype member via plain bracket lookup — that would be
+                // treated as a "known" status and misrender (safely, but wrongly).
+                var info = Object.prototype.hasOwnProperty.call(EPP_STATUS_CODES, code) ? EPP_STATUS_CODES[code] : null;
+                var badgeClass = info ? (EPP_STATUS_BADGE_CLASS[info.severity] || 'bg-secondary') : 'bg-light text-dark border';
+                var tooltipText = info
+                    ? (info.label + ' — ' + info.desc)
+                    : ('Status code "' + (code || String(raw)) + '" — not in ICANN’s standard EPP list; shown as reported.');
+                // esc() only escapes &/</> (safe for element content); it does not
+                // escape quotes, which matters here because this lands in a
+                // title="..." attribute — escape those separately (Issue #225).
+                var titleAttr = esc(tooltipText).replace(/"/g, '&quot;');
+                var codeLabel = esc(code || String(raw));
+                var chip = '<span class="badge ' + badgeClass + '" title="' + titleAttr + '">' + codeLabel + '</span>';
+                if (info) {
+                    chip = '<a href="https://icann.org/epp#' + encodeURIComponent(code) + '" target="_blank" rel="noopener noreferrer" class="text-decoration-none">' + chip + '</a>';
+                }
+                return chip;
+            });
+            return '<div class="d-flex flex-wrap gap-1">' + chips.join('') + '</div>';
+        }
+
         // ── renderCore: availability badge + register buttons + screenshot,
         // source badge, core summary table (+ its reputation/email summary
         // alerts via renderSummaryAlert), WHOIS pane, DNS table, suggest
@@ -1859,7 +1951,14 @@ if ($_showPortfolioIcon): ?>
                             cls = ' class="table-warning"';
                         }
                     }
-                    html += '<tr' + cls + '><td class="fw-bold">' + esc(key) + '</td><td>' + esc(val) + '</td></tr>';
+                    // Issue #225: render the "Status" field (EPP domain-status
+                    // codes, e.g. clientTransferProhibited) as explainer chips
+                    // instead of raw comma-joined text. Every other field keeps
+                    // its existing plain-text rendering.
+                    var cellHtml = (key === 'Status')
+                        ? renderEppStatusChips(data.parsed[key])
+                        : esc(val);
+                    html += '<tr' + cls + '><td class="fw-bold">' + esc(key) + '</td><td>' + cellHtml + '</td></tr>';
                 }
                 html += '</table><div id="slot-alerts"></div></div></div>';
                 document.getElementById('slot-parsed').innerHTML = html;
