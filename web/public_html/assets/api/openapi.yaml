@@ -58,6 +58,40 @@ info:
     default value (`null` for single objects, `[]` for lists) — the frontend hides
     those panes for unregistered names anyway, so there's no lookup cost paid for them.
 
+    ## Progressive module loading (Issue #196)
+    `POST /lookup` also supports fetching a lookup in smaller pieces instead of the
+    single monolithic `LookupResponse`, via the `modules` query parameter:
+
+    1. `POST /lookup?modules=core` — the blocking WHOIS/RDAP + DNS slice
+       (`CoreLookupResponse`), typically under 3 seconds. Returns a `lookup_token`
+       and a `modules_available` list telling the caller which module groups are
+       worth fetching next: `[]` for an unregistered (`available`) domain,
+       `["email", "reputation"]` for an IP-address lookup, or all five module keys
+       otherwise.
+    2. `POST /lookup?modules=<dns|web|email|reputation|subdomains>` — one
+       enrichment module group (`ModuleResponse`), fetchable independently and
+       concurrently once `modules_available` says it applies.
+    3. `POST /lookup?modules=score` — the aggregated security score
+       (`ScoreResponse`), computed server-side from whichever module group
+       responses are already cached; fetch it after the module group(s) feeding
+       the score have resolved.
+
+    Every progressive-module request uses the **same auth rule** as the default
+    lookup (`X-API-Key` header or `csrf_token` form field — see Authentication
+    above) and the same base rate limiting. Additionally, present the
+    `lookup_token` issued by a `modules=core` (or the legacy default) response as
+    the `lookup_token` form field on a subsequent module request — `core`, `dns`,
+    `web`, `email`, `reputation`, `subdomains`, or `score` — for the *same domain*
+    to exempt that request from rate-limit counting. The token is an HMAC bound to
+    the caller's session (or API key) and the domain, and expires ~180 seconds
+    after issuance. A missing, expired, tampered, or mismatched token never causes
+    an error — the request simply falls back to normal counted rate limiting.
+
+    `modules` cannot be combined with `suggest` or `dns_propagation_only` (`400`).
+    An unrecognised `modules` value also returns `400`. The default (no `modules`
+    param) response shape — `LookupResponse` — is unchanged and remains the
+    default/full response.
+
     ## Security
     - Content Security Policy (CSP) on all pages
     - Subresource Integrity (SRI) on CDN assets
@@ -76,9 +110,10 @@ paths:
   /lookup:
     post:
       operationId: domainLookup
-      summary: Domain/IP lookup, on-demand TLD suggestions, or DNS-propagation refresh
+      summary: Domain/IP lookup, progressive lookup modules, on-demand TLD
+        suggestions, or DNS-propagation refresh
       description: |
-        A single endpoint with three request modes, selected by query string / body
+        A single endpoint with four request modes, selected by query string / body
         fields:
 
         1. **Main lookup** (default) — `domain` in the form body. Returns WHOIS/RDAP
@@ -86,19 +121,28 @@ paths:
            DNSSEC status, security assessments (Safe Browsing, VirusTotal, PhishTank,
            URLhaus, Spamhaus, AbuseIPDB), HTTP security-header audit, TLS version audit,
            technology-stack detection, and much more — see `LookupResponse`.
-        2. **On-demand TLD suggestions** (`?suggest=1` query param, Issue #164) — body
+        2. **Progressive lookup modules** (`?modules=core|dns|web|email|reputation|
+           subdomains|score`, Issue #196) — body `domain` (+ optional
+           `lookup_token`, + `source` for `modules=core` only). Fetches one slice of
+           the main lookup at a time instead of the full `LookupResponse` — see
+           "Progressive module loading" in the top-level description above for the
+           full contract, and `CoreLookupResponse` / `ModuleResponse` /
+           `ScoreResponse` for the response shapes. Cannot be combined with
+           `suggest`/`dns_propagation_only` (`400`).
+        3. **On-demand TLD suggestions** (`?suggest=1` query param, Issue #164) — body
            `domain` only. Runs the alternative-TLD availability grid (parallel RDAP
            checks against ~25 popular TLDs) and returns `SuggestResponse`. This replaced
            the old behaviour of computing suggestions automatically on every main
            lookup; `domain_suggestions` in `LookupResponse` is now always `[]`.
-        3. **DNS-propagation-only refresh** (`dns_propagation_only=1` form field) —
+        4. **DNS-propagation-only refresh** (`dns_propagation_only=1` form field) —
            body `domain`, optional `full=1` to check every enabled resolver instead of
            the curated ~25-resolver panel. Skips the entire lookup/enrichment pipeline
            and returns only `DnsPropagationOnlyResponse`. Used by the frontend to poll
            propagation status without re-running the full lookup.
 
-        All three modes share the same auth (`X-API-Key` or `csrf_token`) and rate
-        limiting.
+        All four modes share the same auth (`X-API-Key` or `csrf_token`) and base
+        rate limiting; progressive module requests can additionally exempt
+        themselves from rate-limit counting with a `lookup_token` (see above).
       security:
         - ApiKeyAuth: []
         - {}
@@ -114,7 +158,8 @@ paths:
         - name: source
           in: query
           description: Preferred data source for the main lookup. `whois` also bypasses
-            the full-response cache so a fresh copy is always fetched.
+            the full-response cache so a fresh copy is always fetched. Also honored by
+            `?modules=core` requests (Issue #196); ignored for other `modules` values.
           schema:
             type: string
             enum: [rdap, whois]
@@ -126,6 +171,19 @@ paths:
           schema:
             type: string
             enum: ["1"]
+        - name: modules
+          in: query
+          description: |
+            Switch this request into progressive-module mode (Issue #196; see
+            "Progressive module loading" in the top-level description above). Omit
+            for the full legacy `LookupResponse` (default). `core` returns the
+            blocking WHOIS/RDAP + DNS slice; `score` returns the aggregated security
+            score; the remaining values each return one enrichment module group.
+            Cannot be combined with `suggest` or `dns_propagation_only` (`400`); an
+            unrecognised value also returns `400`.
+          schema:
+            type: string
+            enum: [core, dns, web, email, reputation, subdomains, score]
         - name: X-API-Key
           in: header
           description: API key for authenticated/programmatic access. Alternative to
@@ -144,6 +202,14 @@ paths:
               mainLookup:
                 summary: Main lookup
                 value: { domain: "example.com", source: "rdap" }
+              coreModule:
+                summary: Progressive module — modules=core (use with ?modules=core)
+                value: { domain: "example.com", csrf_token: "…", source: "rdap" }
+              moduleFetch:
+                summary: Progressive module — modules=dns|web|email|reputation|
+                  subdomains|score (use with the matching ?modules= value), presenting
+                  the lookup_token from a prior modules=core response
+                value: { domain: "example.com", csrf_token: "…", lookup_token: "…" }
               suggest:
                 summary: On-demand TLD suggestions (use with ?suggest=1)
                 value: { domain: "example.com" }
@@ -154,8 +220,19 @@ paths:
         "200":
           description: |
             Successful response. Shape depends on the request mode: `LookupResponse`
-            for the main lookup, `SuggestResponse` for `?suggest=1`, or
-            `DnsPropagationOnlyResponse` for `dns_propagation_only=1`.
+            for the main lookup (no `modules` param — the default), `CoreLookupResponse`
+            for `?modules=core`, `ModuleResponse` for `?modules=dns|web|email|
+            reputation|subdomains`, `ScoreResponse` for `?modules=score`,
+            `SuggestResponse` for `?suggest=1`, or `DnsPropagationOnlyResponse` for
+            `dns_propagation_only=1`.
+
+            Note: progressive-module responses (`CoreLookupResponse`/
+            `ModuleResponse`/`ScoreResponse`) do NOT carry the `X-RateLimit-*`
+            response headers below — those are only set on the legacy/default
+            `LookupResponse` path. `CoreLookupResponse` carries an equivalent
+            `rate_limit` body field instead; `ModuleResponse`/`ScoreResponse` carry
+            no rate-limit signal at all (their exemption/counting already happened
+            by the time they're built).
           headers:
             X-RateLimit-Limit:
               schema:
@@ -175,10 +252,85 @@ paths:
               schema:
                 oneOf:
                   - $ref: "#/components/schemas/LookupResponse"
+                  - $ref: "#/components/schemas/CoreLookupResponse"
+                  - $ref: "#/components/schemas/ModuleResponse"
+                  - $ref: "#/components/schemas/ScoreResponse"
                   - $ref: "#/components/schemas/SuggestResponse"
                   - $ref: "#/components/schemas/DnsPropagationOnlyResponse"
+              examples:
+                coreLookup:
+                  summary: modules=core response
+                  value:
+                    domain: example.com
+                    is_ip: false
+                    availability: registered
+                    data_source: rdap
+                    parsed: {}
+                    dns: []
+                    whois: "Domain Name: EXAMPLE.COM..."
+                    cached: false
+                    registrar_reputation: null
+                    domain_age_risk: null
+                    whois_privacy: null
+                    screenshot_url: null
+                    domain_suggestions: []
+                    verification_token: "mwwhois-verify-abc123"
+                    lookup_token: "eyJ2IjoxLCJkIjoiZXhhbXBsZS5jb20ifQ.c2lnbmF0dXJl"
+                    modules_available: [dns, web, email, reputation, subdomains]
+                    rate_limit:
+                      used: 1
+                      remaining: 29
+                      limit: 30
+                    dnt: false
+                moduleFetch:
+                  summary: modules=dns response
+                  value:
+                    domain: example.com
+                    module: dns
+                    status: ok
+                    dnt: false
+                    cached: false
+                    generated_at: 1752300000
+                    data:
+                      dnssec:
+                        signed: true
+                        ds_records: 1
+                        status: signed
+                      ipv6:
+                        has_aaaa: true
+                        aaaa_records: ["2606:2800:220:1:248:1893:25c8:1946"]
+                      ns_diversity:
+                        nameservers: [ns1.example.com, ns2.example.com]
+                        unique_networks: 2
+                        diverse: true
+                        warning: null
+                      dns_propagation:
+                        resolvers: []
+                        consistent: true
+                    skipped: {}
+                scoreFetch:
+                  summary: modules=score response
+                  value:
+                    domain: example.com
+                    module: score
+                    status: ok
+                    dnt: false
+                    cached: false
+                    generated_at: 1752300030
+                    data:
+                      security_score:
+                        grade: B
+                        score: 83
+                        passed: 10
+                        total: 12
+                        details: []
+                      inputs_missing: []
+                    skipped: {}
         "400":
-          description: Invalid input (e.g. malformed domain name)
+          description: |
+            Invalid input (e.g. malformed domain name). Also returned when
+            `modules` is an unrecognised value, or when `modules` is combined with
+            `suggest` or `dns_propagation_only`.
           content:
             application/json:
               schema:
@@ -273,6 +425,18 @@ components:
           type: string
           enum: [rdap, whois]
           description: Overrides the `source` query parameter when both are present.
+        lookup_token:
+          type: string
+          description: |
+            Optional. Only meaningful on `?modules=` requests (Issue #196; any
+            module value, including `core`) — presents a token previously issued
+            in a `lookup_token` response field (by a `modules=core` request, or by
+            the legacy default response) to exempt THIS request from rate-limit
+            counting. Bound to the calling session/API key and to the `domain`
+            above; expires ~180 seconds after issuance. Has no effect when
+            `modules` is absent; any validation failure (missing, expired,
+            tampered, wrong domain/caller) silently falls back to normal counted
+            rate limiting rather than an error.
 
     DnsPropagationOnlyRequestBody:
       type: object
@@ -875,6 +1039,17 @@ components:
           nullable: true
           description: DNS TXT verification token for domain-ownership proof. `null`
             for IP lookups or if no session is available.
+        lookup_token:
+          type: string
+          nullable: true
+          description: |
+            HMAC-signed token, valid ~180 seconds, issued fresh on every response
+            (Issue #196). Can be presented as the `lookup_token` form field on
+            subsequent `?modules=` requests for this SAME domain to exempt them
+            from rate-limit counting — see "Progressive module loading" in the
+            top-level description. `null` if no session is available. Excluded
+            from the 15-minute full-response cache (re-minted on every request,
+            including cache hits), unlike the rest of this response.
         rate_limit:
           type: object
           description: Mirrors the `X-RateLimit-*` response headers in the JSON body.
@@ -882,6 +1057,245 @@ components:
             used: { type: integer }
             remaining: { type: integer }
             limit: { type: integer }
+
+    CoreLookupResponse:
+      type: object
+      description: |
+        Response for `POST /lookup?modules=core` (Issue #196) — the blocking
+        WHOIS/RDAP + DNS slice of the lookup pipeline (typically under 3 seconds),
+        MINUS the ~30 third-party enrichment fields `LookupResponse` carries
+        (`email_security`, `ssl`, `geolocation`, `security_score`, etc. — those
+        live in `ModuleResponse`/`ScoreResponse` instead), PLUS `lookup_token` and
+        `modules_available`. Same `whois`/`raw` mutual-exclusivity rule as
+        `LookupResponse` (session/CSRF web-UI callers get escaped+masked `whois`;
+        `?format=json`/API-key callers get `raw`).
+      properties:
+        domain:
+          type: string
+        is_ip:
+          type: boolean
+        availability:
+          type: string
+          enum: [registered, available, unknown, "n/a"]
+        data_source:
+          type: string
+          enum: [rdap, whois]
+        parsed:
+          $ref: "#/components/schemas/ParsedWhoisFields"
+        dns:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [A, AAAA, MX, NS, TXT, CNAME]
+              value:
+                type: string
+              priority:
+                type: integer
+                description: MX priority (MX records only).
+        raw:
+          type: string
+          nullable: true
+          description: Raw WHOIS/RDAP-derived text. Present when the request
+            resolved to JSON mode (`?format=json` or a valid `X-API-Key`);
+            mutually exclusive with `whois` below.
+        whois:
+          type: string
+          nullable: true
+          description: WHOIS text, HTML-escaped (and optionally contact-masked for
+            GDPR). Present when the request used the default (non-JSON,
+            session/CSRF web-UI) mode; mutually exclusive with `raw` above.
+        reverse_dns:
+          type: string
+          description: PTR hostname. Only present at all for IP-address lookups
+            (key is omitted entirely for domain lookups).
+        cached:
+          type: boolean
+          description: True if the raw WHOIS text came from the per-domain WHOIS
+            cache. Unlike `LookupResponse.cached`, this is NOT the 15-minute
+            full-response cache — `modules=core` always re-derives availability/
+            parsed/dns fresh from that raw text on every request.
+        registrar_reputation:
+          type: object
+          nullable: true
+          description: Registrar reputation lookup, based on the parsed WHOIS
+            "Registrar" field.
+        domain_age_risk:
+          type: object
+          nullable: true
+          properties:
+            risk: { type: string, enum: [low, low-medium, medium, high] }
+            days_old: { type: integer }
+            reason: { type: string }
+        whois_privacy:
+          type: object
+          nullable: true
+          properties:
+            privacy_enabled: { type: boolean }
+            indicators: { type: array, items: { type: string } }
+        screenshot_url:
+          type: string
+          nullable: true
+          description: Generated thumb.io screenshot URL. `null` if screenshots
+            aren't enabled in config, the request is an IP lookup, or `dnt` is true.
+        domain_suggestions:
+          type: array
+          items:
+            type: string
+          description: Always `[]` — see `LookupResponse.domain_suggestions`.
+        verification_token:
+          type: string
+          nullable: true
+          description: DNS TXT verification token for domain-ownership proof.
+            `null` for IP lookups or if no session is available.
+        lookup_token:
+          type: string
+          description: |
+            HMAC-signed token (`base64url(payload).base64url(signature)`), valid
+            for ~180 seconds from issuance. Present it as the `lookup_token` form
+            field on follow-up `?modules=` requests (`dns`/`web`/`email`/
+            `reputation`/`subdomains`/`score`, or another `core`) for this SAME
+            domain to exempt those requests from rate-limit counting. Bound to the
+            caller's session (or API key) — a token minted for one caller cannot
+            be replayed by another.
+        modules_available:
+          type: array
+          items:
+            type: string
+            enum: [dns, web, email, reputation, subdomains]
+          description: |
+            Which module groups are worth fetching next. `[]` when `availability`
+            is `available` (nothing to enrich for an unregistered name — mirrors
+            `LookupResponse`'s "enrichment is skipped for available domains"
+            rule). `["email", "reputation"]` for an IP-address lookup (the only
+            groups with any IP-applicable checks). All five module keys
+            otherwise. Never includes `score` — fetch `?modules=score` once you
+            have whichever of the listed groups you need reflected in it.
+        rate_limit:
+          type: object
+          properties:
+            used: { type: integer }
+            remaining: { type: integer }
+            limit: { type: integer }
+        dnt:
+          type: boolean
+      required: [domain, is_ip, availability, lookup_token, modules_available, dnt]
+
+    ModuleResponse:
+      type: object
+      description: |
+        Response for `POST /lookup?modules=<dns|web|email|reputation|subdomains>`
+        (Issue #196) — one enrichment module group's data, decomposed out of the
+        equivalent keys in `LookupResponse`:
+        - `dns`: `dnssec`, `ipv6`, `ns_diversity`, `dns_propagation`. Not
+          DNT-gated; cached without a `:dnt` cache-key suffix (its checks never
+          call a third party).
+        - `web`: `ssl`, `http_headers`, `tls_audit`, `http_versions`,
+          `redirect_chain`, `response_times`, `tech_stack`, `robots_txt`,
+          `cert_transparency`, `dane_tlsa`, `caa_records`.
+        - `email`: `email_security`, `mta_sts`, `bimi`, `smtp_security`, `hibp`,
+          `multi_dnsbl`, `spamhaus` (derived from `multi_dnsbl`'s Spamhaus ZEN
+          entry, not a separate lookup).
+        - `reputation`: `safe_browsing`, `virustotal`, `phishtank`, `urlhaus`,
+          `abuseipdb`, `shodan`, `geolocation`, `hosting_risk` (derived from
+          `geolocation`, computed unconditionally even when `geolocation` is
+          null/DNT-skipped).
+        - `subdomains`: `subdomains`, `reverse_ip`.
+
+        Every key's shape matches the identically-named property on
+        `LookupResponse`. `status` is `skipped_available` (with empty `data`/
+        `skipped`) when the domain's availability — read from a prior
+        `modules=core` call's cache, or a fresh raw-WHOIS lookup if no core cache
+        exists yet — is `available`; enrichment never runs for unregistered names.
+      properties:
+        domain:
+          type: string
+        module:
+          type: string
+          enum: [dns, web, email, reputation, subdomains]
+        status:
+          type: string
+          enum: [ok, skipped_available]
+        dnt:
+          type: boolean
+        cached:
+          type: boolean
+          description: True when this module's response came from its own
+            15-minute per-module cache (`mod:{module}:{domain}[:dnt]`) rather than
+            running the checks fresh on this request.
+        generated_at:
+          type: integer
+          description: Unix timestamp of when this response was produced.
+        data:
+          type: object
+          additionalProperties: true
+          description: Map of check-key → result, for whichever checks in this
+            module ran (see the per-module key lists above). A key is absent from
+            `data` (and present in `skipped` instead) if it didn't run.
+        skipped:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [dnt, is_ip, no_api_key, no_a_record, no_multi_dnsbl]
+          description: Map of check-key → reason it did not run — `dnt` (skipped
+            under Do-Not-Track), `is_ip` (check doesn't apply to bare IP lookups),
+            `no_api_key` (the check's required third-party API key isn't
+            configured), `no_a_record` (no resolvable A record for an
+            IP-dependent check), or `no_multi_dnsbl` (`spamhaus` couldn't be
+            derived because `multi_dnsbl` itself didn't run).
+      required: [domain, module, status, dnt, cached, generated_at, data, skipped]
+
+    ScoreResponse:
+      type: object
+      description: |
+        Response for `POST /lookup?modules=score` (Issue #196). Computed
+        server-side from whichever of the `dns`/`web`/`email`/`reputation` module
+        caches already exist for this domain — fetch it after the module
+        group(s) feeding the score have resolved for a complete picture; the
+        score is still computed (just from fewer inputs, listed in
+        `inputs_missing`) if some module caches are missing. Never cached
+        itself — `cached` is always `false`.
+      properties:
+        domain:
+          type: string
+        module:
+          type: string
+          enum: [score]
+        status:
+          type: string
+          enum: [ok]
+        dnt:
+          type: boolean
+        cached:
+          type: boolean
+          enum: [false]
+        generated_at:
+          type: integer
+        data:
+          type: object
+          properties:
+            security_score:
+              allOf:
+                - $ref: "#/components/schemas/SecurityScore"
+              description: Null for IP-address lookups only (a security score
+                has no meaning for a bare IP) — otherwise always computed, even
+                when every input in `inputs_missing` is missing (those checks are
+                then scored as failing/absent).
+            inputs_missing:
+              type: array
+              items:
+                type: string
+                enum: [dns, web, email, reputation]
+              description: Module groups whose cache wasn't found when this score
+                was computed. Fetch that module's `?modules=` endpoint and
+                re-fetch `?modules=score` for a more complete score.
+        skipped:
+          type: object
+          description: Always `{}` — present only for envelope-shape consistency
+            with `ModuleResponse`; scoring has no per-check skip reasons of its own.
+      required: [domain, module, status, dnt, cached, generated_at, data, skipped]
 
     ErrorResponse:
       type: object
