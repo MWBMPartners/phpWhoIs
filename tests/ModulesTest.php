@@ -273,4 +273,86 @@ class ModulesTest extends TestCase
         ]);
         $this->assertSame(['data' => [], 'skipped' => []], $result);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Issue #196 Step 3 — per-module response cache
+    // ═══════════════════════════════════════════════════════════════
+
+    protected function tearDown(): void
+    {
+        // Module-cache tests below write real files under the test CACHE_DIR
+        // (tests/bootstrap.php points it at a dedicated temp dir) — clean up
+        // after each test so entries don't leak between test methods/runs.
+        if (is_dir(CACHE_DIR)) {
+            foreach (glob(CACHE_DIR . DIRECTORY_SEPARATOR . '*.json') ?: [] as $file) {
+                @unlink($file);
+            }
+        }
+    }
+
+    public function testSetModuleCacheThenGetModuleCacheRoundTrips(): void
+    {
+        $payload = ['data' => ['dnssec' => ['signed' => true]], 'skipped' => []];
+        setModuleCache('dns', 'example.com', false, $payload);
+
+        $this->assertSame($payload, getModuleCache('dns', 'example.com', false));
+    }
+
+    public function testGetModuleCacheMissReturnsNull(): void
+    {
+        $this->assertNull(getModuleCache('web', 'never-cached-example.com', false));
+    }
+
+    public function testDnsModuleCacheIsSharedAcrossDntAndNonDnt(): void
+    {
+        // dns has no DNT-gated checks (moduleRegistry()'s 'dns' block: every
+        // descriptor has 'dnt' => false), so its cache key must NOT carry a
+        // :dnt suffix — a DNT caller and a non-DNT caller must hit the same
+        // entry.
+        $this->assertSame(
+            moduleCacheKey('dns', 'example.com', false),
+            moduleCacheKey('dns', 'example.com', true),
+            'dns module cache key must be identical for dnt=true and dnt=false'
+        );
+
+        $payload = ['data' => ['ipv6' => ['ready' => false]], 'skipped' => []];
+        setModuleCache('dns', 'example.com', false, $payload);
+
+        $this->assertSame($payload, getModuleCache('dns', 'example.com', true));
+    }
+
+    public function testNonDnsModuleCacheKeysDivergeByDnt(): void
+    {
+        // Every other module (web/email/reputation/subdomains/core) has at
+        // least one DNT-gated check, so dnt=true and dnt=false must be
+        // cached separately to avoid ever serving a DNT-skipped payload to a
+        // non-DNT caller (or vice versa).
+        foreach (['web', 'email', 'reputation', 'subdomains', 'core'] as $module) {
+            $this->assertNotSame(
+                moduleCacheKey($module, 'example.com', false),
+                moduleCacheKey($module, 'example.com', true),
+                "$module module cache key must differ between dnt=true and dnt=false"
+            );
+        }
+
+        $nonDnt = ['data' => ['ssl' => ['valid' => true]], 'skipped' => []];
+        $dnt = ['data' => [], 'skipped' => ['http_headers' => 'dnt']];
+        setModuleCache('web', 'example.com', false, $nonDnt);
+        setModuleCache('web', 'example.com', true, $dnt);
+
+        $this->assertSame($nonDnt, getModuleCache('web', 'example.com', false));
+        $this->assertSame($dnt, getModuleCache('web', 'example.com', true));
+    }
+
+    public function testModuleCacheKeysAreNamespacedByModuleAndDomain(): void
+    {
+        $this->assertNotSame(
+            moduleCacheKey('email', 'example.com', false),
+            moduleCacheKey('web', 'example.com', false)
+        );
+        $this->assertNotSame(
+            moduleCacheKey('email', 'example.com', false),
+            moduleCacheKey('email', 'example.org', false)
+        );
+    }
 }

@@ -379,3 +379,60 @@ function deriveSpamhausFromMultiDnsbl(array $multiDnsbl): array
         'lists'  => $zenEntry !== null ? [$zenEntry] : [],
     ];
 }
+
+// ═══════════════════════════════════════════════════════════════════
+//  Per-module response cache (Issue #196, Step 3)
+//
+//  Independent cache entries per module (plus 'core'), so a future
+//  `?modules=` fetch can read just the module a UI tab needs instead of
+//  paying for the whole ~35-check pipeline. Step 3 only WARMS these caches
+//  (from the existing legacy full-pipeline path, via runModuleChecks()'s
+//  result) — nothing reads them yet; that lands with the Step 4 dispatcher.
+//
+//  Keys: 'mod:{module}:{domain}' for the dns module (its content doesn't
+//  vary by Do-Not-Track — no requests it makes are DNT-gated, see
+//  moduleRegistry()'s 'dns' block, so DNT and non-DNT callers safely share
+//  one cache entry) and 'mod:{module}:{domain}:dnt' / 'mod:core:{domain}:dnt'
+//  for every other module — several of their checks skip outbound calls
+//  under DNT (see each descriptor's 'dnt' flag), so a DNT response must
+//  never be served to (or overwrite the cache for) a non-DNT caller.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Build the getCached()/setCache() key for a module's cached response.
+ * getCached()/setCache() key on md5(...) of whatever string they're given
+ * (see their use for the domain-keyed WHOIS cache and the 'full:' response
+ * cache), so a composite "namespace:module:domain[:dnt]" string is exactly
+ * the pattern already established by the 'full:' cache in lookup.php.
+ */
+function moduleCacheKey(string $module, string $domain, bool $dnt): string
+{
+    $suffix = ($dnt && $module !== 'dns') ? ':dnt' : '';
+    return 'mod:' . $module . ':' . $domain . $suffix;
+}
+
+/**
+ * Read a module's cached response, or null on a miss / corrupt entry.
+ *
+ * @param string $module 'core', or one of moduleRegistry()'s keys.
+ * @return array{data: array<string, mixed>, skipped: array<string, string>}|null
+ */
+function getModuleCache(string $module, string $domain, bool $dnt): ?array
+{
+    $raw = getCached(moduleCacheKey($module, $domain, $dnt), CACHE_TTL);
+    if ($raw === null) {
+        return null;
+    }
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : null;
+}
+
+/**
+ * Store a module's response payload (the ['data' => ..., 'skipped' => ...]
+ * shape runModuleChecks() returns; runCoreLookup()'s Step-4 caller uses the
+ * same shape for 'core').
+ */
+function setModuleCache(string $module, string $domain, bool $dnt, array $payload): void
+{
+    setCache(moduleCacheKey($module, $domain, $dnt), json_encode($payload), CACHE_TTL);
+}

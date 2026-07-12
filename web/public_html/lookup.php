@@ -410,12 +410,14 @@ $moduleCtx = [
 ];
 
 $dnsModule = runModuleChecks('dns', $moduleCtx);
+setModuleCache('dns', $domain, $dnt, $dnsModule); // Issue #196 Step 3: warm the module cache
 if (array_key_exists('dnssec', $dnsModule['data'])) { $dnssec = $dnsModule['data']['dnssec']; }
 if (array_key_exists('ipv6', $dnsModule['data'])) { $ipv6 = $dnsModule['data']['ipv6']; }
 if (array_key_exists('ns_diversity', $dnsModule['data'])) { $nsDiversity = $dnsModule['data']['ns_diversity']; }
 if (array_key_exists('dns_propagation', $dnsModule['data'])) { $dnsPropagation = $dnsModule['data']['dns_propagation']; }
 
 $webModule = runModuleChecks('web', $moduleCtx);
+setModuleCache('web', $domain, $dnt, $webModule); // Issue #196 Step 3: warm the module cache
 if (array_key_exists('ssl', $webModule['data'])) { $sslInfo = $webModule['data']['ssl']; }
 if (array_key_exists('http_headers', $webModule['data'])) { $httpHeaders = $webModule['data']['http_headers']; }
 if (array_key_exists('tls_audit', $webModule['data'])) { $tlsAudit = $webModule['data']['tls_audit']; }
@@ -429,6 +431,7 @@ if (array_key_exists('dane_tlsa', $webModule['data'])) { $daneTlsa = $webModule[
 if (array_key_exists('caa_records', $webModule['data'])) { $caaRecords = $webModule['data']['caa_records']; }
 
 $emailModule = runModuleChecks('email', $moduleCtx);
+setModuleCache('email', $domain, $dnt, $emailModule); // Issue #196 Step 3: warm the module cache
 if (array_key_exists('email_security', $emailModule['data'])) { $emailSecurity = $emailModule['data']['email_security']; }
 if (array_key_exists('mta_sts', $emailModule['data'])) { $mtaSts = $emailModule['data']['mta_sts']; }
 if (array_key_exists('bimi', $emailModule['data'])) { $bimi = $emailModule['data']['bimi']; }
@@ -438,6 +441,7 @@ if (array_key_exists('multi_dnsbl', $emailModule['data'])) { $multiDnsbl = $emai
 if (array_key_exists('spamhaus', $emailModule['data'])) { $spamhaus = $emailModule['data']['spamhaus']; }
 
 $reputationModule = runModuleChecks('reputation', $moduleCtx);
+setModuleCache('reputation', $domain, $dnt, $reputationModule); // Issue #196 Step 3: warm the module cache
 if (array_key_exists('safe_browsing', $reputationModule['data'])) { $safeBrowsing = $reputationModule['data']['safe_browsing']; }
 if (array_key_exists('virustotal', $reputationModule['data'])) { $virusTotal = $reputationModule['data']['virustotal']; }
 if (array_key_exists('phishtank', $reputationModule['data'])) { $phishTank = $reputationModule['data']['phishtank']; }
@@ -448,6 +452,7 @@ if (array_key_exists('geolocation', $reputationModule['data'])) { $geolocation =
 if (array_key_exists('hosting_risk', $reputationModule['data'])) { $hostingRisk = $reputationModule['data']['hosting_risk']; }
 
 $subdomainsModule = runModuleChecks('subdomains', $moduleCtx);
+setModuleCache('subdomains', $domain, $dnt, $subdomainsModule); // Issue #196 Step 3: warm the module cache
 if (array_key_exists('subdomains', $subdomainsModule['data'])) { $subdomains = $subdomainsModule['data']['subdomains']; }
 if (array_key_exists('reverse_ip', $subdomainsModule['data'])) { $reverseIp = $subdomainsModule['data']['reverse_ip']; }
 
