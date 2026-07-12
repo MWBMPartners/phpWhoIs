@@ -93,7 +93,7 @@ echo '<?xml version="1.0" encoding="UTF-8"?>' . PHP_EOL;
     <item>
         <title><?php echo htmlspecialchars($item['title']); ?></title>
         <link><?php echo htmlspecialchars($item['link']); ?></link>
-        <description><![CDATA[<?php echo nl2br($item['description']); ?>]]></description>
+        <description><![CDATA[<?php echo nl2br(str_replace(']]>', ']]]]><![CDATA[>', (string)$item['description'])); ?>]]></description>
         <pubDate><?php $ts = $item['date'] ? strtotime($item['date']) : false; echo date('r', $ts !== false ? $ts : time()); ?></pubDate>
         <guid isPermaLink="false"><?php echo htmlspecialchars($item['guid']); ?></guid>
     </item>
