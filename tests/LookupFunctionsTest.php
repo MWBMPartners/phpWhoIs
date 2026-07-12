@@ -468,4 +468,134 @@ class LookupFunctionsTest extends TestCase
         // No duplicates
         $this->assertEquals(count($tlds), count(array_unique($tlds)));
     }
+
+
+    // ═══════════════════════════════════════════════════════════════
+    //  getSslInfo() helpers (Issue #246 — chain trust, hostname match,
+    //  key/alg). These are the pure-logic pieces factored out of
+    //  getSslInfo() so they're testable without a live TLS connection
+    //  (the sandbox this suite runs in has no reliable outbound TLS).
+    // ═══════════════════════════════════════════════════════════════
+
+    public function testSslKeyTypeNameMapsKnownConstants(): void
+    {
+        $this->assertEquals('RSA', sslKeyTypeName(OPENSSL_KEYTYPE_RSA));
+        $this->assertEquals('EC', sslKeyTypeName(OPENSSL_KEYTYPE_EC));
+        $this->assertEquals('DSA', sslKeyTypeName(OPENSSL_KEYTYPE_DSA));
+        $this->assertEquals('DH', sslKeyTypeName(OPENSSL_KEYTYPE_DH));
+        $this->assertEquals('Unknown', sslKeyTypeName(null));
+        $this->assertEquals('Unknown', sslKeyTypeName(999));
+    }
+
+    public function testClassifySslKeyFlagsWeakRsa(): void
+    {
+        $r = classifySslKey('RSA', 1024, 'sha256WithRSAEncryption');
+        $this->assertTrue($r['weak']);
+        $this->assertNotEmpty($r['reasons']);
+        $this->assertStringContainsString('RSA key < 2048 bits', $r['reasons'][0]);
+    }
+
+    public function testClassifySslKeyFlagsSha1Signature(): void
+    {
+        $r = classifySslKey('RSA', 2048, 'sha1WithRSAEncryption');
+        $this->assertTrue($r['weak']);
+        $this->assertContains('SHA-1 signature', $r['reasons']);
+    }
+
+    public function testClassifySslKeyFlagsBothWeaknesses(): void
+    {
+        $r = classifySslKey('RSA', 1024, 'sha1WithRSAEncryption');
+        $this->assertTrue($r['weak']);
+        $this->assertCount(2, $r['reasons']);
+    }
+
+    public function testClassifySslKeyStrongRsaNotWeak(): void
+    {
+        $r = classifySslKey('RSA', 2048, 'sha256WithRSAEncryption');
+        $this->assertFalse($r['weak']);
+        $this->assertEmpty($r['reasons']);
+
+        $r4096 = classifySslKey('RSA', 4096, 'sha384WithRSAEncryption');
+        $this->assertFalse($r4096['weak']);
+    }
+
+    public function testClassifySslKeyEcNotSubjectToRsaBitRule(): void
+    {
+        // A 256-bit EC key is not weak — the RSA<2048 rule must not apply to EC.
+        $r = classifySslKey('EC', 256, 'ecdsa-with-SHA256');
+        $this->assertFalse($r['weak']);
+    }
+
+    public function testSslNameMatchesDomainExactMatch(): void
+    {
+        $this->assertTrue(sslNameMatchesDomain('example.com', 'example.com'));
+        $this->assertTrue(sslNameMatchesDomain('example.com', 'Example.COM')); // case-insensitive
+    }
+
+    public function testSslNameMatchesDomainWildcardSingleLabel(): void
+    {
+        $this->assertTrue(sslNameMatchesDomain('www.example.com', '*.example.com'));
+        $this->assertTrue(sslNameMatchesDomain('api.example.com', '*.example.com'));
+    }
+
+    public function testSslNameMatchesDomainWildcardDoesNotCoverApex(): void
+    {
+        $this->assertFalse(sslNameMatchesDomain('example.com', '*.example.com'));
+    }
+
+    public function testSslNameMatchesDomainWildcardDoesNotCoverMultiLevel(): void
+    {
+        $this->assertFalse(sslNameMatchesDomain('a.b.example.com', '*.example.com'));
+    }
+
+    public function testSslNameMatchesDomainMismatch(): void
+    {
+        $this->assertFalse(sslNameMatchesDomain('example.com', 'notexample.com'));
+        $this->assertFalse(sslNameMatchesDomain('example.com', ''));
+    }
+
+    public function testSslHostnameMatchesChecksCnAndSan(): void
+    {
+        $this->assertTrue(sslHostnameMatches('example.com', 'example.com', []));
+        $this->assertTrue(sslHostnameMatches('www.example.com', 'example.com', ['www.example.com', 'example.com']));
+        $this->assertTrue(sslHostnameMatches('foo.example.com', 'example.com', ['*.example.com']));
+        $this->assertFalse(sslHostnameMatches('evil.com', 'example.com', ['www.example.com']));
+    }
+
+    public function testSslHostnameMatchesHandlesTrailingDot(): void
+    {
+        $this->assertTrue(sslHostnameMatches('example.com.', 'example.com', []));
+    }
+
+    public function testClassifySslExpirySeverityTiers(): void
+    {
+        $this->assertEquals('expired', classifySslExpirySeverity(0));
+        $this->assertEquals('expired', classifySslExpirySeverity(-5));
+        $this->assertEquals('warn', classifySslExpirySeverity(1));
+        $this->assertEquals('warn', classifySslExpirySeverity(14));
+        $this->assertEquals('ok', classifySslExpirySeverity(15));
+        $this->assertEquals('ok', classifySslExpirySeverity(90));
+    }
+
+    public function testSslTrustErrorReasonClassifiesCommonFailures(): void
+    {
+        $this->assertEquals('Self-signed certificate', sslTrustErrorReason('SSL routines: self signed certificate'));
+        $this->assertEquals('Certificate expired', sslTrustErrorReason('certificate has expired'));
+        $this->assertEquals('Certificate not yet valid', sslTrustErrorReason('certificate is not yet valid'));
+        $this->assertEquals(
+            'Untrusted root (issuer not in trust store)',
+            sslTrustErrorReason('unable to get local issuer certificate')
+        );
+        $this->assertEquals(
+            'Hostname mismatch',
+            sslTrustErrorReason("Peer certificate CN=`weak.example' did not match expected CN=`newexample.com'")
+        );
+        $this->assertEquals('Certificate revoked', sslTrustErrorReason('certificate revoked'));
+    }
+
+    public function testSslTrustErrorReasonFallsBackToRawMessage(): void
+    {
+        $this->assertEquals('TLS trust verification failed', sslTrustErrorReason(''));
+        $this->assertEquals('some unrecognised openssl error', sslTrustErrorReason('some unrecognised openssl error'));
+    }
 }

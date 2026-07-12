@@ -1489,6 +1489,11 @@ function getIpGeolocation(string $ip): ?array {
 
 /**
  * Fetch SSL certificate info for a domain.
+ *
+ * Issue #246: a self-signed/expired/untrusted-chain certificate used to look
+ * identical to a valid, trusted one — misleading for a security tool. The
+ * result now also reports chain trust, hostname coverage, and key/signature
+ * strength (see sslCheckTrust(), sslHostnameMatches(), classifySslKey()).
  */
 function getSslInfo(string $domain): ?array {
     // Issue #197: vet before connecting, then pin to the checked IP — connecting to
@@ -1497,7 +1502,12 @@ function getSslInfo(string $domain): ?array {
     if ($vet === null) {
         return null;
     }
+    $target = 'ssl://' . bracketIp($vet['ip']) . ':443';
 
+    // Pass 1 (unchanged from pre-#246 behaviour): verify_peer OFF, purely to fetch the
+    // certificate for detail parsing. Kept this way so self-signed/expired/mismatched
+    // certs still show their fields (subject, SAN, validity window) even when untrusted —
+    // trust itself is established separately in pass 2 below.
     $ctx = stream_context_create([
         'ssl' => [
             'capture_peer_cert' => true,
@@ -1508,7 +1518,7 @@ function getSslInfo(string $domain): ?array {
     ]);
 
     $client = @stream_socket_client(
-        'ssl://' . bracketIp($vet['ip']) . ':443',
+        $target,
         $errno,
         $errstr,
         5,
@@ -1527,7 +1537,8 @@ function getSslInfo(string $domain): ?array {
         return null;
     }
 
-    $cert = openssl_x509_parse($params['options']['ssl']['peer_certificate']);
+    $certResource = $params['options']['ssl']['peer_certificate'];
+    $cert = openssl_x509_parse($certResource);
     if (!$cert) {
         return null;
     }
@@ -1545,16 +1556,220 @@ function getSslInfo(string $domain): ?array {
     $daysLeft = (int)ceil(($expiryTime - time()) / 86400);
     $result['expires_in'] = $daysLeft . ' days';
     $result['expired'] = ($daysLeft <= 0);
+    // Issue #246: coarse severity tier on top of the existing expires_in/expired fields.
+    $result['expiry_severity'] = classifySslExpirySeverity($daysLeft);
 
     // SAN (Subject Alternative Names)
+    $sanList = [];
     if (isset($cert['extensions']['subjectAltName'])) {
         $sans = array_map('trim', explode(',', $cert['extensions']['subjectAltName']));
-        $result['san'] = array_map(function($s) {
+        $sanList = array_map(function($s) {
             return str_replace('DNS:', '', $s);
         }, $sans);
+        $result['san'] = $sanList;
     }
 
+    // Issue #246: does the CN/SAN actually cover the domain we looked up?
+    $result['hostname_match'] = sslHostnameMatches($domain, $result['subject'], $sanList);
+
+    // Issue #246: key type/size + signature algorithm, from the same captured cert —
+    // no extra connection needed for this part.
+    $pubKey = @openssl_pkey_get_public($certResource);
+    $keyDetails = $pubKey ? @openssl_pkey_get_details($pubKey) : false;
+    $keyType = $keyDetails ? sslKeyTypeName($keyDetails['type'] ?? null) : 'Unknown';
+    $keyBits = $keyDetails['bits'] ?? 0;
+    $sigAlg = $cert['signatureTypeLN'] ?? ($cert['signatureTypeSN'] ?? '');
+    $result['key_type'] = $keyType;
+    $result['key_bits'] = $keyBits;
+    $result['sig_alg'] = $sigAlg;
+    $weakness = classifySslKey($keyType, $keyBits, $sigAlg);
+    $result['weak_key'] = $weakness['weak'];
+    $result['weak_reasons'] = $weakness['reasons'];
+
+    // Pass 2 (Issue #246): SAME pinned target/SNI as pass 1 — verify_peer ON, purely to
+    // learn whether the chain is trusted by the system CA store and the hostname is
+    // covered. Reuses $target (already vetted/pinned above) so no fresh DNS lookup and
+    // no new SSRF surface is introduced by this second handshake.
+    $trust = sslCheckTrust($target, $domain);
+    $result['trusted'] = $trust['trusted'];
+    $result['trust_error'] = $trust['error'];
+
     return $result;
+}
+
+/**
+ * Issue #246: second handshake against the same vetted/pinned target as pass 1 in
+ * getSslInfo(), this time with verify_peer + verify_peer_name ON, solely to learn
+ * whether the chain verifies against the system trust store. Never used for cert
+ * *details* — those come from the verify-off pass 1 connection so untrusted certs
+ * still show their fields. No 'cafile'/'capath' is set, so PHP/OpenSSL falls back to
+ * the host's default CA bundle (openssl_get_cert_locations()) — the same trust store
+ * curl uses elsewhere in this codebase.
+ *
+ * @return array{trusted: bool, error: string|null}
+ */
+function sslCheckTrust(string $target, string $domain): array {
+    $ctx = stream_context_create([
+        'ssl' => [
+            'verify_peer' => true,
+            'verify_peer_name' => true,
+            'peer_name' => $domain,
+            'capture_peer_cert' => false,
+            'allow_self_signed' => false,
+        ],
+    ]);
+
+    // Drain any error queue left over from pass 1 (or earlier requests in this
+    // process) so the messages collected below only reflect this handshake.
+    while (openssl_error_string() !== false) {
+        // no-op: just draining
+    }
+
+    $client = @stream_socket_client($target, $errno, $errstr, 5, STREAM_CLIENT_CONNECT, $ctx);
+
+    if ($client) {
+        fclose($client);
+        return ['trusted' => true, 'error' => null];
+    }
+
+    $opensslErrors = [];
+    while (($e = openssl_error_string()) !== false) {
+        $opensslErrors[] = $e;
+    }
+    $raw = $opensslErrors ? end($opensslErrors) : (string)$errstr;
+
+    return ['trusted' => false, 'error' => sslTrustErrorReason($raw)];
+}
+
+/**
+ * Issue #246: turn a raw OpenSSL/stream-wrapper error string into a short,
+ * human-readable trust-failure reason (expired / self-signed / untrusted-root /
+ * hostname-mismatch / not-yet-valid). Falls back to the trimmed raw message for
+ * anything unrecognised so nothing is silently swallowed.
+ */
+function sslTrustErrorReason(string $raw): string {
+    $raw = trim($raw);
+    if ($raw === '') {
+        return 'TLS trust verification failed';
+    }
+
+    $patterns = [
+        '/self.signed certificate/i' => 'Self-signed certificate',
+        '/certificate has expired/i' => 'Certificate expired',
+        '/certificate is not yet valid/i' => 'Certificate not yet valid',
+        '/unable to get (local issuer certificate|issuer certificate)/i' => 'Untrusted root (issuer not in trust store)',
+        '/did not match expected CN|IP address mismatch|hostname mismatch|verify_peer_name/i' => 'Hostname mismatch',
+        '/certificate revoked/i' => 'Certificate revoked',
+    ];
+    foreach ($patterns as $pattern => $label) {
+        if (preg_match($pattern, $raw)) {
+            return $label;
+        }
+    }
+
+    return $raw;
+}
+
+/**
+ * Issue #246: does $domain match the certificate's CN or any SAN entry? Standard
+ * leftmost-label wildcard matching only (RFC 6125 style) — "*.example.com" covers
+ * "www.example.com" but NOT "example.com" itself or "a.b.example.com".
+ */
+function sslHostnameMatches(string $domain, string $cn, array $sanList): bool {
+    $domain = strtolower(rtrim($domain, '.'));
+    if ($domain === '') {
+        return false;
+    }
+    $names = $sanList;
+    if ($cn !== '') {
+        $names[] = $cn;
+    }
+    foreach ($names as $name) {
+        if (sslNameMatchesDomain($domain, $name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Issue #246: match a single certificate name (CN or one SAN entry) against an
+ * already-lowercased $domain. Split out of sslHostnameMatches() for unit testing.
+ */
+function sslNameMatchesDomain(string $domain, string $name): bool {
+    $name = strtolower(trim($name));
+    if ($name === '') {
+        return false;
+    }
+    if ($name === $domain) {
+        return true;
+    }
+    if (strpos($name, '*.') === 0) {
+        $suffix = substr($name, 1); // ".example.com"
+        if ($suffix !== '' && str_ends_with($domain, $suffix)) {
+            $prefix = substr($domain, 0, -strlen($suffix));
+            // Wildcard covers exactly one leftmost label: "www" matches, "a.b" doesn't.
+            return $prefix !== '' && strpos($prefix, '.') === false;
+        }
+    }
+    return false;
+}
+
+/**
+ * Issue #246: map an OpenSSL numeric key-type constant (from
+ * openssl_pkey_get_details()['type']) to a short display name.
+ */
+function sslKeyTypeName($opensslKeyType): string {
+    // Strict comparisons only: OPENSSL_KEYTYPE_RSA is 0, and a `switch`/`==` match
+    // would let a null/missing type (e.g. openssl_pkey_get_details() failure) be
+    // mistaken for RSA via PHP's loose `null == 0`.
+    if (!is_int($opensslKeyType)) {
+        return 'Unknown';
+    }
+    if ($opensslKeyType === OPENSSL_KEYTYPE_RSA) {
+        return 'RSA';
+    }
+    if ($opensslKeyType === OPENSSL_KEYTYPE_DSA) {
+        return 'DSA';
+    }
+    if ($opensslKeyType === OPENSSL_KEYTYPE_DH) {
+        return 'DH';
+    }
+    if ($opensslKeyType === OPENSSL_KEYTYPE_EC) {
+        return 'EC';
+    }
+    return 'Unknown';
+}
+
+/**
+ * Issue #246: flag weak certificate keys/signatures for a security tool — an RSA key
+ * under 2048 bits, or a SHA-1 signature, are both considered broken/deprecated today.
+ *
+ * @return array{weak: bool, reasons: string[]}
+ */
+function classifySslKey(string $keyType, int $keyBits, string $sigAlg): array {
+    $reasons = [];
+    if ($keyType === 'RSA' && $keyBits > 0 && $keyBits < 2048) {
+        $reasons[] = 'RSA key < 2048 bits (' . $keyBits . '-bit)';
+    }
+    if ($sigAlg !== '' && stripos($sigAlg, 'sha1') !== false) {
+        $reasons[] = 'SHA-1 signature';
+    }
+    return ['weak' => !empty($reasons), 'reasons' => $reasons];
+}
+
+/**
+ * Issue #246: coarse days-to-expiry severity tier layered on top of the existing
+ * expires_in/expired fields (which are left unchanged for backward compatibility).
+ */
+function classifySslExpirySeverity(int $daysLeft): string {
+    if ($daysLeft <= 0) {
+        return 'expired';
+    }
+    if ($daysLeft <= 14) {
+        return 'warn';
+    }
+    return 'ok';
 }
 
 

@@ -2218,9 +2218,42 @@ if ($_showPortfolioIcon): ?>
             var expiredClass = ssl.expired ? ' class="table-danger"' : '';
             sslHtml += '<tr><td class="fw-bold">Subject</td><td>' + esc(ssl.subject || '') + '</td></tr>';
             sslHtml += '<tr><td class="fw-bold">Issuer</td><td>' + esc(ssl.issuer || '') + '</td></tr>';
+            // Issue #246: chain trust + hostname-match badges. Guarded with typeof/`in`
+            // checks so older cached responses (no ssl.trusted/hostname_match keys yet)
+            // still render the rest of the card without showing a broken/empty row.
+            if (typeof ssl.trusted !== 'undefined') {
+                var trustBadge = ssl.trusted
+                    ? '<span class="badge bg-success"><i class="bi bi-shield-check me-1"></i>Trusted</span>'
+                    : '<span class="badge bg-danger"><i class="bi bi-shield-x me-1"></i>Not trusted' + (ssl.trust_error ? ' (' + esc(ssl.trust_error) + ')' : '') + '</span>';
+                sslHtml += '<tr' + (ssl.trusted ? '' : ' class="table-danger"') + '><td class="fw-bold">Chain Trust</td><td>' + trustBadge + '</td></tr>';
+            }
+            if (typeof ssl.hostname_match === 'boolean') {
+                var hostBadge = ssl.hostname_match
+                    ? '<span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Hostname match</span>'
+                    : '<span class="badge bg-danger"><i class="bi bi-x-circle-fill me-1"></i>Hostname mismatch</span>';
+                sslHtml += '<tr' + (ssl.hostname_match ? '' : ' class="table-danger"') + '><td class="fw-bold">Hostname</td><td>' + hostBadge + '</td></tr>';
+            }
             sslHtml += '<tr><td class="fw-bold">Valid From</td><td>' + esc(ssl.valid_from || '') + '</td></tr>';
             sslHtml += '<tr><td class="fw-bold">Valid To</td><td>' + esc(ssl.valid_to || '') + '</td></tr>';
-            sslHtml += '<tr' + expiredClass + '><td class="fw-bold">Expires In</td><td>' + esc(ssl.expires_in || '') + (ssl.expired ? ' <span class="badge bg-danger">EXPIRED</span>' : '') + '</td></tr>';
+            var expiryBadge = ssl.expired
+                ? ' <span class="badge bg-danger">EXPIRED</span>'
+                : (ssl.expiry_severity === 'warn' ? ' <span class="badge bg-warning text-dark">Expiring soon</span>' : '');
+            sslHtml += '<tr' + expiredClass + '><td class="fw-bold">Expires In</td><td>' + esc(ssl.expires_in || '') + expiryBadge + '</td></tr>';
+            // Issue #246: key type/size + signature algorithm, with a weak-key/SHA-1 chip.
+            if (ssl.key_type) {
+                var keyLine = esc(ssl.key_type) + (ssl.key_bits ? ' ' + esc(String(ssl.key_bits)) + '-bit' : '') + (ssl.sig_alg ? ' / ' + esc(ssl.sig_alg) : '');
+                // esc() only escapes &/</> (safe for element content); it does not escape
+                // quotes, which matters here because this value lands in an attribute
+                // (title="..."). weak_reasons is currently built server-side from fixed
+                // strings + an integer (classifySslKey()), so there's no live injection
+                // vector today — but escape quotes too, defensively, so this stays safe
+                // if that ever changes.
+                var weakTitle = esc((ssl.weak_reasons || []).join(', ')).replace(/"/g, '&quot;');
+                var weakChip = ssl.weak_key
+                    ? ' <span class="badge bg-warning text-dark" title="' + weakTitle + '">Weak</span>'
+                    : '';
+                sslHtml += '<tr><td class="fw-bold">Key &amp; Signature</td><td>' + keyLine + weakChip + '</td></tr>';
+            }
             if (ssl.san && ssl.san.length) {
                 sslHtml += '<tr><td class="fw-bold">Alt Names</td><td>' + ssl.san.map(esc).join(', ') + '</td></tr>';
             }
