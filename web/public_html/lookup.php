@@ -603,7 +603,16 @@ if ($jsonFormat) {
         // WHOIS contact masking (Issue #137)
         if (!empty($config['mask_whois_contacts'])) {
             $whoisOutput = preg_replace('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', '[email redacted]', $whoisOutput);
-            $whoisOutput = preg_replace('/\+?[0-9][\d\s.()-]{7,}/', '[phone redacted]', $whoisOutput);
+            // Issue #218: only redact digit-runs on lines carrying a phone-like
+            // label (Phone/Fax/Tel/Telephone). The old unscoped pattern also
+            // matched dates (2020-01-15), IPs, and registry IDs on unrelated lines.
+            $whoisOutput = preg_replace_callback(
+                '/^(.*\b(?:Phone|Fax|Tel)\w*.*)$/mi',
+                function ($m) {
+                    return preg_replace('/\+?[0-9][\d\s.()-]{7,}/', '[phone redacted]', $m[0]);
+                },
+                $whoisOutput
+            );
         }
     }
 

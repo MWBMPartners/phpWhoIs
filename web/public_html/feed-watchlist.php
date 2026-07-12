@@ -44,9 +44,12 @@ if (is_array($changeLog)) {
         $changes = $entry['changes'] ?? [];
         $ts = $entry['timestamp'] ?? '';
 
+        // Note: not htmlspecialchars()'d here — this text is emitted inside a
+        // CDATA section below, which must contain raw text, not HTML entities
+        // (Issue #218: pre-escaping here caused readers to show literal &gt;/&amp;).
         $desc = '';
         foreach ($changes as $c) {
-            $desc .= htmlspecialchars(($c['field'] ?? '') . ': ' . ($c['old'] ?? '') . ' → ' . ($c['new'] ?? '')) . "\n";
+            $desc .= (($c['field'] ?? '') . ': ' . ($c['old'] ?? '') . ' → ' . ($c['new'] ?? '')) . "\n";
         }
 
         $items[] = [
@@ -68,7 +71,8 @@ if (empty($items) && is_array($watched)) {
         $items[] = [
             'title'       => 'Monitoring: ' . $domain,
             'link'        => $baseUrl . '/?domain=' . urlencode($domain),
-            'description' => 'Last checked: ' . htmlspecialchars($info['last_check']),
+            // Not htmlspecialchars()'d — emitted inside a CDATA section below.
+            'description' => 'Last checked: ' . $info['last_check'],
             'date'        => $info['last_check'],
             'guid'        => $domain . '-' . $info['last_check'],
         ];
@@ -90,7 +94,7 @@ echo '<?xml version="1.0" encoding="UTF-8"?>' . PHP_EOL;
         <title><?php echo htmlspecialchars($item['title']); ?></title>
         <link><?php echo htmlspecialchars($item['link']); ?></link>
         <description><![CDATA[<?php echo nl2br($item['description']); ?>]]></description>
-        <pubDate><?php echo $item['date'] ? date('r', strtotime($item['date'])) : date('r'); ?></pubDate>
+        <pubDate><?php $ts = $item['date'] ? strtotime($item['date']) : false; echo date('r', $ts !== false ? $ts : time()); ?></pubDate>
         <guid isPermaLink="false"><?php echo htmlspecialchars($item['guid']); ?></guid>
     </item>
 <?php endforeach; ?>

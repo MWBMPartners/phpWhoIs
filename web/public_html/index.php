@@ -519,7 +519,6 @@ if ($_showPortfolioIcon): ?>
         var formattedResult = '';
         var rawWhoisText = '';
         var lastLookupData = null;
-        var lastCompareData = null;
         var isRawView = false;
 
         // HTML escape helper to prevent XSS
@@ -704,8 +703,6 @@ if ($_showPortfolioIcon): ?>
                     if (lang !== 'en') loadLanguage('en');
                 });
         }
-
-        function t(key) { return i18nStrings[key] || key; }
 
         function applyTranslations() {
             document.querySelectorAll('[data-i18n]').forEach(function (el) {
@@ -1279,9 +1276,6 @@ if ($_showPortfolioIcon): ?>
                 '<button class="btn btn-outline-secondary btn-sm" id="exportCompareCsvBtn"><i class="bi bi-filetype-csv" aria-hidden="true"></i> Export CSV</button></div>';
             cr.innerHTML = html;
             cr.style.display = '';
-
-            // Store for export
-            lastCompareData = { domain1: d1, domain2: d2, data1: data1, data2: data2 };
 
             document.getElementById('exportCompareJsonBtn').addEventListener('click', function () {
                 var exp = { compare_date: new Date().toISOString(), domains: [
