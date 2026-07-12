@@ -1150,6 +1150,43 @@ function sanitizeDomainInput(string $input): string {
     // Strip null bytes (injection vector)
     $input = str_replace("\0", '', $input);
 
+    // Internationalised domain names (Issue #212): FILTER_SANITIZE_URL just
+    // below strips any byte outside the ASCII URL character set, which
+    // mangles multi-byte UTF-8 sequences instead of leaving them intact
+    // (münchen.de -> mnchen.de, кремль.рф -> ""). So a raw-Unicode IDN host
+    // must be pulled out and converted to its ASCII/punycode A-label form
+    // BEFORE that filter runs, then spliced back in so the rest of this
+    // function's existing ASCII-only pipeline is unaffected. Requires the
+    // intl extension — if it's missing, this step is skipped and the input
+    // flows through unchanged (an already-punycode xn-- domain still
+    // validates via the relaxed isValidDomain() regex; a raw-Unicode domain
+    // simply fails validation later, exactly as it did before this fix).
+    if (function_exists('idn_to_ascii') && preg_match('/[^\x00-\x7F]/', $input)) {
+        // parse_url() resolves a Unicode host correctly when a scheme is
+        // present; for a bare "münchen.de" (no scheme) it returns null, in
+        // which case strip any path/query ourselves so we don't feed
+        // idn_to_ascii a trailing "/path".
+        $preHost = parse_url($input, PHP_URL_HOST);
+        if (!$preHost) {
+            $preHost = preg_replace('~[/?#].*$~', '', $input);
+        }
+        $preHost = preg_replace('/^www\./i', '', $preHost);
+
+        if ($preHost === '' || $preHost === null) {
+            return '';
+        }
+
+        $ascii = idn_to_ascii($preHost, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+        if ($ascii === false) {
+            // Not a valid IDN — fail closed rather than let mangled
+            // Unicode flow through to downstream shell/WHOIS/DNS calls.
+            return '';
+        }
+        // Only the host matters downstream, so replace $input outright —
+        // equivalent to how the ASCII path below only ever keeps the host.
+        $input = $ascii;
+    }
+
     $input = filter_var($input, FILTER_SANITIZE_URL);
 
     $host = parse_url($input, PHP_URL_HOST);
@@ -1173,8 +1210,10 @@ function isValidDomain(string $domain): bool {
         return false;
     }
 
-    // Standard domain format validation (no leading/trailing hyphens per label)
-    return (bool) preg_match('/^(?!-)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/', $domain);
+    // Standard domain format validation (no leading/trailing hyphens per
+    // label). TLD accepts either a normal alphabetic TLD or a punycode
+    // (xn--...) TLD so IDN ccTLDs like .xn--p1ai (.рф) validate (Issue #212).
+    return (bool) preg_match('/^(?!-)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:[a-zA-Z]{2,}|xn--[a-zA-Z0-9-]{2,})$/', $domain);
 }
 
 

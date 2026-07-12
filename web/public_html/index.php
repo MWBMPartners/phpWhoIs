@@ -529,6 +529,21 @@ if ($_showPortfolioIcon): ?>
             return div.innerHTML;
         }
 
+        // Display helper for internationalised domains (Issue #212). The
+        // server always returns the ASCII/punycode A-label form (see
+        // sanitizeDomainInput()). There's no reliable built-in browser API
+        // to decode punycode back to its Unicode (U-label) form, so rather
+        // than pull in a punycode library we show the A-label and flag it
+        // clearly as an IDN instead of silently displaying opaque xn--...
+        // text. ASCII-only domains are returned unchanged.
+        function formatDomainDisplay(domain) {
+            var safe = esc(domain);
+            if (domain && domain.indexOf('xn--') !== -1) {
+                return safe + ' <span class="badge bg-secondary" title="Internationalised domain name (punycode A-label)">IDN</span>';
+            }
+            return safe;
+        }
+
         // CSV cell escape helper to prevent formula injection (Issue #201)
         function csvEscape(v) {
             var s = (v === null || v === undefined) ? '' : String(v);
@@ -1070,7 +1085,14 @@ if ($_showPortfolioIcon): ?>
         var domainInput = document.getElementById('domain');
         var domainFeedback = document.getElementById('domainFeedback');
         var lookupBtn = document.getElementById('lookupBtn');
-        var domainRegex = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+        // Issue #212: accept IDN / punycode domains. Labels may contain
+        // non-ASCII Unicode letters (raw IDN, e.g. münchen.de — the server
+        // converts to punycode) and the TLD accepts either a normal
+        // alphabetic TLD, a punycode xn-- TLD (example.xn--p1ai), or a raw
+        // Unicode TLD (example.рф). This is a client-side UX gate only —
+        // the server (isValidDomain/sanitizeDomainInput) remains the source
+        // of truth and re-validates/normalises everything.
+        var domainRegex = /^(?:[a-zA-Z0-9\u00A1-\uFFFF](?:[a-zA-Z0-9\u00A1-\uFFFF-]{0,61}[a-zA-Z0-9\u00A1-\uFFFF])?\.)+(?:[a-zA-Z]{2,}|xn--[a-zA-Z0-9-]{2,}|[\u00A1-\uFFFF]{2,})$/;
         var ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
         var validationTimer = null;
 
@@ -1650,7 +1672,7 @@ if ($_showPortfolioIcon): ?>
             } else if (data.availability === 'available') {
                 var regButtons = buildRegisterButtons(currentDomain);
                 avBadge.innerHTML = '<div class="alert alert-success d-flex align-items-center justify-content-between flex-wrap gap-2">' +
-                    '<div><i class="bi bi-check-circle-fill me-2"></i><strong>' + esc(currentDomain) + '</strong> appears to be available!</div>' +
+                    '<div><i class="bi bi-check-circle-fill me-2"></i><strong>' + formatDomainDisplay(currentDomain) + '</strong> appears to be available!</div>' +
                     '<div class="d-flex gap-1 flex-wrap">' + regButtons + '</div></div>';
                 avBadge.style.display = '';
                 // Hide all result sections for available/unregistered domains (Issue #174)
@@ -1668,7 +1690,7 @@ if ($_showPortfolioIcon): ?>
             } else {
                 var watchBtn = ' <button class="btn btn-outline-secondary btn-sm ms-auto watchDomainBtn" data-domain="' + esc(currentDomain) + '" aria-label="Watch for expiry"><i class="bi bi-eye"></i></button>';
                 avBadge.innerHTML = '<div class="alert alert-info d-flex align-items-center">' +
-                    '<div><i class="bi bi-info-circle-fill me-2"></i><strong>' + esc(currentDomain) + '</strong>&nbsp;is registered.</div>' + watchBtn + '</div>';
+                    '<div><i class="bi bi-info-circle-fill me-2"></i><strong>' + formatDomainDisplay(currentDomain) + '</strong>&nbsp;is registered.</div>' + watchBtn + '</div>';
             }
             avBadge.style.display = '';
 

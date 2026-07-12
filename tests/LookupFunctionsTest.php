@@ -46,6 +46,26 @@ class LookupFunctionsTest extends TestCase
         $this->assertFalse(isValidDomain($longDomain));
     }
 
+    // ── IDN / punycode (Issue #212) ──
+
+    public function testValidPunycodeDomains(): void
+    {
+        // münchen.de
+        $this->assertTrue(isValidDomain('xn--mnchen-3ya.de'));
+        // A punycode ccTLD (.рф — Russian Federation) as the TLD itself
+        $this->assertTrue(isValidDomain('example.xn--p1ai'));
+        // Fully punycode host + punycode TLD (кремль.рф)
+        $this->assertTrue(isValidDomain('xn--e1ajeds9e.xn--p1ai'));
+    }
+
+    public function testRawUnicodeDomainRejectedByIsValidDomain(): void
+    {
+        // isValidDomain() only ever sees ASCII — raw Unicode must be
+        // converted upstream by sanitizeDomainInput() first.
+        $this->assertFalse(isValidDomain('münchen.de'));
+        $this->assertFalse(isValidDomain('кремль.рф'));
+    }
+
 
     // ═══════════════════════════════════════════════════════════════
     //  sanitizeDomainInput()
@@ -79,6 +99,47 @@ class LookupFunctionsTest extends TestCase
     {
         $longInput = str_repeat('a', 300) . '.com';
         $this->assertEquals('', sanitizeDomainInput($longInput));
+    }
+
+    // ── IDN / punycode (Issue #212) ──
+    //
+    // Requires the intl extension (idn_to_ascii). If it's missing these are
+    // skipped rather than failed — sanitizeDomainInput() is documented to
+    // degrade gracefully (raw Unicode simply isn't converted) when intl
+    // isn't loaded, so asserting a punycode result would be wrong in that
+    // environment. CI is expected to have the intl extension installed.
+
+    public function testSanitizeConvertsRawUnicodeToPunycode(): void
+    {
+        if (!function_exists('idn_to_ascii')) {
+            $this->markTestSkipped('intl extension (idn_to_ascii) not available');
+        }
+        $this->assertEquals('xn--mnchen-3ya.de', sanitizeDomainInput('münchen.de'));
+        $this->assertEquals('xn--e1ajeds9e.xn--p1ai', sanitizeDomainInput('кремль.рф'));
+    }
+
+    public function testSanitizeConvertsUnicodeWithSchemeAndWww(): void
+    {
+        if (!function_exists('idn_to_ascii')) {
+            $this->markTestSkipped('intl extension (idn_to_ascii) not available');
+        }
+        $this->assertEquals('xn--mnchen-3ya.de', sanitizeDomainInput('https://www.münchen.de/path'));
+        $this->assertEquals('xn--mnchen-3ya.de', sanitizeDomainInput('www.münchen.de'));
+    }
+
+    public function testSanitizeLeavesAlreadyPunycodeDomainsUnchanged(): void
+    {
+        $this->assertEquals('xn--mnchen-3ya.de', sanitizeDomainInput('xn--mnchen-3ya.de'));
+        $this->assertEquals('example.xn--p1ai', sanitizeDomainInput('example.xn--p1ai'));
+    }
+
+    public function testIsValidDomainAcceptsSanitizedIdnOutput(): void
+    {
+        if (!function_exists('idn_to_ascii')) {
+            $this->markTestSkipped('intl extension (idn_to_ascii) not available');
+        }
+        $this->assertTrue(isValidDomain(sanitizeDomainInput('münchen.de')));
+        $this->assertTrue(isValidDomain(sanitizeDomainInput('example.xn--p1ai')));
     }
 
 
