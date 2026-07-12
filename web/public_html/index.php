@@ -1454,7 +1454,57 @@ if ($_showPortfolioIcon): ?>
         });
 
         // ── Display results ──
-        function displayResults(data) {
+        // Issue #196 Step 5: displayResults() is split into slot-based
+        // per-key renderers. renderCore() renders the core (always-present)
+        // fields AND stamps pre-created empty placeholder <div id="slot-*">
+        // elements into every result pane — one slot per render KEY, in the
+        // exact position that key's content occupies today — so a later
+        // renderModule() call can only ever fill an already-positioned slot
+        // and can never reorder the pane's layout. For Step 5 this is still
+        // driven by a single synchronous full-response object (zero network
+        // change); Step 6 will call renderModule() per async module fetch.
+        function stampResultSlots() {
+            document.getElementById('parsedFields').innerHTML =
+                '<div id="slot-security_score"></div>' +
+                '<div id="slot-parsed"></div>' +
+                '<div id="slot-geolocation"></div>' +
+                '<div id="slot-redirect_chain"></div>' +
+                '<div id="slot-response_times"></div>' +
+                '<div id="slot-timeline"></div>';
+            document.getElementById('dnsResultPane').innerHTML =
+                '<div id="slot-dns"></div>' +
+                '<div id="slot-dnssec"></div>' +
+                '<div id="slot-ipv6"></div>' +
+                '<div id="slot-ns_diversity"></div>' +
+                '<div id="slot-dns_propagation"></div>';
+            document.getElementById('emailSecurityPane').innerHTML =
+                '<div id="slot-email_security"></div>' +
+                '<div id="slot-smtp"></div>' +
+                '<div id="slot-multi_dnsbl"></div>';
+            document.getElementById('sslPane').innerHTML =
+                '<div id="slot-ssl"></div>' +
+                '<div id="slot-shodan"></div>' +
+                '<div id="slot-http_headers"></div>' +
+                '<div id="slot-tls_audit"></div>' +
+                '<div id="slot-caa"></div>' +
+                '<div id="slot-http_versions"></div>';
+            document.getElementById('subdomainsPane').innerHTML =
+                '<div id="slot-reverse_ip"></div>' +
+                '<div id="slot-tech_stack"></div>' +
+                '<div id="slot-robots_txt"></div>' +
+                '<div id="slot-subdomains"></div>';
+            document.getElementById('securityPane').innerHTML =
+                '<div id="slot-security_details"></div>';
+        }
+
+        // ── renderCore: availability badge + register buttons + screenshot,
+        // source badge, core summary table (+ its reputation/email summary
+        // alerts via renderSummaryAlert), WHOIS pane, DNS table, suggest
+        // button, timeline, wayback + action buttons, ?Only= filtering,
+        // updateWatchButtons. Returns false if rendering stopped early
+        // (available/unregistered domain — matches the legacy early return),
+        // true otherwise. ──
+        function renderCore(data) {
             // Availability badge
             var avBadge = document.getElementById('availabilityBadge');
             if (data.is_ip) {
@@ -1479,7 +1529,7 @@ if ($_showPortfolioIcon): ?>
                 document.getElementById('subdomainsPane').style.display = 'none';
                 document.getElementById('securityPane').style.display = 'none';
                 document.getElementById('actionButtons').style.cssText = 'display:none !important';
-                return;
+                return false;
             } else {
                 var watchBtn = ' <button class="btn btn-outline-secondary btn-sm ms-auto watchDomainBtn" data-domain="' + esc(currentDomain) + '" aria-label="Watch for expiry"><i class="bi bi-eye"></i></button>';
                 avBadge.innerHTML = '<div class="alert alert-info d-flex align-items-center">' +
@@ -1500,6 +1550,10 @@ if ($_showPortfolioIcon): ?>
             document.getElementById('subdomainsPane').style.display = 'none';
             document.getElementById('securityPane').style.display = 'none';
 
+            // Stamp pre-created empty per-key slots into every pane before any
+            // module content is written (Issue #196 Step 5/6 seam).
+            stampResultSlots();
+
             // Source badge
             var dsBadge = document.getElementById('dataSourceBadge');
             dsBadge.innerHTML = '<span class="badge bg-secondary">Source: ' + (data.data_source || 'whois').toUpperCase() + (data.cached ? ' (cached)' : '') + '</span>';
@@ -1509,9 +1563,13 @@ if ($_showPortfolioIcon): ?>
             }
             dsBadge.style.display = '';
 
-            // Parsed fields card
+            // Parsed fields card — core summary table + its reputation/email
+            // summary alerts (renderSummaryAlert). Kept as one combined slot
+            // (slot-parsed) because the legacy markup nests the alert <div>s
+            // INSIDE the same card-body, below the table, before the card is
+            // closed — splitting them into independent sibling slots would
+            // visually move the alerts outside the bordered card.
             if (data.parsed && Object.keys(data.parsed).length) {
-                var pf = document.getElementById('parsedFields');
                 var html = '<div class="card"><div class="card-header"><strong>Domain Summary</strong></div><div class="card-body"><table class="table table-sm mb-0">';
                 for (var key in data.parsed) {
                     var val = Array.isArray(data.parsed[key]) ? data.parsed[key].join(', ') : data.parsed[key];
@@ -1527,95 +1585,10 @@ if ($_showPortfolioIcon): ?>
                     html += '<tr' + cls + '><td class="fw-bold">' + esc(key) + '</td><td>' + esc(val) + '</td></tr>';
                 }
                 html += '</table>';
-                // Safe Browsing warning (Issue #52)
-                if (data.safe_browsing && !data.safe_browsing.safe) {
-                    html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-shield-exclamation me-1" aria-hidden="true"></i><strong>Security Warning:</strong> This domain is flagged by Google Safe Browsing — ' + esc(data.safe_browsing.threats.join(', ')) + '</div>';
-                }
-
-                // VirusTotal reputation (Issue #53)
-                if (data.virustotal) {
-                    var vt = data.virustotal;
-                    var vtClass = vt.malicious > 0 ? 'alert-danger' : (vt.suspicious > 0 ? 'alert-warning' : 'alert-info');
-                    var vtIcon = vt.malicious > 0 ? 'bi-shield-x' : (vt.suspicious > 0 ? 'bi-shield-exclamation' : 'bi-shield-check');
-                    html += '<div class="alert ' + vtClass + ' mt-2 mb-0 small"><i class="bi ' + vtIcon + ' me-1" aria-hidden="true"></i><strong>VirusTotal:</strong> ' + vt.malicious + ' malicious, ' + vt.suspicious + ' suspicious, ' + vt.harmless + ' clean detections</div>';
-                }
-
-                // Registrar reputation flag (Issue #51)
-                if (data.registrar_reputation) {
-                    var repClass = data.registrar_reputation.rating === 'warning' ? 'alert-danger' : 'alert-warning';
-                    var repIcon = data.registrar_reputation.rating === 'warning' ? 'bi-exclamation-triangle-fill' : 'bi-exclamation-circle-fill';
-                    html += '<div class="alert ' + repClass + ' mt-2 mb-0 small"><i class="bi ' + repIcon + ' me-1" aria-hidden="true"></i><strong>Registrar Notice:</strong> ' + esc(data.registrar_reputation.reason) + '</div>';
-                }
-
-                // Domain age risk (Issue #95)
-                if (data.domain_age_risk) {
-                    var dar = data.domain_age_risk;
-                    var darClass = dar.risk === 'high' ? 'alert-danger' : (dar.risk === 'medium' ? 'alert-warning' : 'alert-info');
-                    var darIcon = dar.risk === 'high' ? 'bi-exclamation-triangle-fill' : (dar.risk === 'medium' ? 'bi-exclamation-circle' : 'bi-info-circle');
-                    if (dar.risk !== 'low') {
-                        html += '<div class="alert ' + darClass + ' mt-2 mb-0 small"><i class="bi ' + darIcon + ' me-1" aria-hidden="true"></i><strong>Domain Age:</strong> ' + esc(dar.reason) + ' (' + dar.days_old + ' days)</div>';
-                    }
-                }
-
-                // WHOIS privacy (Issue #104)
-                if (data.whois_privacy && data.whois_privacy.privacy_enabled) {
-                    html += '<div class="alert alert-info mt-2 mb-0 small"><i class="bi bi-shield-lock me-1" aria-hidden="true"></i><strong>WHOIS Privacy:</strong> Registrant data is protected (' + esc(data.whois_privacy.indicators.slice(0, 3).join(', ')) + ')</div>';
-                }
-
-                // Hosting risk (Issue #105)
-                if (data.hosting_risk && data.hosting_risk.risk !== 'low') {
-                    var hrClass = data.hosting_risk.risk === 'high' ? 'alert-danger' : 'alert-warning';
-                    html += '<div class="alert ' + hrClass + ' mt-2 mb-0 small"><i class="bi bi-geo-alt me-1" aria-hidden="true"></i><strong>Hosting:</strong> ' + esc(data.hosting_risk.reason) + ' (' + esc(data.hosting_risk.country) + ')</div>';
-                }
-
-                // PhishTank (Issue #98)
-                if (data.phishtank && data.phishtank.is_phish) {
-                    html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-bug me-1" aria-hidden="true"></i><strong>PhishTank:</strong> This domain is flagged as a known phishing site</div>';
-                }
-
-                // URLhaus (Issue #99)
-                if (data.urlhaus && data.urlhaus.urls_total > 0) {
-                    html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-radioactive me-1" aria-hidden="true"></i><strong>URLhaus:</strong> ' + data.urlhaus.urls_total + ' malware URL(s) associated with this domain</div>';
-                }
-
-                // Spamhaus (Issue #100)
-                if (data.spamhaus && data.spamhaus.listed) {
-                    html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-envelope-x me-1" aria-hidden="true"></i><strong>Spamhaus:</strong> IP is listed on ' + data.spamhaus.lists.length + ' blocklist(s): ' + esc(data.spamhaus.lists.map(function(l){ return l.label; }).join(', ')) + '</div>';
-                }
-
-                // AbuseIPDB (Issue #96)
-                if (data.abuseipdb && data.abuseipdb.abuse_score > 0) {
-                    var abuseClass = data.abuseipdb.abuse_score > 50 ? 'alert-danger' : 'alert-warning';
-                    html += '<div class="alert ' + abuseClass + ' mt-2 mb-0 small"><i class="bi bi-flag me-1" aria-hidden="true"></i><strong>AbuseIPDB:</strong> Abuse confidence ' + data.abuseipdb.abuse_score + '%, ' + data.abuseipdb.total_reports + ' report(s)' + (data.abuseipdb.is_tor ? ' — Tor exit node' : '') + '</div>';
-                }
-
+                html += renderSummaryAlert(data);
                 html += '</div></div>';
-                pf.innerHTML = html;
-                pf.style.display = '';
-            }
-
-            // IP geolocation (Issue #18)
-            if (data.geolocation) {
-                var geo = data.geolocation;
-                var geoHtml = '<div class="card mt-3"><div class="card-header"><strong>Server Location</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                if (geo.city) {
-                    geoHtml += '<tr><td class="fw-bold">City</td><td>' + esc(geo.city) + '</td></tr>';
-                }
-                if (geo.country) {
-                    geoHtml += '<tr><td class="fw-bold">Country</td><td>' + esc(geo.country) + ' (' + esc(geo.country_code) + ')</td></tr>';
-                }
-                if (geo.isp) {
-                    geoHtml += '<tr><td class="fw-bold">ISP</td><td>' + esc(geo.isp) + '</td></tr>';
-                }
-                if (geo.org) {
-                    geoHtml += '<tr><td class="fw-bold">Organization</td><td>' + esc(geo.org) + '</td></tr>';
-                }
-                if (geo.as) {
-                    geoHtml += '<tr><td class="fw-bold">AS</td><td>' + esc(geo.as) + '</td></tr>';
-                }
-                geoHtml += '</table></div></div>';
-                document.getElementById('parsedFields').innerHTML += geoHtml;
-                if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
+                document.getElementById('slot-parsed').innerHTML = html;
+                document.getElementById('parsedFields').style.display = '';
             }
 
             // Formatted WHOIS
@@ -1629,239 +1602,7 @@ if ($_showPortfolioIcon): ?>
                     dnsHtml += '<tr><td><span class="badge bg-secondary">' + esc(r.type) + '</span></td><td>' + esc(r.value) + '</td><td>' + esc(r.priority || '') + '</td></tr>';
                 });
                 dnsHtml += '</tbody></table>';
-                document.getElementById('dnsResultPane').innerHTML = dnsHtml;
-            }
-
-            // Email security (Issue #56)
-            if (data.email_security && Object.keys(data.email_security).length) {
-                document.getElementById('resultTabs').style.display = '';
-                var es = data.email_security;
-                var esHtml = '<div class="card"><div class="card-header"><strong>Email Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-
-                // SPF
-                var spfIcon = es.spf.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
-                esHtml += '<tr><td class="fw-bold">' + spfIcon + ' SPF</td><td>' + (es.spf.status || 'missing') + '</td></tr>';
-                if (es.spf.record) {
-                    esHtml += '<tr><td></td><td><code class="small">' + esc(es.spf.record) + '</code></td></tr>';
-                }
-
-                // DMARC
-                var dmarcIcon = es.dmarc.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
-                esHtml += '<tr><td class="fw-bold">' + dmarcIcon + ' DMARC</td><td>' + (es.dmarc.status || 'missing') + '</td></tr>';
-                if (es.dmarc.record) {
-                    esHtml += '<tr><td></td><td><code class="small">' + esc(es.dmarc.record) + '</code></td></tr>';
-                }
-
-                // DKIM
-                var dkimIcon = es.dkim.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-exclamation-triangle-fill text-warning"></i>';
-                esHtml += '<tr><td class="fw-bold">' + dkimIcon + ' DKIM</td><td>' + (es.dkim.status || 'unknown') + '</td></tr>';
-
-                // MTA-STS (Issue #101)
-                if (data.mta_sts) {
-                    var stsIcon = data.mta_sts.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
-                    esHtml += '<tr><td class="fw-bold">' + stsIcon + ' MTA-STS</td><td>' + (data.mta_sts.found ? 'configured' + (data.mta_sts.mode ? ' (' + esc(data.mta_sts.mode) + ')' : '') : 'not configured') + '</td></tr>';
-                }
-
-                // BIMI (Issue #102)
-                if (data.bimi) {
-                    var bimiIcon = data.bimi.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
-                    esHtml += '<tr><td class="fw-bold">' + bimiIcon + ' BIMI</td><td>' + (data.bimi.found ? 'configured' + (data.bimi.logo_url ? ' — <a href="' + esc(data.bimi.logo_url) + '" target="_blank" rel="noopener">view logo</a>' : '') : 'not configured') + '</td></tr>';
-                }
-
-                esHtml += '</table></div></div>';
-
-                // HIBP breach data (Issue #65)
-                if (data.hibp && data.hibp.length > 0) {
-                    esHtml += '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-exclamation me-1" aria-hidden="true"></i>Data Breaches</strong> <span class="badge bg-danger">' + data.hibp.length + '</span></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Breach</th><th>Date</th><th>Accounts</th><th>Compromised Data</th></tr></thead><tbody>';
-                    data.hibp.forEach(function (b) {
-                        esHtml += '<tr><td class="fw-bold">' + esc(b.title) + '</td><td>' + esc(b.date) + '</td><td>' + (b.pwn_count ? b.pwn_count.toLocaleString() : 'N/A') + '</td><td><small>' + esc(b.data_classes.join(', ')) + '</small></td></tr>';
-                    });
-                    esHtml += '</tbody></table></div></div>';
-                } else if (data.hibp !== null && data.hibp.length === 0) {
-                    esHtml += '<div class="alert alert-success mt-3 small"><i class="bi bi-shield-check me-1" aria-hidden="true"></i>No known data breaches found for this domain.</div>';
-                }
-
-                document.getElementById('emailSecurityPane').innerHTML = esHtml;
-            }
-
-            // DNSSEC (Issue #93) — show in DNS results area
-            if (data.dnssec) {
-                var dsIcon = data.dnssec.signed ? '<i class="bi bi-shield-check text-success me-1"></i>' : '<i class="bi bi-shield-x text-warning me-1"></i>';
-                var dsText = data.dnssec.signed ? 'DNSSEC is enabled' + (data.dnssec.ds_records ? ' (' + data.dnssec.ds_records + ' DS record(s))' : '') : 'DNSSEC is not enabled';
-                var dnsPane = document.getElementById('dnsResultPane');
-                dnsPane.innerHTML += '<div class="alert ' + (data.dnssec.signed ? 'alert-success' : 'alert-warning') + ' mt-2 small">' + dsIcon + '<strong>DNSSEC:</strong> ' + dsText + '</div>';
-            }
-
-            // SSL/TLS info (Issue #19)
-            if (data.ssl) {
-                document.getElementById('resultTabs').style.display = '';
-                var ssl = data.ssl;
-                var sslHtml = '<div class="card"><div class="card-header"><strong>SSL/TLS Certificate</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                var expiredClass = ssl.expired ? ' class="table-danger"' : '';
-                sslHtml += '<tr><td class="fw-bold">Subject</td><td>' + esc(ssl.subject || '') + '</td></tr>';
-                sslHtml += '<tr><td class="fw-bold">Issuer</td><td>' + esc(ssl.issuer || '') + '</td></tr>';
-                sslHtml += '<tr><td class="fw-bold">Valid From</td><td>' + esc(ssl.valid_from || '') + '</td></tr>';
-                sslHtml += '<tr><td class="fw-bold">Valid To</td><td>' + esc(ssl.valid_to || '') + '</td></tr>';
-                sslHtml += '<tr' + expiredClass + '><td class="fw-bold">Expires In</td><td>' + esc(ssl.expires_in || '') + (ssl.expired ? ' <span class="badge bg-danger">EXPIRED</span>' : '') + '</td></tr>';
-                if (ssl.san && ssl.san.length) {
-                    sslHtml += '<tr><td class="fw-bold">Alt Names</td><td>' + ssl.san.map(esc).join(', ') + '</td></tr>';
-                }
-                sslHtml += '</table></div></div>';
-
-                // DANE/TLSA (Issue #103)
-                if (data.dane_tlsa && data.dane_tlsa.found) {
-                    sslHtml += '<div class="card mt-3"><div class="card-header"><strong>DANE/TLSA Records</strong></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Usage</th><th>Selector</th><th>Matching</th><th>Data</th></tr></thead><tbody>';
-                    data.dane_tlsa.records.forEach(function (r) {
-                        sslHtml += '<tr><td>' + r.usage + '</td><td>' + r.selector + '</td><td>' + r.matching + '</td><td><code class="small">' + esc(r.data) + '</code></td></tr>';
-                    });
-                    sslHtml += '</tbody></table></div></div>';
-                }
-
-                // Certificate Transparency (Issue #94)
-                if (data.cert_transparency) {
-                    sslHtml += '<div class="card mt-3"><div class="card-header"><strong>Certificate Transparency</strong> <span class="badge bg-secondary">' + data.cert_transparency.total + ' certificates</span></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Issuer</th><th>Common Name</th><th>Not Before</th><th>Not After</th></tr></thead><tbody>';
-                    data.cert_transparency.recent.forEach(function (c) {
-                        sslHtml += '<tr><td class="small">' + esc(c.issuer) + '</td><td>' + esc(c.common_name) + '</td><td>' + esc(c.not_before) + '</td><td>' + esc(c.not_after) + '</td></tr>';
-                    });
-                    sslHtml += '</tbody></table></div></div>';
-                }
-
-                document.getElementById('sslPane').innerHTML = sslHtml;
-            }
-
-            // Shodan (Issue #97) — show in subdomains/network area
-            if (data.shodan) {
-                var shHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-hdd-network me-1"></i>Exposed Services (Shodan)</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                shHtml += '<tr><td class="fw-bold">Open Ports</td><td>' + (data.shodan.ports.length ? data.shodan.ports.join(', ') : 'None detected') + '</td></tr>';
-                if (data.shodan.os) {
-                    shHtml += '<tr><td class="fw-bold">OS</td><td>' + esc(data.shodan.os) + '</td></tr>';
-                }
-                if (data.shodan.org) {
-                    shHtml += '<tr><td class="fw-bold">Organization</td><td>' + esc(data.shodan.org) + '</td></tr>';
-                }
-                if (data.shodan.vulns && data.shodan.vulns.length) {
-                    shHtml += '<tr class="table-danger"><td class="fw-bold">Known Vulnerabilities</td><td>' + data.shodan.vulns.map(esc).join(', ') + '</td></tr>';
-                }
-                shHtml += '</table></div></div>';
-                document.getElementById('sslPane').innerHTML += shHtml;
-            }
-
-            // HTTP Security Headers (Issue #106)
-            if (data.http_headers) {
-                var hh = data.http_headers;
-                var hhHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-lock me-1"></i>HTTP Security Headers</strong> <span class="badge ' + (hh.grade <= 'B' ? 'bg-success' : (hh.grade <= 'D' ? 'bg-warning' : 'bg-danger')) + '">' + hh.grade + ' (' + hh.pass + '/' + hh.total + ')</span></div><div class="card-body"><table class="table table-sm mb-0">';
-                hh.headers.forEach(function (h) {
-                    var icon = h.present ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
-                    hhHtml += '<tr><td class="fw-bold">' + icon + ' ' + esc(h.header) + '</td><td>' + (h.present ? '<code class="small">' + esc(h.value || '') + '</code>' : '<span class="text-muted">missing</span>') + '</td></tr>';
-                });
-                hhHtml += '</table></div></div>';
-                document.getElementById('sslPane').innerHTML += hhHtml;
-            }
-
-            // TLS Audit (Issue #108)
-            if (data.tls_audit) {
-                var ta = data.tls_audit;
-                var taHtml = '<div class="card mt-3"><div class="card-header"><strong>TLS Version Support</strong>' + (ta.insecure ? ' <span class="badge bg-danger">Insecure versions enabled</span>' : '') + '</div><div class="card-body"><table class="table table-sm mb-0">';
-                if (ta.protocol) {
-                    taHtml += '<tr><td class="fw-bold">Negotiated</td><td>' + esc(ta.protocol) + '</td></tr>';
-                }
-                if (ta.cipher) {
-                    taHtml += '<tr><td class="fw-bold">Cipher</td><td><code>' + esc(ta.cipher) + '</code></td></tr>';
-                }
-                for (var ver in ta.versions) {
-                    var cls = (ver === 'TLSv1.0' || ver === 'TLSv1.1') && ta.versions[ver] ? ' class="table-danger"' : '';
-                    taHtml += '<tr' + cls + '><td class="fw-bold">' + esc(ver) + '</td><td>' + (ta.versions[ver] ? '<i class="bi bi-check-circle text-success"></i> Supported' : '<i class="bi bi-x-circle text-muted"></i> Not supported') + '</td></tr>';
-                }
-                taHtml += '</table></div></div>';
-                document.getElementById('sslPane').innerHTML += taHtml;
-            }
-
-            // CAA Records (Issue #109)
-            if (data.caa_records && data.caa_records.found) {
-                var caaHtml = '<div class="card mt-3"><div class="card-header"><strong>CAA Records</strong></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Tag</th><th>Value</th><th>Flag</th></tr></thead><tbody>';
-                data.caa_records.records.forEach(function (r) {
-                    caaHtml += '<tr><td>' + esc(r.tag) + '</td><td>' + esc(r.value) + '</td><td>' + r.flag + '</td></tr>';
-                });
-                caaHtml += '</tbody></table></div></div>';
-                document.getElementById('sslPane').innerHTML += caaHtml;
-            }
-
-            // SMTP Security (Issue #110)
-            if (data.smtp_security) {
-                var sm = data.smtp_security;
-                var smIcon = sm.starttls ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
-                var esPane = document.getElementById('emailSecurityPane');
-                esPane.innerHTML += '<div class="card mt-3"><div class="card-header"><strong>SMTP Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                esPane.innerHTML = esPane.innerHTML.slice(0, -1); // reopen
-                var smHtml = '<div class="card mt-3"><div class="card-header"><strong>SMTP Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                smHtml += '<tr><td class="fw-bold">MX Server</td><td>' + esc(sm.mx_host) + '</td></tr>';
-                if (sm.banner) {
-                    smHtml += '<tr><td class="fw-bold">Banner</td><td><code class="small">' + esc(sm.banner) + '</code></td></tr>';
-                }
-                smHtml += '<tr><td class="fw-bold">' + smIcon + ' STARTTLS</td><td>' + (sm.starttls ? 'Supported' : 'Not supported') + '</td></tr>';
-                smHtml += '</table></div></div>';
-                document.getElementById('emailSecurityPane').innerHTML += smHtml;
-            }
-
-            // Redirect Chain (Issue #107)
-            if (data.redirect_chain && data.redirect_chain.hops > 1) {
-                var rc = data.redirect_chain;
-                var rcHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-arrow-right-circle me-1"></i>Redirect Chain</strong>' + (rc.suspicious ? ' <span class="badge bg-warning">Excessive redirects</span>' : '') + (rc.http_to_https ? ' <span class="badge bg-info">HTTP→HTTPS</span>' : '') + '</div><div class="card-body"><ol class="mb-0 small">';
-                rc.chain.forEach(function (hop) {
-                    // Issue #197: a hop can be marked "blocked" when its Location header
-                    // pointed at a private/internal address — we stop the chain rather
-                    // than connect to it, so show that distinctly instead of "null".
-                    var hopBadge = hop.blocked
-                        ? '<span class="badge bg-danger">blocked (internal address)</span>'
-                        : '<span class="badge bg-secondary">' + esc(String(hop.status)) + '</span>';
-                    rcHtml += '<li><code>' + esc(hop.url) + '</code> ' + hopBadge + '</li>';
-                });
-                rcHtml += '</ol></div></div>';
-                document.getElementById('parsedFields').innerHTML += rcHtml;
-                if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
-            }
-
-            // HTTP Versions (Issue #112)
-            if (data.http_versions) {
-                var hv = data.http_versions;
-                var hvHtml = '<div class="card mt-3"><div class="card-header"><strong>Protocol Support</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                if (hv.protocol) {
-                    hvHtml += '<tr><td class="fw-bold">Negotiated</td><td>' + esc(hv.protocol) + '</td></tr>';
-                }
-                hvHtml += '<tr><td class="fw-bold">HTTP/2</td><td>' + (hv.http2 ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No') + '</td></tr>';
-                hvHtml += '<tr><td class="fw-bold">HTTP/3</td><td>' + (hv.http3 ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No') + '</td></tr>';
-                hvHtml += '</table></div></div>';
-                document.getElementById('sslPane').innerHTML += hvHtml;
-            }
-
-            // IPv6 (Issue #113)
-            if (data.ipv6) {
-                var v6Icon = data.ipv6.has_aaaa ? '<i class="bi bi-check-circle text-success me-1"></i>' : '<i class="bi bi-x-circle text-warning me-1"></i>';
-                var v6Text = data.ipv6.has_aaaa ? 'IPv6 ready (' + data.ipv6.aaaa_records.map(esc).join(', ') + ')' : 'No AAAA records — IPv6 not configured';
-                document.getElementById('dnsResultPane').innerHTML += '<div class="alert ' + (data.ipv6.has_aaaa ? 'alert-success' : 'alert-warning') + ' mt-2 small">' + v6Icon + '<strong>IPv6:</strong> ' + v6Text + '</div>';
-            }
-
-            // Response Times (Issue #114)
-            if (data.response_times && data.response_times.dns_ms !== null) {
-                var rt = data.response_times;
-                var rtHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-speedometer2 me-1"></i>Response Times</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                rtHtml += '<tr><td class="fw-bold">DNS Resolution</td><td>' + rt.dns_ms + ' ms</td></tr>';
-                rtHtml += '<tr><td class="fw-bold">Time to First Byte</td><td>' + rt.ttfb_ms + ' ms</td></tr>';
-                rtHtml += '<tr><td class="fw-bold">Total</td><td>' + rt.total_ms + ' ms</td></tr>';
-                rtHtml += '</table></div></div>';
-                document.getElementById('parsedFields').innerHTML += rtHtml;
-                if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
-            }
-
-            // NS Diversity (Issue #115)
-            if (data.ns_diversity && !data.ns_diversity.diverse) {
-                document.getElementById('dnsResultPane').innerHTML += '<div class="alert alert-warning mt-2 small"><i class="bi bi-exclamation-triangle me-1"></i><strong>NS Diversity:</strong> ' + esc(data.ns_diversity.warning) + '</div>';
-            }
-
-            // Reverse IP (Issue #111)
-            if (data.reverse_ip && data.reverse_ip.count > 1) {
-                var riHtml = '<div class="card mt-3"><div class="card-header"><strong>Shared Hosting</strong> <span class="badge bg-secondary">' + data.reverse_ip.count + ' domains on same IP</span></div><div class="card-body"><div class="small">' + data.reverse_ip.domains.slice(0, 15).map(esc).join(', ') + (data.reverse_ip.count > 15 ? '...' : '') + '</div></div></div>';
-                document.getElementById('subdomainsPane').innerHTML += riHtml;
+                document.getElementById('slot-dns').innerHTML = dnsHtml;
             }
 
             // Domain Suggestions — on-demand (Issue #164)
@@ -1916,140 +1657,6 @@ if ($_showPortfolioIcon): ?>
                 });
             }
 
-            // Security Score (Issue #128, #175)
-            if (data.security_score && !paramHideSecScore) {
-                var ss = data.security_score;
-                var ssColor = ss.grade <= 'B' ? 'success' : (ss.grade <= 'D' ? 'warning' : 'danger');
-
-                // Store score history (Issue #138)
-                var scoreHistory = {};
-                try {
-                    scoreHistory = JSON.parse(localStorage.getItem('securityScoreHistory') || '{}');
-                } catch(e) {
-                }
-                if (!scoreHistory[currentDomain]) {
-                    scoreHistory[currentDomain] = [];
-                }
-                scoreHistory[currentDomain].push({ ts: Date.now(), grade: ss.grade, score: ss.score });
-                if (scoreHistory[currentDomain].length > 20) {
-                    scoreHistory[currentDomain] = scoreHistory[currentDomain].slice(-20);
-                }
-                localStorage.setItem('securityScoreHistory', JSON.stringify(scoreHistory));
-
-                // Build sparkline from history
-                var history = scoreHistory[currentDomain] || [];
-                var sparkline = '';
-                if (history.length > 1) {
-                    sparkline = '<div class="d-flex align-items-end gap-1 mt-1" style="height:20px;" title="Score history">';
-                    history.forEach(function (h) {
-                        var barH = Math.max(2, Math.round(h.score / 5));
-                        var barC = h.score >= 75 ? '#198754' : (h.score >= 45 ? '#ffc107' : '#dc3545');
-                        sparkline += '<div style="width:4px;height:' + barH + 'px;background:' + barC + ';border-radius:1px;"></div>';
-                    });
-                    sparkline += '</div>';
-                }
-
-                var ssHtml = '<div class="card mb-3"><div class="card-body d-flex align-items-center gap-3">' +
-                    '<div class="text-center" style="min-width:60px"><span class="display-5 fw-bold text-' + ssColor + '">' + ss.grade + '</span><br><small class="text-muted">' + ss.score + '%</small></div>' +
-                    '<div><strong>Security Score</strong><br><small class="text-muted">' + ss.passed + ' of ' + ss.total + ' checks passed</small>' +
-                    '<div class="progress mt-1" style="height:6px;width:200px"><div class="progress-bar bg-' + ssColor + '" style="width:' + ss.score + '%"></div></div>' + sparkline + '</div></div></div>';
-                document.getElementById('parsedFields').innerHTML = ssHtml + document.getElementById('parsedFields').innerHTML;
-                if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
-
-                // Security details tab (Issue #175)
-                if (ss.details && ss.details.length) {
-                    document.getElementById('resultTabs').style.display = '';
-                    var secHtml = '<div class="card"><div class="card-header d-flex align-items-center justify-content-between">' +
-                        '<strong><i class="bi bi-shield-check me-1"></i>Security Checks</strong>' +
-                        '<span class="badge bg-' + ssColor + '">' + ss.grade + ' — ' + ss.score + '%</span></div>' +
-                        '<div class="card-body"><div class="table-responsive"><table class="table table-sm mb-0">';
-                    secHtml += '<thead><tr><th>Check</th><th>Status</th><th>Details</th><th class="text-nowrap">Guide</th></tr></thead><tbody>';
-                    ss.details.forEach(function (d) {
-                        var icon, badge;
-                        if (d.status === 'pass') {
-                            icon = '<i class="bi bi-check-circle-fill text-success"></i>';
-                            badge = '<span class="badge bg-success">Pass</span>';
-                        } else if (d.status === 'warn') {
-                            icon = '<i class="bi bi-exclamation-triangle-fill text-warning"></i>';
-                            badge = '<span class="badge bg-warning text-dark">Warning</span>';
-                        } else {
-                            icon = '<i class="bi bi-x-circle-fill text-danger"></i>';
-                            badge = '<span class="badge bg-danger">Fail</span>';
-                        }
-                        secHtml += '<tr><td class="fw-bold">' + icon + ' ' + esc(d.name) + '</td><td>' + badge + '</td><td>' + esc(d.info);
-                        if (d.recommendation) {
-                            secHtml += '<br><small class="text-muted"><i class="bi bi-lightbulb me-1"></i>' + esc(d.recommendation) + '</small>';
-                        }
-                        secHtml += '</td><td>';
-                        if (d.guide && d.status !== 'pass') {
-                            secHtml += '<a href="' + esc(d.guide) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-up-right me-1"></i>Fix guide</a>';
-                        }
-                        secHtml += '</td></tr>';
-                    });
-                    secHtml += '</tbody></table></div></div></div>';
-                    document.getElementById('securityPane').innerHTML = secHtml;
-                }
-            }
-
-            // Tech Stack (Issue #124)
-            if (data.tech_stack && data.tech_stack.length > 0) {
-                var tsHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-stack me-1"></i>Technology Stack</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                data.tech_stack.forEach(function (t) {
-                    tsHtml += '<tr><td class="fw-bold">' + esc(t.category) + '</td><td>' + esc(t.name) + '</td></tr>';
-                });
-                tsHtml += '</table></div></div>';
-                document.getElementById('subdomainsPane').innerHTML += tsHtml;
-            }
-
-            // Robots.txt (Issue #125)
-            if (data.robots_txt) {
-                var rb = data.robots_txt;
-                var rbHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-robot me-1"></i>Robots.txt & Sitemap</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                rbHtml += '<tr><td class="fw-bold">robots.txt</td><td>' + (rb.robots_found ? '<i class="bi bi-check-circle text-success"></i> Found' : '<i class="bi bi-x-circle text-muted"></i> Not found') + '</td></tr>';
-                rbHtml += '<tr><td class="fw-bold">sitemap.xml</td><td>' + (rb.sitemap_found ? '<i class="bi bi-check-circle text-success"></i> Found' : '<i class="bi bi-x-circle text-muted"></i> Not found') + '</td></tr>';
-                if (rb.disallowed.length) {
-                    rbHtml += '<tr><td class="fw-bold">Disallowed paths</td><td><code class="small">' + rb.disallowed.slice(0, 10).map(esc).join('</code>, <code class="small">') + '</code>' + (rb.disallowed.length > 10 ? ' ...' : '') + '</td></tr>';
-                }
-                if (rb.crawl_delay) {
-                    rbHtml += '<tr><td class="fw-bold">Crawl delay</td><td>' + rb.crawl_delay + 's</td></tr>';
-                }
-                rbHtml += '</table></div></div>';
-                document.getElementById('subdomainsPane').innerHTML += rbHtml;
-            }
-
-            // DNS Propagation (Issue #126)
-            if (data.dns_propagation) {
-                document.getElementById('dnsResultPane').innerHTML += renderDnsPropagation(data.dns_propagation);
-                bindDnsPropControls();
-                if (dnsPropEnabled) startDnsPropAutoRefresh();
-            }
-
-            // Multi-DNSBL (Issue #133)
-            if (data.multi_dnsbl) {
-                var db = data.multi_dnsbl;
-                var dbHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-exclamation me-1"></i>Blocklist Check</strong> <span class="badge ' + (db.listed ? 'bg-danger' : 'bg-success') + '">' + (db.listed ? db.lists.length + ' listed' : 'Clean') + '</span> <small class="text-muted">(' + db.total_checked + ' lists checked)</small></div>';
-                if (db.listed) {
-                    dbHtml += '<div class="card-body"><table class="table table-sm mb-0 table-danger">';
-                    db.lists.forEach(function (l) {
-                        dbHtml += '<tr><td>' + esc(l.label) + '</td><td><code class="small">' + esc(l.zone) + '</code></td></tr>';
-                    });
-                    dbHtml += '</table></div>';
-                }
-                dbHtml += '</div>';
-                document.getElementById('emailSecurityPane').innerHTML += dbHtml;
-            }
-
-            // Subdomains (Issue #46)
-            if (data.subdomains && data.subdomains.length) {
-                document.getElementById('resultTabs').style.display = '';
-                var subHtml = '<div class="card"><div class="card-header"><strong>Discovered Subdomains</strong> <span class="badge bg-secondary">' + data.subdomains.length + ' found</span></div><div class="card-body"><table class="table table-striped table-sm mb-0"><thead><tr><th>Subdomain</th><th>IP Address</th></tr></thead><tbody>';
-                data.subdomains.forEach(function (s) {
-                    subHtml += '<tr><td>' + esc(s.subdomain) + '</td><td><code>' + esc(s.ip) + '</code></td></tr>';
-                });
-                subHtml += '</tbody></table></div></div>';
-                document.getElementById('subdomainsPane').innerHTML = subHtml;
-            }
-
             // WHOIS history timeline (Issue #47)
             var timeline = getTimeline();
             var domainTimeline = timeline[currentDomain] || [];
@@ -2085,7 +1692,7 @@ if ($_showPortfolioIcon): ?>
                     tlHtml += '</div>';
                 }
                 tlHtml += '</div></div></div>';
-                document.getElementById('parsedFields').innerHTML += tlHtml;
+                document.getElementById('slot-timeline').innerHTML = tlHtml;
             }
 
             // Wayback Machine link (Issue #54)
@@ -2120,6 +1727,575 @@ if ($_showPortfolioIcon): ?>
             // just rendered above — otherwise a domain that's already on the
             // watch list shows the "not watched" icon until manually toggled.
             updateWatchButtons();
+
+            return true;
+        }
+
+        // ── Per-KEY renderers (Issue #196 Step 5) ──
+        // Each renderer preserves the legacy block's exact markup/esc()
+        // usage/logic, verbatim, writing into its own pre-stamped slot.
+        // A missing key leaves its slot empty, exactly as today.
+
+        // Reputation/email summary alerts shown inside the core summary card
+        // (safe_browsing, virustotal, registrar_reputation, domain_age_risk,
+        // whois_privacy, hosting_risk, phishtank, urlhaus, spamhaus,
+        // abuseipdb). Returns an HTML fragment; called from renderCore so it
+        // stays nested inside the same card-body as the summary table
+        // (matches legacy markup exactly).
+        function renderSummaryAlert(data) {
+            var html = '';
+
+            // Safe Browsing warning (Issue #52)
+            if (data.safe_browsing && !data.safe_browsing.safe) {
+                html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-shield-exclamation me-1" aria-hidden="true"></i><strong>Security Warning:</strong> This domain is flagged by Google Safe Browsing — ' + esc(data.safe_browsing.threats.join(', ')) + '</div>';
+            }
+
+            // VirusTotal reputation (Issue #53)
+            if (data.virustotal) {
+                var vt = data.virustotal;
+                var vtClass = vt.malicious > 0 ? 'alert-danger' : (vt.suspicious > 0 ? 'alert-warning' : 'alert-info');
+                var vtIcon = vt.malicious > 0 ? 'bi-shield-x' : (vt.suspicious > 0 ? 'bi-shield-exclamation' : 'bi-shield-check');
+                html += '<div class="alert ' + vtClass + ' mt-2 mb-0 small"><i class="bi ' + vtIcon + ' me-1" aria-hidden="true"></i><strong>VirusTotal:</strong> ' + vt.malicious + ' malicious, ' + vt.suspicious + ' suspicious, ' + vt.harmless + ' clean detections</div>';
+            }
+
+            // Registrar reputation flag (Issue #51)
+            if (data.registrar_reputation) {
+                var repClass = data.registrar_reputation.rating === 'warning' ? 'alert-danger' : 'alert-warning';
+                var repIcon = data.registrar_reputation.rating === 'warning' ? 'bi-exclamation-triangle-fill' : 'bi-exclamation-circle-fill';
+                html += '<div class="alert ' + repClass + ' mt-2 mb-0 small"><i class="bi ' + repIcon + ' me-1" aria-hidden="true"></i><strong>Registrar Notice:</strong> ' + esc(data.registrar_reputation.reason) + '</div>';
+            }
+
+            // Domain age risk (Issue #95)
+            if (data.domain_age_risk) {
+                var dar = data.domain_age_risk;
+                var darClass = dar.risk === 'high' ? 'alert-danger' : (dar.risk === 'medium' ? 'alert-warning' : 'alert-info');
+                var darIcon = dar.risk === 'high' ? 'bi-exclamation-triangle-fill' : (dar.risk === 'medium' ? 'bi-exclamation-circle' : 'bi-info-circle');
+                if (dar.risk !== 'low') {
+                    html += '<div class="alert ' + darClass + ' mt-2 mb-0 small"><i class="bi ' + darIcon + ' me-1" aria-hidden="true"></i><strong>Domain Age:</strong> ' + esc(dar.reason) + ' (' + dar.days_old + ' days)</div>';
+                }
+            }
+
+            // WHOIS privacy (Issue #104)
+            if (data.whois_privacy && data.whois_privacy.privacy_enabled) {
+                html += '<div class="alert alert-info mt-2 mb-0 small"><i class="bi bi-shield-lock me-1" aria-hidden="true"></i><strong>WHOIS Privacy:</strong> Registrant data is protected (' + esc(data.whois_privacy.indicators.slice(0, 3).join(', ')) + ')</div>';
+            }
+
+            // Hosting risk (Issue #105)
+            if (data.hosting_risk && data.hosting_risk.risk !== 'low') {
+                var hrClass = data.hosting_risk.risk === 'high' ? 'alert-danger' : 'alert-warning';
+                html += '<div class="alert ' + hrClass + ' mt-2 mb-0 small"><i class="bi bi-geo-alt me-1" aria-hidden="true"></i><strong>Hosting:</strong> ' + esc(data.hosting_risk.reason) + ' (' + esc(data.hosting_risk.country) + ')</div>';
+            }
+
+            // PhishTank (Issue #98)
+            if (data.phishtank && data.phishtank.is_phish) {
+                html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-bug me-1" aria-hidden="true"></i><strong>PhishTank:</strong> This domain is flagged as a known phishing site</div>';
+            }
+
+            // URLhaus (Issue #99)
+            if (data.urlhaus && data.urlhaus.urls_total > 0) {
+                html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-radioactive me-1" aria-hidden="true"></i><strong>URLhaus:</strong> ' + data.urlhaus.urls_total + ' malware URL(s) associated with this domain</div>';
+            }
+
+            // Spamhaus (Issue #100)
+            if (data.spamhaus && data.spamhaus.listed) {
+                html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-envelope-x me-1" aria-hidden="true"></i><strong>Spamhaus:</strong> IP is listed on ' + data.spamhaus.lists.length + ' blocklist(s): ' + esc(data.spamhaus.lists.map(function(l){ return l.label; }).join(', ')) + '</div>';
+            }
+
+            // AbuseIPDB (Issue #96)
+            if (data.abuseipdb && data.abuseipdb.abuse_score > 0) {
+                var abuseClass = data.abuseipdb.abuse_score > 50 ? 'alert-danger' : 'alert-warning';
+                html += '<div class="alert ' + abuseClass + ' mt-2 mb-0 small"><i class="bi bi-flag me-1" aria-hidden="true"></i><strong>AbuseIPDB:</strong> Abuse confidence ' + data.abuseipdb.abuse_score + '%, ' + data.abuseipdb.total_reports + ' report(s)' + (data.abuseipdb.is_tor ? ' — Tor exit node' : '') + '</div>';
+            }
+
+            return html;
+        }
+
+        // IP geolocation (Issue #18)
+        function renderGeolocation(data) {
+            if (!data.geolocation) return;
+            var geo = data.geolocation;
+            var geoHtml = '<div class="card mt-3"><div class="card-header"><strong>Server Location</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            if (geo.city) {
+                geoHtml += '<tr><td class="fw-bold">City</td><td>' + esc(geo.city) + '</td></tr>';
+            }
+            if (geo.country) {
+                geoHtml += '<tr><td class="fw-bold">Country</td><td>' + esc(geo.country) + ' (' + esc(geo.country_code) + ')</td></tr>';
+            }
+            if (geo.isp) {
+                geoHtml += '<tr><td class="fw-bold">ISP</td><td>' + esc(geo.isp) + '</td></tr>';
+            }
+            if (geo.org) {
+                geoHtml += '<tr><td class="fw-bold">Organization</td><td>' + esc(geo.org) + '</td></tr>';
+            }
+            if (geo.as) {
+                geoHtml += '<tr><td class="fw-bold">AS</td><td>' + esc(geo.as) + '</td></tr>';
+            }
+            geoHtml += '</table></div></div>';
+            document.getElementById('slot-geolocation').innerHTML = geoHtml;
+            if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
+        }
+
+        // Email security (Issue #56) — email_security + mta_sts + bimi + hibp
+        function renderEmailSecurity(data) {
+            if (!(data.email_security && Object.keys(data.email_security).length)) return;
+            document.getElementById('resultTabs').style.display = '';
+            var es = data.email_security;
+            var esHtml = '<div class="card"><div class="card-header"><strong>Email Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+
+            // SPF
+            var spfIcon = es.spf.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+            esHtml += '<tr><td class="fw-bold">' + spfIcon + ' SPF</td><td>' + (es.spf.status || 'missing') + '</td></tr>';
+            if (es.spf.record) {
+                esHtml += '<tr><td></td><td><code class="small">' + esc(es.spf.record) + '</code></td></tr>';
+            }
+
+            // DMARC
+            var dmarcIcon = es.dmarc.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+            esHtml += '<tr><td class="fw-bold">' + dmarcIcon + ' DMARC</td><td>' + (es.dmarc.status || 'missing') + '</td></tr>';
+            if (es.dmarc.record) {
+                esHtml += '<tr><td></td><td><code class="small">' + esc(es.dmarc.record) + '</code></td></tr>';
+            }
+
+            // DKIM
+            var dkimIcon = es.dkim.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-exclamation-triangle-fill text-warning"></i>';
+            esHtml += '<tr><td class="fw-bold">' + dkimIcon + ' DKIM</td><td>' + (es.dkim.status || 'unknown') + '</td></tr>';
+
+            // MTA-STS (Issue #101)
+            if (data.mta_sts) {
+                var stsIcon = data.mta_sts.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+                esHtml += '<tr><td class="fw-bold">' + stsIcon + ' MTA-STS</td><td>' + (data.mta_sts.found ? 'configured' + (data.mta_sts.mode ? ' (' + esc(data.mta_sts.mode) + ')' : '') : 'not configured') + '</td></tr>';
+            }
+
+            // BIMI (Issue #102)
+            if (data.bimi) {
+                var bimiIcon = data.bimi.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+                esHtml += '<tr><td class="fw-bold">' + bimiIcon + ' BIMI</td><td>' + (data.bimi.found ? 'configured' + (data.bimi.logo_url ? ' — <a href="' + esc(data.bimi.logo_url) + '" target="_blank" rel="noopener">view logo</a>' : '') : 'not configured') + '</td></tr>';
+            }
+
+            esHtml += '</table></div></div>';
+
+            // HIBP breach data (Issue #65)
+            if (data.hibp && data.hibp.length > 0) {
+                esHtml += '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-exclamation me-1" aria-hidden="true"></i>Data Breaches</strong> <span class="badge bg-danger">' + data.hibp.length + '</span></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Breach</th><th>Date</th><th>Accounts</th><th>Compromised Data</th></tr></thead><tbody>';
+                data.hibp.forEach(function (b) {
+                    esHtml += '<tr><td class="fw-bold">' + esc(b.title) + '</td><td>' + esc(b.date) + '</td><td>' + (b.pwn_count ? b.pwn_count.toLocaleString() : 'N/A') + '</td><td><small>' + esc(b.data_classes.join(', ')) + '</small></td></tr>';
+                });
+                esHtml += '</tbody></table></div></div>';
+            } else if (data.hibp !== null && data.hibp.length === 0) {
+                esHtml += '<div class="alert alert-success mt-3 small"><i class="bi bi-shield-check me-1" aria-hidden="true"></i>No known data breaches found for this domain.</div>';
+            }
+
+            document.getElementById('slot-email_security').innerHTML = esHtml;
+        }
+
+        // DNSSEC (Issue #93)
+        function renderDnssec(data) {
+            if (!data.dnssec) return;
+            var dsIcon = data.dnssec.signed ? '<i class="bi bi-shield-check text-success me-1"></i>' : '<i class="bi bi-shield-x text-warning me-1"></i>';
+            var dsText = data.dnssec.signed ? 'DNSSEC is enabled' + (data.dnssec.ds_records ? ' (' + data.dnssec.ds_records + ' DS record(s))' : '') : 'DNSSEC is not enabled';
+            document.getElementById('slot-dnssec').innerHTML = '<div class="alert ' + (data.dnssec.signed ? 'alert-success' : 'alert-warning') + ' mt-2 small">' + dsIcon + '<strong>DNSSEC:</strong> ' + dsText + '</div>';
+        }
+
+        // SSL/TLS info (Issue #19) — ssl + dane_tlsa + cert_transparency
+        function renderSsl(data) {
+            if (!data.ssl) return;
+            document.getElementById('resultTabs').style.display = '';
+            var ssl = data.ssl;
+            var sslHtml = '<div class="card"><div class="card-header"><strong>SSL/TLS Certificate</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            var expiredClass = ssl.expired ? ' class="table-danger"' : '';
+            sslHtml += '<tr><td class="fw-bold">Subject</td><td>' + esc(ssl.subject || '') + '</td></tr>';
+            sslHtml += '<tr><td class="fw-bold">Issuer</td><td>' + esc(ssl.issuer || '') + '</td></tr>';
+            sslHtml += '<tr><td class="fw-bold">Valid From</td><td>' + esc(ssl.valid_from || '') + '</td></tr>';
+            sslHtml += '<tr><td class="fw-bold">Valid To</td><td>' + esc(ssl.valid_to || '') + '</td></tr>';
+            sslHtml += '<tr' + expiredClass + '><td class="fw-bold">Expires In</td><td>' + esc(ssl.expires_in || '') + (ssl.expired ? ' <span class="badge bg-danger">EXPIRED</span>' : '') + '</td></tr>';
+            if (ssl.san && ssl.san.length) {
+                sslHtml += '<tr><td class="fw-bold">Alt Names</td><td>' + ssl.san.map(esc).join(', ') + '</td></tr>';
+            }
+            sslHtml += '</table></div></div>';
+
+            // DANE/TLSA (Issue #103)
+            if (data.dane_tlsa && data.dane_tlsa.found) {
+                sslHtml += '<div class="card mt-3"><div class="card-header"><strong>DANE/TLSA Records</strong></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Usage</th><th>Selector</th><th>Matching</th><th>Data</th></tr></thead><tbody>';
+                data.dane_tlsa.records.forEach(function (r) {
+                    sslHtml += '<tr><td>' + r.usage + '</td><td>' + r.selector + '</td><td>' + r.matching + '</td><td><code class="small">' + esc(r.data) + '</code></td></tr>';
+                });
+                sslHtml += '</tbody></table></div></div>';
+            }
+
+            // Certificate Transparency (Issue #94)
+            if (data.cert_transparency) {
+                sslHtml += '<div class="card mt-3"><div class="card-header"><strong>Certificate Transparency</strong> <span class="badge bg-secondary">' + data.cert_transparency.total + ' certificates</span></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Issuer</th><th>Common Name</th><th>Not Before</th><th>Not After</th></tr></thead><tbody>';
+                data.cert_transparency.recent.forEach(function (c) {
+                    sslHtml += '<tr><td class="small">' + esc(c.issuer) + '</td><td>' + esc(c.common_name) + '</td><td>' + esc(c.not_before) + '</td><td>' + esc(c.not_after) + '</td></tr>';
+                });
+                sslHtml += '</tbody></table></div></div>';
+            }
+
+            document.getElementById('slot-ssl').innerHTML = sslHtml;
+        }
+
+        // Shodan (Issue #97)
+        function renderShodan(data) {
+            if (!data.shodan) return;
+            var shHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-hdd-network me-1"></i>Exposed Services (Shodan)</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            shHtml += '<tr><td class="fw-bold">Open Ports</td><td>' + (data.shodan.ports.length ? data.shodan.ports.join(', ') : 'None detected') + '</td></tr>';
+            if (data.shodan.os) {
+                shHtml += '<tr><td class="fw-bold">OS</td><td>' + esc(data.shodan.os) + '</td></tr>';
+            }
+            if (data.shodan.org) {
+                shHtml += '<tr><td class="fw-bold">Organization</td><td>' + esc(data.shodan.org) + '</td></tr>';
+            }
+            if (data.shodan.vulns && data.shodan.vulns.length) {
+                shHtml += '<tr class="table-danger"><td class="fw-bold">Known Vulnerabilities</td><td>' + data.shodan.vulns.map(esc).join(', ') + '</td></tr>';
+            }
+            shHtml += '</table></div></div>';
+            document.getElementById('slot-shodan').innerHTML = shHtml;
+        }
+
+        // HTTP Security Headers (Issue #106)
+        function renderHttpHeaders(data) {
+            if (!data.http_headers) return;
+            var hh = data.http_headers;
+            var hhHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-lock me-1"></i>HTTP Security Headers</strong> <span class="badge ' + (hh.grade <= 'B' ? 'bg-success' : (hh.grade <= 'D' ? 'bg-warning' : 'bg-danger')) + '">' + hh.grade + ' (' + hh.pass + '/' + hh.total + ')</span></div><div class="card-body"><table class="table table-sm mb-0">';
+            hh.headers.forEach(function (h) {
+                var icon = h.present ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+                hhHtml += '<tr><td class="fw-bold">' + icon + ' ' + esc(h.header) + '</td><td>' + (h.present ? '<code class="small">' + esc(h.value || '') + '</code>' : '<span class="text-muted">missing</span>') + '</td></tr>';
+            });
+            hhHtml += '</table></div></div>';
+            document.getElementById('slot-http_headers').innerHTML = hhHtml;
+        }
+
+        // TLS Audit (Issue #108)
+        function renderTlsAudit(data) {
+            if (!data.tls_audit) return;
+            var ta = data.tls_audit;
+            var taHtml = '<div class="card mt-3"><div class="card-header"><strong>TLS Version Support</strong>' + (ta.insecure ? ' <span class="badge bg-danger">Insecure versions enabled</span>' : '') + '</div><div class="card-body"><table class="table table-sm mb-0">';
+            if (ta.protocol) {
+                taHtml += '<tr><td class="fw-bold">Negotiated</td><td>' + esc(ta.protocol) + '</td></tr>';
+            }
+            if (ta.cipher) {
+                taHtml += '<tr><td class="fw-bold">Cipher</td><td><code>' + esc(ta.cipher) + '</code></td></tr>';
+            }
+            for (var ver in ta.versions) {
+                var cls = (ver === 'TLSv1.0' || ver === 'TLSv1.1') && ta.versions[ver] ? ' class="table-danger"' : '';
+                taHtml += '<tr' + cls + '><td class="fw-bold">' + esc(ver) + '</td><td>' + (ta.versions[ver] ? '<i class="bi bi-check-circle text-success"></i> Supported' : '<i class="bi bi-x-circle text-muted"></i> Not supported') + '</td></tr>';
+            }
+            taHtml += '</table></div></div>';
+            document.getElementById('slot-tls_audit').innerHTML = taHtml;
+        }
+
+        // CAA Records (Issue #109)
+        function renderCaa(data) {
+            if (!(data.caa_records && data.caa_records.found)) return;
+            var caaHtml = '<div class="card mt-3"><div class="card-header"><strong>CAA Records</strong></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Tag</th><th>Value</th><th>Flag</th></tr></thead><tbody>';
+            data.caa_records.records.forEach(function (r) {
+                caaHtml += '<tr><td>' + esc(r.tag) + '</td><td>' + esc(r.value) + '</td><td>' + r.flag + '</td></tr>';
+            });
+            caaHtml += '</tbody></table></div></div>';
+            document.getElementById('slot-caa').innerHTML = caaHtml;
+        }
+
+        // SMTP Security (Issue #110)
+        // NOTE: the intermediate "esPane.innerHTML += ...; esPane.innerHTML =
+        // esPane.innerHTML.slice(0, -1); // reopen" pair is legacy code kept
+        // verbatim from the monolithic displayResults(). Traced through: it
+        // appends an unclosed HTML fragment, which the browser auto-closes on
+        // parse, then removes the resulting serialization's trailing '>' and
+        // reassigns — the HTML parser auto-closes the still-open element at
+        // EOF regardless, so the net DOM effect is an inert no-op EXCEPT that
+        // it leaves a near-empty duplicate "SMTP Security" card (header +
+        // empty table) ahead of the real card that's appended right after.
+        // That is a pre-existing rendering quirk in production today; Step 5
+        // preserves it unchanged (zero behaviour change), not introduced here.
+        function renderSmtp(data) {
+            if (!data.smtp_security) return;
+            var sm = data.smtp_security;
+            var smIcon = sm.starttls ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+            var esPane = document.getElementById('slot-smtp');
+            esPane.innerHTML += '<div class="card mt-3"><div class="card-header"><strong>SMTP Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            esPane.innerHTML = esPane.innerHTML.slice(0, -1); // reopen
+            var smHtml = '<div class="card mt-3"><div class="card-header"><strong>SMTP Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            smHtml += '<tr><td class="fw-bold">MX Server</td><td>' + esc(sm.mx_host) + '</td></tr>';
+            if (sm.banner) {
+                smHtml += '<tr><td class="fw-bold">Banner</td><td><code class="small">' + esc(sm.banner) + '</code></td></tr>';
+            }
+            smHtml += '<tr><td class="fw-bold">' + smIcon + ' STARTTLS</td><td>' + (sm.starttls ? 'Supported' : 'Not supported') + '</td></tr>';
+            smHtml += '</table></div></div>';
+            document.getElementById('slot-smtp').innerHTML += smHtml;
+        }
+
+        // Redirect Chain (Issue #107)
+        function renderRedirectChain(data) {
+            if (!(data.redirect_chain && data.redirect_chain.hops > 1)) return;
+            var rc = data.redirect_chain;
+            var rcHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-arrow-right-circle me-1"></i>Redirect Chain</strong>' + (rc.suspicious ? ' <span class="badge bg-warning">Excessive redirects</span>' : '') + (rc.http_to_https ? ' <span class="badge bg-info">HTTP→HTTPS</span>' : '') + '</div><div class="card-body"><ol class="mb-0 small">';
+            rc.chain.forEach(function (hop) {
+                // Issue #197: a hop can be marked "blocked" when its Location header
+                // pointed at a private/internal address — we stop the chain rather
+                // than connect to it, so show that distinctly instead of "null".
+                var hopBadge = hop.blocked
+                    ? '<span class="badge bg-danger">blocked (internal address)</span>'
+                    : '<span class="badge bg-secondary">' + esc(String(hop.status)) + '</span>';
+                rcHtml += '<li><code>' + esc(hop.url) + '</code> ' + hopBadge + '</li>';
+            });
+            rcHtml += '</ol></div></div>';
+            document.getElementById('slot-redirect_chain').innerHTML = rcHtml;
+            if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
+        }
+
+        // HTTP Versions (Issue #112)
+        function renderHttpVersions(data) {
+            if (!data.http_versions) return;
+            var hv = data.http_versions;
+            var hvHtml = '<div class="card mt-3"><div class="card-header"><strong>Protocol Support</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            if (hv.protocol) {
+                hvHtml += '<tr><td class="fw-bold">Negotiated</td><td>' + esc(hv.protocol) + '</td></tr>';
+            }
+            hvHtml += '<tr><td class="fw-bold">HTTP/2</td><td>' + (hv.http2 ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No') + '</td></tr>';
+            hvHtml += '<tr><td class="fw-bold">HTTP/3</td><td>' + (hv.http3 ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No') + '</td></tr>';
+            hvHtml += '</table></div></div>';
+            document.getElementById('slot-http_versions').innerHTML = hvHtml;
+        }
+
+        // IPv6 (Issue #113)
+        function renderIpv6(data) {
+            if (!data.ipv6) return;
+            var v6Icon = data.ipv6.has_aaaa ? '<i class="bi bi-check-circle text-success me-1"></i>' : '<i class="bi bi-x-circle text-warning me-1"></i>';
+            var v6Text = data.ipv6.has_aaaa ? 'IPv6 ready (' + data.ipv6.aaaa_records.map(esc).join(', ') + ')' : 'No AAAA records — IPv6 not configured';
+            document.getElementById('slot-ipv6').innerHTML = '<div class="alert ' + (data.ipv6.has_aaaa ? 'alert-success' : 'alert-warning') + ' mt-2 small">' + v6Icon + '<strong>IPv6:</strong> ' + v6Text + '</div>';
+        }
+
+        // Response Times (Issue #114)
+        function renderResponseTimes(data) {
+            if (!(data.response_times && data.response_times.dns_ms !== null)) return;
+            var rt = data.response_times;
+            var rtHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-speedometer2 me-1"></i>Response Times</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            rtHtml += '<tr><td class="fw-bold">DNS Resolution</td><td>' + rt.dns_ms + ' ms</td></tr>';
+            rtHtml += '<tr><td class="fw-bold">Time to First Byte</td><td>' + rt.ttfb_ms + ' ms</td></tr>';
+            rtHtml += '<tr><td class="fw-bold">Total</td><td>' + rt.total_ms + ' ms</td></tr>';
+            rtHtml += '</table></div></div>';
+            document.getElementById('slot-response_times').innerHTML = rtHtml;
+            if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
+        }
+
+        // NS Diversity (Issue #115)
+        function renderNsDiversity(data) {
+            if (!(data.ns_diversity && !data.ns_diversity.diverse)) return;
+            document.getElementById('slot-ns_diversity').innerHTML = '<div class="alert alert-warning mt-2 small"><i class="bi bi-exclamation-triangle me-1"></i><strong>NS Diversity:</strong> ' + esc(data.ns_diversity.warning) + '</div>';
+        }
+
+        // Reverse IP (Issue #111)
+        function renderReverseIp(data) {
+            if (!(data.reverse_ip && data.reverse_ip.count > 1)) return;
+            var riHtml = '<div class="card mt-3"><div class="card-header"><strong>Shared Hosting</strong> <span class="badge bg-secondary">' + data.reverse_ip.count + ' domains on same IP</span></div><div class="card-body"><div class="small">' + data.reverse_ip.domains.slice(0, 15).map(esc).join(', ') + (data.reverse_ip.count > 15 ? '...' : '') + '</div></div></div>';
+            document.getElementById('slot-reverse_ip').innerHTML = riHtml;
+        }
+
+        // Security Score (Issue #128, #175)
+        function renderSecurityScore(data) {
+            if (!(data.security_score && !paramHideSecScore)) return;
+            var ss = data.security_score;
+            var ssColor = ss.grade <= 'B' ? 'success' : (ss.grade <= 'D' ? 'warning' : 'danger');
+
+            // Store score history (Issue #138)
+            var scoreHistory = {};
+            try {
+                scoreHistory = JSON.parse(localStorage.getItem('securityScoreHistory') || '{}');
+            } catch(e) {
+            }
+            if (!scoreHistory[currentDomain]) {
+                scoreHistory[currentDomain] = [];
+            }
+            scoreHistory[currentDomain].push({ ts: Date.now(), grade: ss.grade, score: ss.score });
+            if (scoreHistory[currentDomain].length > 20) {
+                scoreHistory[currentDomain] = scoreHistory[currentDomain].slice(-20);
+            }
+            localStorage.setItem('securityScoreHistory', JSON.stringify(scoreHistory));
+
+            // Build sparkline from history
+            var history = scoreHistory[currentDomain] || [];
+            var sparkline = '';
+            if (history.length > 1) {
+                sparkline = '<div class="d-flex align-items-end gap-1 mt-1" style="height:20px;" title="Score history">';
+                history.forEach(function (h) {
+                    var barH = Math.max(2, Math.round(h.score / 5));
+                    var barC = h.score >= 75 ? '#198754' : (h.score >= 45 ? '#ffc107' : '#dc3545');
+                    sparkline += '<div style="width:4px;height:' + barH + 'px;background:' + barC + ';border-radius:1px;"></div>';
+                });
+                sparkline += '</div>';
+            }
+
+            var ssHtml = '<div class="card mb-3"><div class="card-body d-flex align-items-center gap-3">' +
+                '<div class="text-center" style="min-width:60px"><span class="display-5 fw-bold text-' + ssColor + '">' + ss.grade + '</span><br><small class="text-muted">' + ss.score + '%</small></div>' +
+                '<div><strong>Security Score</strong><br><small class="text-muted">' + ss.passed + ' of ' + ss.total + ' checks passed</small>' +
+                '<div class="progress mt-1" style="height:6px;width:200px"><div class="progress-bar bg-' + ssColor + '" style="width:' + ss.score + '%"></div></div>' + sparkline + '</div></div></div>';
+            document.getElementById('slot-security_score').innerHTML = ssHtml;
+            if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
+
+            // Security details tab (Issue #175)
+            if (ss.details && ss.details.length) {
+                document.getElementById('resultTabs').style.display = '';
+                var secHtml = '<div class="card"><div class="card-header d-flex align-items-center justify-content-between">' +
+                    '<strong><i class="bi bi-shield-check me-1"></i>Security Checks</strong>' +
+                    '<span class="badge bg-' + ssColor + '">' + ss.grade + ' — ' + ss.score + '%</span></div>' +
+                    '<div class="card-body"><div class="table-responsive"><table class="table table-sm mb-0">';
+                secHtml += '<thead><tr><th>Check</th><th>Status</th><th>Details</th><th class="text-nowrap">Guide</th></tr></thead><tbody>';
+                ss.details.forEach(function (d) {
+                    var icon, badge;
+                    if (d.status === 'pass') {
+                        icon = '<i class="bi bi-check-circle-fill text-success"></i>';
+                        badge = '<span class="badge bg-success">Pass</span>';
+                    } else if (d.status === 'warn') {
+                        icon = '<i class="bi bi-exclamation-triangle-fill text-warning"></i>';
+                        badge = '<span class="badge bg-warning text-dark">Warning</span>';
+                    } else {
+                        icon = '<i class="bi bi-x-circle-fill text-danger"></i>';
+                        badge = '<span class="badge bg-danger">Fail</span>';
+                    }
+                    secHtml += '<tr><td class="fw-bold">' + icon + ' ' + esc(d.name) + '</td><td>' + badge + '</td><td>' + esc(d.info);
+                    if (d.recommendation) {
+                        secHtml += '<br><small class="text-muted"><i class="bi bi-lightbulb me-1"></i>' + esc(d.recommendation) + '</small>';
+                    }
+                    secHtml += '</td><td>';
+                    if (d.guide && d.status !== 'pass') {
+                        secHtml += '<a href="' + esc(d.guide) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-up-right me-1"></i>Fix guide</a>';
+                    }
+                    secHtml += '</td></tr>';
+                });
+                secHtml += '</tbody></table></div></div></div>';
+                document.getElementById('slot-security_details').innerHTML = secHtml;
+            }
+        }
+
+        // Tech Stack (Issue #124)
+        function renderTechStack(data) {
+            if (!(data.tech_stack && data.tech_stack.length > 0)) return;
+            var tsHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-stack me-1"></i>Technology Stack</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            data.tech_stack.forEach(function (t) {
+                tsHtml += '<tr><td class="fw-bold">' + esc(t.category) + '</td><td>' + esc(t.name) + '</td></tr>';
+            });
+            tsHtml += '</table></div></div>';
+            document.getElementById('slot-tech_stack').innerHTML = tsHtml;
+        }
+
+        // Robots.txt (Issue #125)
+        function renderRobots(data) {
+            if (!data.robots_txt) return;
+            var rb = data.robots_txt;
+            var rbHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-robot me-1"></i>Robots.txt & Sitemap</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            rbHtml += '<tr><td class="fw-bold">robots.txt</td><td>' + (rb.robots_found ? '<i class="bi bi-check-circle text-success"></i> Found' : '<i class="bi bi-x-circle text-muted"></i> Not found') + '</td></tr>';
+            rbHtml += '<tr><td class="fw-bold">sitemap.xml</td><td>' + (rb.sitemap_found ? '<i class="bi bi-check-circle text-success"></i> Found' : '<i class="bi bi-x-circle text-muted"></i> Not found') + '</td></tr>';
+            if (rb.disallowed.length) {
+                rbHtml += '<tr><td class="fw-bold">Disallowed paths</td><td><code class="small">' + rb.disallowed.slice(0, 10).map(esc).join('</code>, <code class="small">') + '</code>' + (rb.disallowed.length > 10 ? ' ...' : '') + '</td></tr>';
+            }
+            if (rb.crawl_delay) {
+                rbHtml += '<tr><td class="fw-bold">Crawl delay</td><td>' + rb.crawl_delay + 's</td></tr>';
+            }
+            rbHtml += '</table></div></div>';
+            document.getElementById('slot-robots_txt').innerHTML = rbHtml;
+        }
+
+        // DNS Propagation (Issue #126) — reuses the existing string-returning
+        // renderDnsPropagation()/bindDnsPropControls() helpers unchanged;
+        // this just wires the per-key slot for the module dispatch seam.
+        function renderDnsPropagationPane(data) {
+            if (!data.dns_propagation) return;
+            document.getElementById('slot-dns_propagation').innerHTML = renderDnsPropagation(data.dns_propagation);
+            bindDnsPropControls();
+            if (dnsPropEnabled) startDnsPropAutoRefresh();
+        }
+
+        // Multi-DNSBL (Issue #133)
+        function renderMultiDnsbl(data) {
+            if (!data.multi_dnsbl) return;
+            var db = data.multi_dnsbl;
+            var dbHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-exclamation me-1"></i>Blocklist Check</strong> <span class="badge ' + (db.listed ? 'bg-danger' : 'bg-success') + '">' + (db.listed ? db.lists.length + ' listed' : 'Clean') + '</span> <small class="text-muted">(' + db.total_checked + ' lists checked)</small></div>';
+            if (db.listed) {
+                dbHtml += '<div class="card-body"><table class="table table-sm mb-0 table-danger">';
+                db.lists.forEach(function (l) {
+                    dbHtml += '<tr><td>' + esc(l.label) + '</td><td><code class="small">' + esc(l.zone) + '</code></td></tr>';
+                });
+                dbHtml += '</table></div>';
+            }
+            dbHtml += '</div>';
+            document.getElementById('slot-multi_dnsbl').innerHTML = dbHtml;
+        }
+
+        // Subdomains (Issue #46)
+        // NOTE: intentionally overwrites the WHOLE subdomainsPane (not just
+        // this renderer's own slot) — this reproduces a pre-existing quirk
+        // in the legacy monolithic displayResults(), where this block set
+        // subdomainsPane.innerHTML (assignment, not +=) and therefore wiped
+        // out any reverse_ip/tech_stack/robots_txt content rendered earlier
+        // into the same pane. Preserved verbatim for Step 5 (zero behaviour
+        // change) — worth a deliberate fix in a follow-up, not in scope here.
+        function renderSubdomains(data) {
+            if (!(data.subdomains && data.subdomains.length)) return;
+            document.getElementById('resultTabs').style.display = '';
+            var subHtml = '<div class="card"><div class="card-header"><strong>Discovered Subdomains</strong> <span class="badge bg-secondary">' + data.subdomains.length + ' found</span></div><div class="card-body"><table class="table table-striped table-sm mb-0"><thead><tr><th>Subdomain</th><th>IP Address</th></tr></thead><tbody>';
+            data.subdomains.forEach(function (s) {
+                subHtml += '<tr><td>' + esc(s.subdomain) + '</td><td><code>' + esc(s.ip) + '</code></td></tr>';
+            });
+            subHtml += '</tbody></table></div></div>';
+            document.getElementById('subdomainsPane').innerHTML = subHtml;
+        }
+
+        // ── renderModule: the seam Step 6 will call once per async module
+        // response. For Step 5 it's called synchronously from
+        // displayResults() with the SAME full legacy response each time —
+        // each renderer below picks its own key(s) back out of it. ──
+        function renderModule(name, res) {
+            Object.assign(lastLookupData, res.data);
+            var data = res.data;
+            switch (name) {
+                case 'dns':
+                    renderDnssec(data);
+                    renderIpv6(data);
+                    renderNsDiversity(data);
+                    renderDnsPropagationPane(data);
+                    break;
+                case 'web':
+                    renderSsl(data);
+                    renderHttpHeaders(data);
+                    renderTlsAudit(data);
+                    renderCaa(data);
+                    renderHttpVersions(data);
+                    renderRedirectChain(data);
+                    renderResponseTimes(data);
+                    renderTechStack(data);
+                    renderRobots(data);
+                    break;
+                case 'email':
+                    renderEmailSecurity(data);
+                    renderSmtp(data);
+                    renderMultiDnsbl(data);
+                    break;
+                case 'reputation':
+                    renderGeolocation(data);
+                    renderShodan(data);
+                    break;
+                case 'subdomains':
+                    // reverse_ip before subdomains — matches legacy execution
+                    // order so the subdomains overwrite (see renderSubdomains
+                    // note above) wipes reverse_ip's already-rendered slot
+                    // exactly as it does today.
+                    renderReverseIp(data);
+                    renderSubdomains(data);
+                    break;
+                case 'score':
+                    renderSecurityScore(data);
+                    break;
+            }
+        }
+
+        function displayResults(data) {
+            if (!renderCore(data)) return;
+            renderModule('dns', { data: data });
+            renderModule('web', { data: data });
+            renderModule('email', { data: data });
+            renderModule('reputation', { data: data });
+            renderModule('subdomains', { data: data });
+            renderModule('score', { data: data });
         }
 
         // ── Result tabs ──
