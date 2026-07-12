@@ -940,12 +940,18 @@ function setCache(string $domain, string $result, int $ttl = CACHE_TTL): void {
     $key = 'mwwhois:' . md5($domain);
 
     if ($cache['type'] === 'redis') {
-        $cache['conn']->setex($key, $ttl, $result);
+        // Issue #218: log write failures (backend name only — never the key or
+        // cached value) so operators can see cache-layer trouble in admin.php.
+        if (!$cache['conn']->setex($key, $ttl, $result)) {
+            appLog('cache write failed: redis backend');
+        }
         return;
     }
 
     if ($cache['type'] === 'memcached') {
-        $cache['conn']->set($key, $result, $ttl);
+        if (!$cache['conn']->set($key, $result, $ttl)) {
+            appLog('cache write failed: memcached backend');
+        }
         return;
     }
 
@@ -955,7 +961,9 @@ function setCache(string $domain, string $result, int $ttl = CACHE_TTL): void {
     }
 
     $cacheFile = CACHE_DIR . DIRECTORY_SEPARATOR . md5($domain) . '.json';
-    file_put_contents($cacheFile, json_encode(['ts' => time(), 'result' => $result]));
+    if (file_put_contents($cacheFile, json_encode(['ts' => time(), 'result' => $result])) === false) {
+        appLog('cache write failed: file backend');
+    }
 }
 
 
@@ -1025,6 +1033,10 @@ function updateTldDataIfNeeded(): void {
     // 24h; let the very next request try the refresh again.
     if ($anySucceeded) {
         file_put_contents(TLD_META_PATH, json_encode(['checked_at' => time()]));
+    } else {
+        // Issue #218: both upstream fetches failed — log so operators see recurring
+        // TLD/PSL refresh trouble rather than silently running on stale/absent data.
+        appLog('TLD/PSL refresh failed');
     }
 
     @flock($lockHandle, LOCK_UN);
@@ -1864,9 +1876,14 @@ function rdapLookup(string $domain): ?array {
         ]);
         $response = curl_exec($ch);
         $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $errno = curl_errno($ch);
         curl_close($ch);
 
         if ($response === false || $code >= 400) {
+            // Issue #218: wire appLog() into a genuine failure path — the domain has
+            // already been validated upstream, and we log only the HTTP code / curl
+            // errno, never response bodies or headers.
+            appLog("RDAP lookup failed for {$domain}: HTTP {$code} (curl errno {$errno})");
             return null;
         }
     } else {
@@ -1886,6 +1903,7 @@ function rdapLookup(string $domain): ?array {
         $response = @file_get_contents($url, false, $ctx);
 
         if ($response === false) {
+            appLog("RDAP lookup failed for {$domain}: no response (stream fallback)");
             return null;
         }
     }

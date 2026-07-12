@@ -895,6 +895,11 @@ function runCoreLookup(string $rawInput, string $sourceParam, bool $dnt): array
             $whoisText = runCommandWithTimeout("whois " . escapeshellarg($domain), 8);
             $dataSource = 'whois';
             if (!$dnt) trackLookup('whois', $domain);
+            if (!$whoisText) {
+                // Issue #218: log the failure (domain only, no output/credentials) so
+                // operators get signal in admin.php's Recent Errors panel.
+                appLog("WHOIS command returned no output for {$domain}");
+            }
         }
 
         // Cache result
