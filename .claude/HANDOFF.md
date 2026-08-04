@@ -1,76 +1,145 @@
-# Handoff — mwWhoIs / DomainCheckr
+# Handoff Document — mwWhoIs
 
-> Resume point for the current work. Keep this file current: update it as tasks
-> start/finish so any session can pick up without re-reading the brief, the full
-> codebase, or prior chat. Last updated: **2026-07-10**.
+> Living document. Update as work progresses so any session can resume instantly.
+> Last updated: 2026-08-04 (session: daily-update-tasks-failures).
 
-## Active session focus
+## Current working branch
 
-1. **Record standing tasks** into `.claude/` — **DONE & PUSHED** (issue #185,
-   commit `3268e00` on beta+alpha). See `.claude/CLAUDE.md` → "Standing Tasks
-   & Working Agreement" + `.claude/memory/feedback_workflow_process.md`.
-2. **Branch cleanup & alpha↔beta realignment** — **DONE** (issue #186).
-   `alpha` advanced to `beta` (both at `3268e00`, aligned); merged TLD branch
-   deleted; `main` untouched.
+`claude/daily-update-tasks-failures-q0w1xt` (based on `main`, will target **`alpha`** via a single PR created later).
 
-## Completed this session (2026-07-10)
+**Branch flow:** `claude/*` → `alpha` → `beta` → `main` (production).
 
-- Issue **#185** — standing tasks + in-repo Claude docs → committed `3268e00`,
-  pushed to `origin/beta` and `origin/alpha`. **CLOSED.**
-- Issue **#186** — branch cleanup + realignment. **CLOSED.**
-  - `git push origin beta` → `a9b5297..3268e00`
-  - `git push origin beta:alpha` → `8390bac..3268e00` (fast-forward, alpha == beta)
-  - `git push origin --delete claude/add-tld-listing-GiisC` → deleted
-- Remote now has exactly three branches: `main`, `beta`, `alpha`.
+**Rules in force (standing instructions — see `.claude/memory/standing_instructions.md`):**
+- Deep analysis & deep planning: **sequential Fable 5 agents** (fall back to Opus if unavailable; retry Fable first each run).
+- Implementation: **Sonnet or Haiku** (Opus only if complex). GIRFT — token-efficient, correct first time.
+- After each task: commit + push to the working branch, update the relevant GitHub issue(s), update `.claude/` memory/context, update this handoff.
+- **No PR stacking** — one branch, one PR later. Do not open multiple PRs.
+- Work autonomously; only pause for decisions that genuinely need the user.
 
-## Branch state as of 2026-07-10 (analysed against `origin/*`, post-fetch)
+## The problem being solved
 
-| Branch | Tip | Relationship | Verdict |
-|---|---|---|---|
-| `origin/main` | `43d84f9` | fully contained in beta; 85 behind beta | keep (production) |
-| `origin/beta` | `a9b5297` | **most advanced branch**; contains all of main, alpha, TLD | keep (base dev, for now) |
-| `origin/alpha` | `8390bac` | **fully contained in beta** (PR #183 merged alpha→beta 2026‑04‑07). 0 commits/content unique vs beta | keep (future base dev) — realign by advancing to beta |
-| `origin/claude/add-tld-listing-GiisC` | `75515a2` | **fully merged into beta** (PR #184 merged 2026‑04‑21). 0 unique commits | **DELETE** (remote) |
+Daily "Update DNS Resolvers" GitHub Action fails every day ("All jobs have failed").
 
-Verified with `git merge-base --is-ancestor` (all three non-beta branches are
-ancestors of beta) and `gh pr list` (PRs #182/#183/#184 all MERGED; **no open
-PRs**). The GitHub "Branches" page chips for #183/#184 are stale links to
-already-merged PRs.
+### Root cause (CONFIRMED via run logs, run_id 30879730451)
 
-### Key finding — corrects the original premise
-There is **nothing on `alpha` that is not already on `beta`**. `alpha` is a
-strict ancestor of `beta` (beta = alpha + 79 later commits). So "cherry-pick
-alpha's unique code into beta" has **no candidates**. The tree diff
-`origin/beta..origin/alpha` shows only files where **beta moved forward** (e.g.
-beta relocated `config.php`→`includes/config.php`, added `feed*.php`,
-`portfolio.php`, `tlds.php`, `SECURITY.md`, PWA files, etc.). The stale
-`web/public_html/config.php` + `session_config.php` that appear "added" in alpha
-are old files beta has since removed — **not** new work.
+Scheduled workflows execute the workflow file from the **default branch (`main`)**, but this
+workflow does `checkout ref: beta`. On the **beta** branch, `web/public_html_beta/` does **not
+exist** — beta keeps its files in `web/public_html/`.
 
-### Correct realignment
-To realign with **beta as the source of truth**: fast-forward `alpha` up to
-`beta` (`alpha` becomes identical to `beta`). This is a **push to origin/alpha**
-→ needs explicit owner go-ahead.
+- The updater step (beta's `scripts/update-dns-resolvers.php`) writes to
+  `web/public_html/includes/dns_resolvers.php` and **passes** ("Syntax check passed").
+- The next step, *"Check for changes"*, runs
+  `git diff --quiet web/public_html_beta/includes/dns_resolvers.php` — a path not in beta's
+  working tree → `fatal: ... unknown revision or path not in the working tree` → exit 128.
+- Because the step shell is `bash -e`, the job fails. Every day.
 
-## Open items / decisions still pending
+### Cross-branch state (ground truth)
 
-- **`stash@{0}`** holds the abandoned, **syntactically broken** edit to
-  `web/public_html_beta/includes/infoAppVer.php` (dangling `})`, malformed
-  `isset(... && ...)`). Preserved, not committed. **Owner to decide:** salvage
-  the Bundle-ID fallback logic (fix syntax first) or `git stash drop`.
-- **Stale `origin` remote URL:** points to `https://github.com/Salem874/mwWhoIs.git`
-  which *redirects* to the real `https://github.com/MWBMPartners/phpWhoIs.git`.
-  Pushes work via redirect but emit a "repository moved" notice. Recommend the
-  owner run `git remote set-url origin https://github.com/MWBMPartners/phpWhoIs.git`
-  (not done here — `.git/config` changes need explicit go-ahead).
-- **Local `main`** is 2 behind `origin/main` (harmless; production promotion path).
+| Branch | `web/public_html_beta/` exists? | script writes to | workflow refs |
+|--------|-------------------------------|------------------|---------------|
+| alpha  | yes                           | public_html_beta | public_html_beta |
+| beta   | **no** (only public_html)     | public_html      | public_html_beta |
+| main   | yes                           | public_html_beta | public_html_beta |
 
-## Next steps when resuming (the standing "docs sweep")
+The workflow **always** checks out `beta`, so it must reference the path that exists on beta
+(`public_html`). The safest, drift-proof fix is to make the **script auto-detect** the resolver
+file (prefer `public_html_beta`, else `public_html`) and make the **workflow** use a path-glob
+(`web/*/includes/dns_resolvers.php`) that matches whichever exists.
 
-Per `.claude/CLAUDE.md` → Standing Task #6, now that the queued cleanup is done:
-1. Documentation sweep — update `.md` files, **GitHub Wiki**, **Project**, and
-   **Milestones** (none exist yet — create them), and refresh the
-   **OpenAPI/Swagger** spec (`assets/api/openapi.yaml`) to the current feature set.
-2. Optional: `dev-team-featurefind` pass to propose new features
-   (un-actioned ideas → `for consideration` issues).
-3. `alpha` is ready to become the base dev branch whenever the owner switches.
+### Secondary issue
+
+The script rewrites the "Last updated" timestamp on every run even when no resolvers change,
+producing a needless daily commit. Fix: skip writing when resolver data is unchanged.
+
+## Plan (high level)
+
+1. Fix workflow path references + harden (glob-based change detection). [task #1]
+2. Harden script path auto-detection + no-op skip. [task #2]
+3. Deep analysis (Fable 5) — validate + inventory docs/API/Swagger scope. [task #3]
+4. Deep planning (Fable 5). [task #4]
+5. Thorough documentation update (all .md + in-app help). [task #5]
+6. OpenAPI update + Swagger UI for shared hosting. [task #6]
+7. Update .claude memory/context + standing instructions. [task #7]
+8. Maintain this handoff. [task #8]
+9. Update GitHub issue(s). [task #9]
+10. Commit + push each task to working branch. [task #10]
+
+## GitHub issue mapping (repo: mwbmpartners/phpwhois)
+
+- **DNS workflow failure** → **#251** (Bug, OPEN). Fixed on this branch (commit `9dcf967`); issue stays open until fix lands on `main`, then close as completed.
+- **OpenAPI update** → relates to #245 (OpenAPI completeness + Retry-After on 429), #160 (OpenAPI validation in CI).
+- **Swagger UI (shared hosting)** → relates to #158 (Dark-mode Swagger UI improvements), #148 (API "Try It" docs). Confirms Swagger UI was already intended.
+- **Workflow-lint / prevention** → #250 (actionlint workflow-lint CI).
+- **Docs** → #248 is privacy/terms-specific; general docs handled in commits.
+
+## Environment notes
+
+- No claude.ai plugins enabled (dev-team-plugins not available in session as of 2026-08-04).
+- Model routing: analysis/planning = Fable 5 (sequential); implementation = Sonnet/Haiku (Opus if complex).
+
+## Progress log
+
+- [done] Ground truth gathered; root cause confirmed; task list (#1–#10) created; handoff + standing_instructions.md written.
+- [done] Fable 5 deep-analysis complete (see key findings below).
+- [done] DNS workflow + script fix implemented, verified locally (php -l, YAML lint, no-op/multi-write unit test, git pathspec glob test), committed & pushed. Tasks #1 & #2 complete.
+  - Workflow: matrix `[alpha, beta]`, `ref: ${{ matrix.branch }}`, glob change-detection `web/*/includes/dns_resolvers.php` via `git status --porcelain`, loud-failing retry loop (exits non-zero after 3 tries).
+  - Script: layout-invariant file detection (prefer `public_html_beta`, else `public_html`; updates every copy present), skip-write when only the "Last updated" timestamp would change (no more daily no-op commits).
+  - REMINDER (analysis finding #1): fix is inert on the daily schedule until it reaches `main` (scheduled workflows run YAML from the default branch). Promotion path claude/* → alpha → beta → main still required; user may wish to expedite.
+- [done] Issue **#252** filed (CI hardening: `deploy.yml` deploys even when the sync job fails — confirmed on `main`). Beta-dependent workflow items flagged "verify on beta".
+- [done] Remaining analysis findings preserved in `.claude/memory/findings_backlog.md` (security + workflow items to verify on `beta`; docs/OpenAPI/Swagger deferred). MEMORY.md index updated.
+- [deferred] Tasks #4 (deep planning), #5 (docs), #6 (OpenAPI/Swagger UI) — per user-declined scope decision, NOT done on this stale-main branch. Do on a fresh `beta`-based branch if pursued.
+
+## Deep-analysis key findings (Fable 5, 2026-08-04)
+
+1. **CRITICAL — fix is inert until it lands on `main`.** Scheduled workflows run the YAML from the
+   DEFAULT branch (main). Our branch targets alpha, and rules forbid direct pushes to main, so the
+   daily failure persists until promoted alpha→beta→main. → **User decision flagged** (expedite?).
+   The workflow-only fix, once on main, cures BOTH matrix legs even with old scripts on alpha/beta.
+2. **CRITICAL — `beta` has already diverged massively.** Beta already: consolidated to single-source
+   `web/public_html/` (deleted `public_html_beta` in commit 4fcab25); rewrote the DNS workflow to a
+   `matrix: [alpha, beta]`; refreshed `openapi.yaml` to v1.50 (~1500 lines, adds suggest=1,
+   dns_propagation_only, Retry-After/429); rewrote README/CLAUDE.md/DEV_NOTES/lookup.php.
+   → Doc/OpenAPI/Swagger work on our stale main base **will conflict with / regress beta**.
+   → **User decision flagged** (scope of docs work).
+3. **Swagger UI already EXISTS** in `docs.php` but loads swagger-ui-dist@5 from **jsdelivr CDN**.
+   The real gap = vendor it locally for shared hosting + add a CSP header + fix a live bug
+   (`docs.php:200` references never-loaded `SwaggerUIStandalonePreset`).
+4. Only ONE scheduled workflow exists (update-dns-resolvers). "Daily tasks (plural)" = one job.
+5. Additional latent bugs (all branches): push-retry loops swallow terminal failure; `deploy.yml`
+   deploys even if sync job failed; `version-bump.yml` grep-assign under `bash -e` can abort; several
+   `bash -e` + git-exit-128 traps. → File as issues (touch beta-rewritten files; don't fix blind).
+6. Security findings to FILE (not fix blind — beta rewrote these): `?suggest=1` runs before
+   CSRF/rate-limit; `monitor.php` web-reachable with no CLI/auth guard; rate-limit "tier" advertised
+   in headers but enforcement hard-caps at 30/min regardless.
+
+## Decisions taken
+
+- DNS fix = adopt beta's matrix design + drift-proof paths (glob `web/*/includes/dns_resolvers.php`,
+  `git status --porcelain`, auto-detect resolver file in script, skip write on timestamp-only diff,
+  retry-loop fails loudly). Layout-invariant across alpha/beta/main. **DONE** on THIS branch (commit `9dcf967`).
+- **[2026-08-04] User declined the two scope questions → proceeding on safe defaults:**
+  1. **Promotion:** do NOT open a PR (not requested) and do NOT push to `main` (branch rules). Fix stays
+     on the working branch; user promotes manually. Issue #251 stays OPEN until it reaches `main`.
+  2. **Scope:** keep THIS branch **DNS-only**. Do NOT run the docs/OpenAPI/Swagger refresh on the stale
+     main base (would conflict with / regress beta's v1.50 work). Capture remaining findings as issues.
+     → Tasks #4 (deep planning), #5 (docs), #6 (OpenAPI/Swagger) DEFERRED; if pursued later, do them on a
+     fresh branch cut from `beta`, not from here.
+- SECURITY.md = broken GitHub stub on ALL branches → rewrite (safe, no conflict).
+- Docs/OpenAPI/Swagger big refresh = **await user scope decision** (port beta forward vs. minimal).
+- Workflow-robustness + security findings = file as GitHub issues (avoid blind edits to beta-diverged files).
+
+## Sequencing / conflict rules for promotion (record for implementer)
+
+- Our branch → alpha merges CLEAN (alpha == main layout).
+- alpha→beta WILL conflict on `scripts/update-dns-resolvers.php` + `update-dns-resolvers.yml`:
+  resolution rule = **take our (fixed) version of both**.
+- Landing workflow-only on main is safe vs other automation (verified in analysis) IF user permits.
+
+## Key files
+
+- `.github/workflows/update-dns-resolvers.yml` — the failing workflow.
+- `scripts/update-dns-resolvers.php` — the updater.
+- `web/public_html*/includes/dns_resolvers.php` — generated resolver list.
+- `web/public_html*/assets/api/openapi.yaml` — API spec.
+- `web/public_html*/docs.php` — in-app help/docs.
+- `.claude/memory/` — project memory/context.

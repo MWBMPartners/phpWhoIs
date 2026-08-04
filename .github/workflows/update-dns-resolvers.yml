@@ -22,6 +22,15 @@ jobs:
   update:
     runs-on: ubuntu-latest
 
+    # Refresh the resolver list on every active development branch. Each branch
+    # may lay its files out differently (public_html_beta vs public_html); the
+    # updater script and the steps below are layout-invariant so the same job
+    # works regardless of which directory a branch actually uses.
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: [alpha, beta]
+
     env:
       DNS_MIN_RELIABILITY: ${{ github.event.inputs.min_reliability || '0.80' }}
       DNS_MAX_PER_COUNTRY: ${{ github.event.inputs.max_per_country || '2' }}
@@ -30,7 +39,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
         with:
-          ref: beta
+          ref: ${{ matrix.branch }}
           fetch-depth: 0
 
       - name: Set up PHP
@@ -44,13 +53,17 @@ jobs:
       - name: Check for changes
         id: changes
         run: |
-          if git diff --quiet web/public_html_beta/includes/dns_resolvers.php; then
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "No changes to DNS resolvers"
+          # Match whichever resolver file(s) exist on this branch. Using a git
+          # pathspec (quoted so the shell does not expand it) means the step
+          # never references a path that is absent in the checked-out branch,
+          # which is what used to make this job fail every day.
+          if [ -n "$(git status --porcelain -- 'web/*/includes/dns_resolvers.php')" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "DNS resolvers updated on ${{ matrix.branch }}"
+            git diff --stat -- 'web/*/includes/dns_resolvers.php'
           else
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "DNS resolvers updated"
-            git diff --stat web/public_html_beta/includes/dns_resolvers.php
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No changes to DNS resolvers on ${{ matrix.branch }}"
           fi
 
       - name: Commit and push
@@ -58,12 +71,22 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add web/public_html_beta/includes/dns_resolvers.php
+          git add -- 'web/*/includes/dns_resolvers.php'
           git commit -m "chore: auto-update DNS resolver list from public-dns.info [skip ci]"
 
+          pushed=false
           for i in 1 2 3; do
-            git fetch origin beta
-            git rebase origin/beta && git push origin beta && break
+            git fetch origin "${{ matrix.branch }}"
+            if git rebase "origin/${{ matrix.branch }}" && git push origin "HEAD:${{ matrix.branch }}"; then
+              pushed=true
+              break
+            fi
             echo "Push attempt $i failed, retrying..."
-            sleep 2
+            git rebase --abort 2>/dev/null || true
+            sleep "$((2 ** i))"
           done
+
+          if [ "$pushed" != "true" ]; then
+            echo "::error::Failed to push DNS resolver update to ${{ matrix.branch }} after 3 attempts"
+            exit 1
+          fi
