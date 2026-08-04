@@ -1790,7 +1790,7 @@ if ($_showPortfolioIcon): ?>
 
             // Domain Suggestions — on-demand (Issue #164)
             if (data.availability === 'registered' || data.availability === 'unknown') {
-                var sgBtnHtml = '<div class="mt-2" id="suggestContainer"><button class="btn btn-outline-primary btn-sm" id="suggestBtn"><i class="bi bi-lightbulb me-1"></i>Suggest Alternatives</button></div>';
+                var sgBtnHtml = '<div class="mt-2" id="suggestContainer"><button class="btn btn-outline-primary btn-sm" id="suggestBtn"><i class="bi bi-lightbulb me-1"></i>Check alternative TLDs</button> <a class="btn btn-link btn-sm" href="tlds" title="Browse all TLDs"><i class="bi bi-list-ul me-1"></i>All TLDs</a></div>';
                 document.getElementById('availabilityBadge').innerHTML += sgBtnHtml;
                 document.getElementById('suggestBtn').addEventListener('click', function () {
                     var btn = this;
@@ -1802,20 +1802,39 @@ if ($_showPortfolioIcon): ?>
                         .then(function (r) { return r.json(); })
                         .then(function (result) {
                             var container = document.getElementById('suggestContainer');
-                            if (result.suggestions && result.suggestions.length > 0) {
-                                var html = '<div class="card mt-2"><div class="card-header"><strong><i class="bi bi-lightbulb me-1"></i>Available Alternatives</strong></div><div class="card-body"><div class="d-flex flex-wrap gap-2">';
-                                result.suggestions.forEach(function (d) {
-                                    html += '<a href="?domain=' + encodeURIComponent(d) + '" class="btn btn-outline-success btn-sm">' + esc(d) + '</a>';
-                                });
-                                html += '</div></div></div>';
-                                container.innerHTML = html;
-                            } else {
-                                container.innerHTML = '<div class="alert alert-info mt-2 small"><i class="bi bi-info-circle me-1"></i>No available alternatives found for common TLDs.</div>';
+                            var grid = result.grid;
+                            if (!grid || !grid.results || !grid.results.length) {
+                                container.innerHTML = '<div class="alert alert-info mt-2 small"><i class="bi bi-info-circle me-1"></i>Could not check alternative TLDs right now. <a href="tlds">Browse all TLDs</a>.</div>';
+                                return;
                             }
+                            var availCount = 0;
+                            result.results = grid.results;
+                            var chips = '';
+                            grid.results.forEach(function (r) {
+                                var badgeClass, icon, title;
+                                if (r.availability === 'available') {
+                                    badgeClass = 'btn-outline-success';
+                                    icon = 'bi-check-circle-fill text-success';
+                                    title = 'Available';
+                                    availCount++;
+                                } else if (r.availability === 'registered') {
+                                    badgeClass = 'btn-outline-secondary';
+                                    icon = 'bi-x-circle-fill text-danger';
+                                    title = 'Registered';
+                                } else {
+                                    badgeClass = 'btn-outline-warning';
+                                    icon = 'bi-question-circle-fill text-warning';
+                                    title = 'Unknown';
+                                }
+                                chips += '<a href="?domain=' + encodeURIComponent(r.domain) + '" class="btn ' + badgeClass + ' btn-sm" title="' + title + (r.cached ? ' (cached)' : '') + '"><i class="bi ' + icon + ' me-1" aria-hidden="true"></i>' + esc(r.domain) + '</a>';
+                            });
+                            var header = '<strong><i class="bi bi-lightbulb me-1"></i>Alternative TLDs</strong> <span class="badge bg-success">' + availCount + ' available</span> <span class="text-muted small">of ' + grid.results.length + ' checked</span>';
+                            var html = '<div class="card mt-2"><div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">' + header + '<a class="small" href="tlds">Browse all TLDs <i class="bi bi-arrow-right"></i></a></div><div class="card-body"><div class="d-flex flex-wrap gap-2">' + chips + '</div></div></div>';
+                            container.innerHTML = html;
                         })
                         .catch(function () {
                             btn.disabled = false;
-                            btn.innerHTML = '<i class="bi bi-lightbulb me-1"></i>Suggest Alternatives';
+                            btn.innerHTML = '<i class="bi bi-lightbulb me-1"></i>Check alternative TLDs';
                         });
                 });
             }

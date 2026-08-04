@@ -976,19 +976,25 @@ function formatRdapResponse(array $rdap): string {
         }
     }
 
+    // Map RDAP event actions to WHOIS-style field names so parseWhoisFields() can extract them
+    $eventActionMap = [
+        'registration'                  => 'Creation Date',
+        'expiration'                    => 'Expiry Date',
+        'last changed'                  => 'Updated Date',
+        'last update of rdap database'  => 'RDAP Last Update',
+        'transfer'                      => 'Transfer Date',
+    ];
+
     if (isset($rdap['events']) && is_array($rdap['events'])) {
         foreach ($rdap['events'] as $e) {
-            $action = '';
-            if (isset($e['eventAction'])) {
-                $action = ucfirst($e['eventAction']);
-            }
+            $action = isset($e['eventAction']) ? $e['eventAction'] : '';
+            $date = isset($e['eventDate']) ? $e['eventDate'] : '';
 
-            $date = '';
-            if (isset($e['eventDate'])) {
-                $date = $e['eventDate'];
-            }
+            $label = isset($eventActionMap[strtolower($action)])
+                ? $eventActionMap[strtolower($action)]
+                : ucfirst($action);
 
-            $lines[] = $action . ": " . $date;
+            $lines[] = $label . ": " . $date;
         }
     }
 
