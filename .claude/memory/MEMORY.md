@@ -4,3 +4,5 @@
 - [feedback_workflow_process.md](feedback_workflow_process.md) - Standing tasks: model selection, issue-per-task, individual commits, handoff docs, no stacked PRs, docs sweep
 - [project_analysis_2026-07.md](project_analysis_2026-07.md) - Deep-analysis pass: slow-lookup root cause, #187-#248 backlog, what's fixed vs pending
 - [project_overview.md](project_overview.md) - DomainCheckr architecture, tech stack, deployment, features (v1.22+ Beta)
+- [standing_instructions.md](standing_instructions.md) - Always-on project defaults (model routing, per-task loop, branching, autonomy)
+- [findings_backlog.md](findings_backlog.md) - Deep-analysis findings; issues #251/#252 filed, rest deferred to verify on `beta`
