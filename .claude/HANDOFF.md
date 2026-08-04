@@ -80,8 +80,50 @@ producing a needless daily commit. Fix: skip writing when resolver data is uncha
 ## Progress log
 
 - [done] Ground truth gathered; root cause confirmed; task list (#1–#10) created; handoff + standing_instructions.md written.
-- [in progress] Fable 5 deep-analysis agent running (validates root cause, inventories docs, API/Swagger gap analysis, checks all workflows).
-- [next] Fable 5 deep-planning agent → implementation (Sonnet/Haiku) → commit/push → issue updates.
+- [done] Fable 5 deep-analysis complete (see key findings below).
+- [done] DNS workflow + script fix implemented, verified locally (php -l, YAML lint, no-op/multi-write unit test, git pathspec glob test), committed & pushed. Tasks #1 & #2 complete.
+  - Workflow: matrix `[alpha, beta]`, `ref: ${{ matrix.branch }}`, glob change-detection `web/*/includes/dns_resolvers.php` via `git status --porcelain`, loud-failing retry loop (exits non-zero after 3 tries).
+  - Script: layout-invariant file detection (prefer `public_html_beta`, else `public_html`; updates every copy present), skip-write when only the "Last updated" timestamp would change (no more daily no-op commits).
+  - REMINDER (analysis finding #1): fix is inert on the daily schedule until it reaches `main` (scheduled workflows run YAML from the default branch). Promotion path claude/* → alpha → beta → main still required; user may wish to expedite.
+
+## Deep-analysis key findings (Fable 5, 2026-08-04)
+
+1. **CRITICAL — fix is inert until it lands on `main`.** Scheduled workflows run the YAML from the
+   DEFAULT branch (main). Our branch targets alpha, and rules forbid direct pushes to main, so the
+   daily failure persists until promoted alpha→beta→main. → **User decision flagged** (expedite?).
+   The workflow-only fix, once on main, cures BOTH matrix legs even with old scripts on alpha/beta.
+2. **CRITICAL — `beta` has already diverged massively.** Beta already: consolidated to single-source
+   `web/public_html/` (deleted `public_html_beta` in commit 4fcab25); rewrote the DNS workflow to a
+   `matrix: [alpha, beta]`; refreshed `openapi.yaml` to v1.50 (~1500 lines, adds suggest=1,
+   dns_propagation_only, Retry-After/429); rewrote README/CLAUDE.md/DEV_NOTES/lookup.php.
+   → Doc/OpenAPI/Swagger work on our stale main base **will conflict with / regress beta**.
+   → **User decision flagged** (scope of docs work).
+3. **Swagger UI already EXISTS** in `docs.php` but loads swagger-ui-dist@5 from **jsdelivr CDN**.
+   The real gap = vendor it locally for shared hosting + add a CSP header + fix a live bug
+   (`docs.php:200` references never-loaded `SwaggerUIStandalonePreset`).
+4. Only ONE scheduled workflow exists (update-dns-resolvers). "Daily tasks (plural)" = one job.
+5. Additional latent bugs (all branches): push-retry loops swallow terminal failure; `deploy.yml`
+   deploys even if sync job failed; `version-bump.yml` grep-assign under `bash -e` can abort; several
+   `bash -e` + git-exit-128 traps. → File as issues (touch beta-rewritten files; don't fix blind).
+6. Security findings to FILE (not fix blind — beta rewrote these): `?suggest=1` runs before
+   CSRF/rate-limit; `monitor.php` web-reachable with no CLI/auth guard; rate-limit "tier" advertised
+   in headers but enforcement hard-caps at 30/min regardless.
+
+## Decisions taken
+
+- DNS fix = adopt beta's matrix design + drift-proof paths (glob `web/*/includes/dns_resolvers.php`,
+  `git status --porcelain`, auto-detect resolver file in script, skip write on timestamp-only diff,
+  retry-loop fails loudly). Layout-invariant across alpha/beta/main. Implement on THIS branch now.
+- SECURITY.md = broken GitHub stub on ALL branches → rewrite (safe, no conflict).
+- Docs/OpenAPI/Swagger big refresh = **await user scope decision** (port beta forward vs. minimal).
+- Workflow-robustness + security findings = file as GitHub issues (avoid blind edits to beta-diverged files).
+
+## Sequencing / conflict rules for promotion (record for implementer)
+
+- Our branch → alpha merges CLEAN (alpha == main layout).
+- alpha→beta WILL conflict on `scripts/update-dns-resolvers.php` + `update-dns-resolvers.yml`:
+  resolution rule = **take our (fixed) version of both**.
+- Landing workflow-only on main is safe vs other automation (verified in analysis) IF user permits.
 
 ## Key files
 
