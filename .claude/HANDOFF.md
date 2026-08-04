@@ -85,6 +85,9 @@ producing a needless daily commit. Fix: skip writing when resolver data is uncha
   - Workflow: matrix `[alpha, beta]`, `ref: ${{ matrix.branch }}`, glob change-detection `web/*/includes/dns_resolvers.php` via `git status --porcelain`, loud-failing retry loop (exits non-zero after 3 tries).
   - Script: layout-invariant file detection (prefer `public_html_beta`, else `public_html`; updates every copy present), skip-write when only the "Last updated" timestamp would change (no more daily no-op commits).
   - REMINDER (analysis finding #1): fix is inert on the daily schedule until it reaches `main` (scheduled workflows run YAML from the default branch). Promotion path claude/* → alpha → beta → main still required; user may wish to expedite.
+- [done] Issue **#252** filed (CI hardening: `deploy.yml` deploys even when the sync job fails — confirmed on `main`). Beta-dependent workflow items flagged "verify on beta".
+- [done] Remaining analysis findings preserved in `.claude/memory/findings_backlog.md` (security + workflow items to verify on `beta`; docs/OpenAPI/Swagger deferred). MEMORY.md index updated.
+- [deferred] Tasks #4 (deep planning), #5 (docs), #6 (OpenAPI/Swagger UI) — per user-declined scope decision, NOT done on this stale-main branch. Do on a fresh `beta`-based branch if pursued.
 
 ## Deep-analysis key findings (Fable 5, 2026-08-04)
 
@@ -113,7 +116,14 @@ producing a needless daily commit. Fix: skip writing when resolver data is uncha
 
 - DNS fix = adopt beta's matrix design + drift-proof paths (glob `web/*/includes/dns_resolvers.php`,
   `git status --porcelain`, auto-detect resolver file in script, skip write on timestamp-only diff,
-  retry-loop fails loudly). Layout-invariant across alpha/beta/main. Implement on THIS branch now.
+  retry-loop fails loudly). Layout-invariant across alpha/beta/main. **DONE** on THIS branch (commit `9dcf967`).
+- **[2026-08-04] User declined the two scope questions → proceeding on safe defaults:**
+  1. **Promotion:** do NOT open a PR (not requested) and do NOT push to `main` (branch rules). Fix stays
+     on the working branch; user promotes manually. Issue #251 stays OPEN until it reaches `main`.
+  2. **Scope:** keep THIS branch **DNS-only**. Do NOT run the docs/OpenAPI/Swagger refresh on the stale
+     main base (would conflict with / regress beta's v1.50 work). Capture remaining findings as issues.
+     → Tasks #4 (deep planning), #5 (docs), #6 (OpenAPI/Swagger) DEFERRED; if pursued later, do them on a
+     fresh branch cut from `beta`, not from here.
 - SECURITY.md = broken GitHub stub on ALL branches → rewrite (safe, no conflict).
 - Docs/OpenAPI/Swagger big refresh = **await user scope decision** (port beta forward vs. minimal).
 - Workflow-robustness + security findings = file as GitHub issues (avoid blind edits to beta-diverged files).
