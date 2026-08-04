@@ -23,7 +23,22 @@
 $minReliability  = (float)(getenv('DNS_MIN_RELIABILITY') ?: 0.80);  // Minimum reliability score (0.00–1.00)
 $maxPerCountry   = (int)(getenv('DNS_MAX_PER_COUNTRY') ?: 2);       // Max auto-sourced entries per country
 $csvUrl          = 'https://public-dns.info/nameservers.csv';
-$resolverFile    = __DIR__ . '/../web/public_html/includes/dns_resolvers.php';
+
+// ── Locate resolver file(s) — layout-invariant ──
+// Prefer the beta source-of-truth, fall back to public_html. Both may exist on
+// alpha/main (public_html is auto-synced from public_html_beta); on beta only
+// public_html exists. Every copy that is present is updated so the generated
+// list stays consistent regardless of which branch this runs on.
+$candidateFiles = [
+    __DIR__ . '/../web/public_html_beta/includes/dns_resolvers.php',
+    __DIR__ . '/../web/public_html/includes/dns_resolvers.php',
+];
+$resolverFiles = array_values(array_filter($candidateFiles, 'file_exists'));
+if (empty($resolverFiles)) {
+    fwrite(STDERR, "Error: no resolver file found (looked in web/public_html_beta and web/public_html)\n");
+    exit(1);
+}
+$primaryFile = $resolverFiles[0];  // source of truth for the existing list
 
 echo "Config: minReliability=$minReliability, maxPerCountry=$maxPerCountry\n";
 
@@ -53,13 +68,9 @@ $typeOrder = ['standard' => 0, 'security' => 1, 'family' => 2];
 // ── Exempt providers — no per-country or per-resolver limits applied ──
 $exemptProviders = ['Cloudflare', 'Google', 'OpenDNS', 'Quad9', 'AdGuard'];
 
-// ── Load existing resolvers ──
-if (!file_exists($resolverFile)) {
-    fwrite(STDERR, "Error: resolver file not found: $resolverFile\n");
-    exit(1);
-}
-$existing = require $resolverFile;
-echo "Loaded " . count($existing) . " existing resolvers\n";
+// ── Load existing resolvers (from the preferred/primary file) ──
+$existing = require $primaryFile;
+echo "Loaded " . count($existing) . " existing resolvers from $primaryFile\n";
 
 // Index existing by IP for fast lookup
 $existingByIp = [];
@@ -279,13 +290,41 @@ foreach ($merged as $r) {
 
 $output .= "];\n";
 
-file_put_contents($resolverFile, $output);
-echo "Wrote " . count($merged) . " resolvers to $resolverFile\n";
+// ── Write output (only where the resolver data actually changed) ──
+// Ignore the "Last updated" line when comparing, so an unchanged resolver list
+// never produces a daily timestamp-only commit.
+$normalise = function ($s) {
+    return preg_replace('/^ \* Last updated:.*$/m', ' * Last updated:', $s);
+};
+$newBody = $normalise($output);
 
-// Verify syntax
-$check = exec("php -l " . escapeshellarg($resolverFile) . " 2>&1", $checkOutput, $exitCode);
-if ($exitCode !== 0) {
-    fwrite(STDERR, "SYNTAX ERROR in generated file:\n" . implode("\n", $checkOutput) . "\n");
-    exit(1);
+$written = [];
+foreach ($resolverFiles as $file) {
+    $current = file_get_contents($file);
+    if ($current !== false && $normalise($current) === $newBody) {
+        echo "No resolver changes for $file — skipping write\n";
+        continue;
+    }
+    if (file_put_contents($file, $output) === false) {
+        fwrite(STDERR, "Error: failed to write $file\n");
+        exit(1);
+    }
+    $written[] = $file;
+    echo "Wrote " . count($merged) . " resolvers to $file\n";
+}
+
+if (empty($written)) {
+    echo "All resolver files already up to date — no changes written\n";
+    exit(0);
+}
+
+// Verify syntax of every file we wrote
+foreach ($written as $file) {
+    $checkOutput = [];
+    exec("php -l " . escapeshellarg($file) . " 2>&1", $checkOutput, $exitCode);
+    if ($exitCode !== 0) {
+        fwrite(STDERR, "SYNTAX ERROR in generated file $file:\n" . implode("\n", $checkOutput) . "\n");
+        exit(1);
+    }
 }
 echo "Syntax check passed\n";
