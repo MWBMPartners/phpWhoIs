@@ -66,7 +66,7 @@ producing a needless daily commit. Fix: skip writing when resolver data is uncha
 
 ## GitHub issue mapping (repo: mwbmpartners/phpwhois)
 
-- **DNS workflow failure** → NO existing issue; create a new `bug` issue and close it when fixed.
+- **DNS workflow failure** → **#251** (Bug, OPEN). Fixed on this branch (commit `9dcf967`); issue stays open until fix lands on `main`, then close as completed.
 - **OpenAPI update** → relates to #245 (OpenAPI completeness + Retry-After on 429), #160 (OpenAPI validation in CI).
 - **Swagger UI (shared hosting)** → relates to #158 (Dark-mode Swagger UI improvements), #148 (API "Try It" docs). Confirms Swagger UI was already intended.
 - **Workflow-lint / prevention** → #250 (actionlint workflow-lint CI).
