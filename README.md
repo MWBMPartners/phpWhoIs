@@ -102,7 +102,7 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 
 ```
 ├── web/
-│   ├── public_html_beta/          # Active development (beta branch)
+│   ├── public_html/               # Application source (all branches deploy from here)
 │   │   ├── index.php              # Main frontend UI
 │   │   ├── lookup.php             # Backend API endpoint
 │   │   ├── admin.php              # Admin dashboard
@@ -126,7 +126,10 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 │   │   │   ├── infoAppVer.php     # Version metadata
 │   │   │   └── footer.php         # Shared footer template
 │   │   └── lang/                  # i18n (en, es, fr, de)
-│   └── public_html/               # Production (main branch)
+│   └── .auth/                     # Gitignored API keys and secrets (above web root on server)
+│       ├── .htaccess              # Deny-all protection
+│       ├── keys.php               # API keys and credentials (not tracked)
+│       └── keys.example.php       # Template for keys.php
 ├── tests/                         # PHPUnit tests
 ├── .github/workflows/             # CI/CD pipelines
 └── .claude/                       # Claude Code context
@@ -134,14 +137,15 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 
 ## Deployment
 
-Deployment is automated via GitHub Actions:
+Deployment is automated via GitHub Actions. All branches deploy from the same `web/public_html/` source; the branch determines the server folder:
 
-| Branch | Deploys to | Trigger |
-|--------|-----------|---------|
-| `beta` | `public_html_beta/` | Push |
-| `main` | `public_html/` | Push |
+| Branch | Server folder | SFTP secret | Trigger |
+|--------|---|---|---------|
+| `alpha` | `public_html_dev_alpha` | `SFTP_DEV_PATH` | Push |
+| `beta` | `public_html_dev_beta` | `SFTP_BETA_PATH` | Push |
+| `main` | `public_html` (production) | `SFTP_LIVE_PATH` | Push |
 
-Workflows: version bump → changelog → minification → SFTP upload.
+Workflows: version bump → changelog → minification → SFTP upload. The deploy channel (alpha/beta/live) is detected via a CI-injected `.env-channel` file.
 
 ## API Usage
 

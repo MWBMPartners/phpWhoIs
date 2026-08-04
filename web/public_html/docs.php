@@ -9,6 +9,7 @@
 
 // ─── Session (needed for access control) ───
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'session_config.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'asset_version.php';
 
 // ─── Access gate: logged-in developer accounts only (Issue #172) ───
 // Uncomment the block below once the user account system (#163) is live:
@@ -45,7 +46,7 @@ $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
-    <link rel="stylesheet" href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'style.css'); ?>">
+    <link rel="stylesheet" href="assets/css/style.css?v=<?php echo assetVersion(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'style.css'); ?>">
     <style>
         /* Swagger UI overrides to match site theme */
         .swagger-ui .topbar { display: none !important; }

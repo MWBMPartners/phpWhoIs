@@ -23,6 +23,8 @@ build/
 vendor/
 composer.lock
 .phpunit.cache/
+.phpunit.result.cache
+*.phar
 
 # Auto-generated TLD data (fetched at runtime)
 tlds.txt
@@ -30,3 +32,11 @@ tld_metadata.json
 second_level_suffixes.txt
 suffix_list_metadata.json
 public_suffix_list.dat
+
+# Secrets in web/.auth/ — the real keys.php is NEVER committed; only the
+# .htaccess guard and the *.example.php template are tracked.
+web/.auth/*
+!web/.auth/.htaccess
+!web/.auth/keys.example.php
+# CI-injected deploy channel marker
+web/public_html/.env-channel

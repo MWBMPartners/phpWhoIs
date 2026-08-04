@@ -6,6 +6,572 @@
  */
 
 // ═══════════════════════════════════════════════════════════════════
+//  Subprocess timeout helper (Issue #187)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Run a shell command with a hard wall-clock timeout, portably.
+ * Prefers the `timeout` binary when present; falls back to proc_open + stream_select
+ * (macOS / hosts without GNU coreutils). Returns command output, or null on failure/timeout-with-no-output.
+ */
+function runCommandWithTimeout(string $cmd, int $timeoutSec = 8): ?string {
+    static $hasTimeout = null;
+    if ($hasTimeout === null) {
+        $hasTimeout = (bool) @shell_exec('command -v timeout 2>/dev/null');
+    }
+    if ($hasTimeout) {
+        $out = @shell_exec('timeout ' . (int)$timeoutSec . ' ' . $cmd . ' 2>&1');
+        return ($out === null || $out === '') ? null : $out;
+    }
+    $proc = @proc_open($cmd . ' 2>&1', [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($proc)) { return null; }
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+    $out = '';
+    $deadline = microtime(true) + $timeoutSec;
+    while (microtime(true) < $deadline) {
+        $status = proc_get_status($proc);
+        $out .= (string) stream_get_contents($pipes[1]);
+        if (!$status['running']) { break; }
+        $r = [$pipes[1]]; $w = null; $e = null;
+        @stream_select($r, $w, $e, 0, 200000);
+    }
+    $status = proc_get_status($proc);
+    if (!empty($status['running'])) { @proc_terminate($proc, 9); }
+    foreach ($pipes as $p) { if (is_resource($p)) { @fclose($p); } }
+    @proc_close($proc);
+    return $out === '' ? null : $out;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  HTTP fetch with a HARD total timeout (Issue #192)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * GET a URL with a HARD total timeout via curl. Returns body string, or null on failure.
+ *
+ * Issue #197: pass $opts['resolve'] (a CURLOPT_RESOLVE-shaped array, e.g.
+ * ["host:443:1.2.3.4", "host:80:1.2.3.4"]) to pin the connection to a pre-vetted IP
+ * when $url's host is user-controlled. Callers MUST vet the host with
+ * resolveAndVetHost() first — this function does not vet, it only pins.
+ */
+function httpFetch(string $url, array $opts = []): ?string {
+    if (!function_exists('curl_init')) {
+        // Issue #197: without curl we have no way to pin the connection to a pre-vetted
+        // IP, so a caller that requires pinning would otherwise silently fall back to an
+        // unpinned lookup (re-opening the DNS-rebinding window). Fail closed instead.
+        if (!empty($opts['resolve'])) {
+            return null;
+        }
+        // Fallback: stream context (idle timeout is the best we can do without curl)
+        $ctx = stream_context_create(['http' => ['timeout' => $opts['timeout'] ?? 4, 'method' => $opts['method'] ?? 'GET', 'header' => $opts['header'] ?? "User-Agent: mwWhoIs\r\n", 'follow_location' => 0], 'ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
+        $r = @file_get_contents($url, false, $ctx);
+        return $r === false ? null : $r;
+    }
+    $ch = curl_init($url);
+    $curlOpts = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => $opts['timeout'] ?? 4,      // TOTAL time cap
+        CURLOPT_CONNECTTIMEOUT => $opts['connect'] ?? 2,
+        CURLOPT_FOLLOWLOCATION => false,                       // do not auto-follow (SSRF-safe)
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_USERAGENT      => $opts['ua'] ?? 'mwWhoIs',
+        CURLOPT_MAXFILESIZE    => $opts['maxbytes'] ?? 3145728, // 3 MB default cap
+    ];
+    // Issue #197: restrict redirects/requests to HTTP(S) only where curl supports it.
+    if (defined('CURLOPT_PROTOCOLS')) { $curlOpts[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+    if (defined('CURLOPT_REDIR_PROTOCOLS')) { $curlOpts[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+    if (!empty($opts['resolve'])) { $curlOpts[CURLOPT_RESOLVE] = $opts['resolve']; }
+    curl_setopt_array($ch, $curlOpts);
+    if (!empty($opts['post'])) { curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, $opts['post']); }
+    if (!empty($opts['headers'])) { curl_setopt($ch, CURLOPT_HTTPHEADER, $opts['headers']); }
+    $r = curl_exec($ch);
+    curl_close($ch);
+    return ($r === false || $r === '') ? null : $r;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  SSRF egress gate (Issue #197)
+// ═══════════════════════════════════════════════════════════════════
+//
+//  lookup.php makes many OUTBOUND connections to a user-supplied domain
+//  (SSL probe, header audit, redirect-chain walk, tech-stack sniff, robots.txt
+//  fetch, SMTP banner grab, ...). isValidDomain() only checks *format* — it says
+//  nothing about where the name actually resolves. An attacker can point a
+//  syntactically valid domain (or a wildcard-DNS service like nip.io/sslip.io)
+//  at cloud metadata (169.254.169.254), loopback, or an internal RFC1918 host and
+//  have this server fetch it on their behalf and reflect the response back — SSRF.
+//
+//  Policy: BLOCK private/reserved/internal ranges; public domains keep working
+//  exactly as before. Every fetcher that connects to the user's host (not the
+//  fixed third-party threat-intel APIs, which take the domain/IP as a query
+//  parameter, not a connection target) must call resolveAndVetHost() first and
+//  connect ONLY to the returned, pre-vetted IP (curl: CURLOPT_RESOLVE; sockets:
+//  connect to the IP directly) — never re-resolve the hostname after vetting it,
+//  or a DNS-rebinding attacker can swap the answer between the check and the use.
+
+/**
+ * CIDR ranges that must NEVER be treated as a safe SSRF target, even though some of
+ * them (CGNAT, the IETF protocol/benchmarking/documentation ranges, multicast, the
+ * NAT64 well-known prefix) are not reliably excluded by
+ * FILTER_FLAG_NO_PRIV_RANGE|FILTER_FLAG_NO_RES_RANGE across PHP builds/versions.
+ * Kept as an explicit list (rather than trusting the flags alone) so the policy is
+ * self-documenting and doesn't silently change if that flag behaviour ever does.
+ *
+ * @return string[]
+ */
+function ssrfBlockedRanges(): array {
+    return [
+        // ── IPv4 ──
+        '0.0.0.0/8',        // "this" network
+        '10.0.0.0/8',       // RFC1918 private
+        '100.64.0.0/10',    // CGNAT (RFC6598)
+        '127.0.0.0/8',      // loopback
+        '169.254.0.0/16',   // link-local — includes the 169.254.169.254 cloud metadata IP
+        '172.16.0.0/12',    // RFC1918 private
+        '192.168.0.0/16',   // RFC1918 private
+        '192.0.0.0/24',     // IETF protocol assignments
+        '192.0.2.0/24',     // TEST-NET-1
+        '198.18.0.0/15',    // benchmarking
+        '198.51.100.0/24',  // TEST-NET-2
+        '203.0.113.0/24',   // TEST-NET-3
+        '224.0.0.0/4',      // multicast
+        '240.0.0.0/4',      // reserved / future use
+        // ── IPv6 ──
+        '::1/128',          // loopback
+        '::/128',           // unspecified
+        'fc00::/7',         // unique local address (ULA)
+        'fe80::/10',        // link-local
+        '::ffff:0:0/96',    // IPv4-mapped IPv6 — reject the mapped literal outright rather
+                             // than unwrap-and-recheck the embedded v4; no legitimate public
+                             // AAAA record is ever published in this form, it's only ever
+                             // seen as a validator-bypass trick.
+        '2001:db8::/32',    // documentation
+        '64:ff9b::/96',     // NAT64 well-known prefix (can front an internal v4 host)
+        // Security review (Issue #197): FILTER_FLAG_NO_PRIV_RANGE/NO_RES_RANGE only
+        // recognise the IPv4-mapped form (::ffff:a.b.c.d) as embedding a v4 address —
+        // NOT the deprecated "IPv4-compatible" form (::a.b.c.d, i.e. the last 32 bits of
+        // an otherwise-zero address, equivalently written in hex groups e.g. "::7f00:1"
+        // for 127.0.0.1, or "::a9fe:a9fe" for the 169.254.169.254 metadata address).
+        // filter_var() with those flags does NOT reject "::7f00:1", even though it
+        // decodes (via inet_pton) to the exact same 16 bytes as "::127.0.0.1", which IS
+        // rejected — a pure notation difference. Block the whole /96 explicitly so no
+        // hex-group spelling of a private v4 address can sneak past isPublicIp().
+        '::/96',            // deprecated IPv4-compatible IPv6 (RFC4291) — embeds an arbitrary v4
+        '2002::/16',         // 6to4 (RFC3056) — also embeds an arbitrary v4 in the address
+    ];
+}
+
+/**
+ * Is $ip inside $cidr? Works for both IPv4 and IPv6 (family must match).
+ */
+function cidrMatch(string $ip, string $cidr): bool {
+    if (strpos($cidr, '/') === false) {
+        return $ip === $cidr;
+    }
+    [$subnet, $bits] = explode('/', $cidr, 2);
+    $bits = (int) $bits;
+
+    $ipBin = @inet_pton($ip);
+    $subnetBin = @inet_pton($subnet);
+    if ($ipBin === false || $subnetBin === false || strlen($ipBin) !== strlen($subnetBin)) {
+        return false; // different address family, or unparsable
+    }
+
+    $fullBytes = intdiv($bits, 8);
+    $remBits = $bits % 8;
+
+    if ($fullBytes > 0 && substr($ipBin, 0, $fullBytes) !== substr($subnetBin, 0, $fullBytes)) {
+        return false;
+    }
+    if ($remBits > 0) {
+        $mask = chr((0xFF << (8 - $remBits)) & 0xFF);
+        if ((substr($ipBin, $fullBytes, 1) & $mask) !== (substr($subnetBin, $fullBytes, 1) & $mask)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * Is $ip safe to connect to as an SSRF target — i.e. a global-scope PUBLIC address?
+ * Returns false for anything private/reserved/loopback/link-local/metadata/multicast
+ * (v4 or v6). Fails CLOSED: anything that isn't affirmatively a valid, public IP is
+ * rejected.
+ */
+function isPublicIp(string $ip): bool {
+    if (filter_var($ip, FILTER_VALIDATE_IP) === false) {
+        return false;
+    }
+    // Base filter: PHP's own private/reserved-range detector.
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+        return false;
+    }
+    // Explicit belt-and-braces ranges the flags don't reliably cover (see ssrfBlockedRanges()).
+    foreach (ssrfBlockedRanges() as $cidr) {
+        if (cidrMatch($ip, $cidr)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * Resolve $host (a domain name OR an IP literal) and vet EVERY resulting address.
+ *
+ * Returns null (UNSAFE — do not connect) when:
+ *   - $host doesn't resolve at all, or
+ *   - ANY resolved A/AAAA answer is not a global-scope public address (rebinding
+ *     defence: a multi-answer response is rejected wholesale if even one answer is
+ *     private/internal, since an attacker can put a public IP first and a private
+ *     one second, or vice versa across two lookups).
+ *
+ * On success returns ['host' => $host, 'ip' => <first vetted public IP>,
+ * 'ips' => <all vetted public IPs>] so the caller can PIN its connection to a
+ * specific, already-checked IP instead of letting the underlying transport
+ * re-resolve $host (which would reopen the DNS-rebinding window between check and use).
+ */
+function resolveAndVetHost(string $host): ?array {
+    static $cache = [];
+    if (array_key_exists($host, $cache)) {
+        return $cache[$host];
+    }
+
+    $ips = [];
+    if (filter_var($host, FILTER_VALIDATE_IP)) {
+        $ips[] = $host;
+    } else {
+        $aRecords = @dns_get_record($host, DNS_A);
+        if ($aRecords) {
+            foreach ($aRecords as $rec) {
+                if (!empty($rec['ip'])) { $ips[] = $rec['ip']; }
+            }
+        }
+        $aaaaRecords = @dns_get_record($host, DNS_AAAA);
+        if ($aaaaRecords) {
+            foreach ($aaaaRecords as $rec) {
+                if (!empty($rec['ipv6'])) { $ips[] = $rec['ipv6']; }
+            }
+        }
+    }
+
+    $ips = array_values(array_unique($ips));
+
+    if (empty($ips)) {
+        return $cache[$host] = null; // doesn't resolve
+    }
+    foreach ($ips as $ip) {
+        if (!isPublicIp($ip)) {
+            return $cache[$host] = null; // at least one answer is private/internal — reject all
+        }
+    }
+
+    return $cache[$host] = ['host' => $host, 'ip' => $ips[0], 'ips' => $ips];
+}
+
+/**
+ * Bracket an IPv6 literal for use in a "host:port" style connection target
+ * (ssl://, CURLOPT_RESOLVE, fsockopen, openssl s_client -connect). No-op for IPv4.
+ */
+function bracketIp(string $ip): string {
+    return (strpos($ip, ':') !== false) ? '[' . $ip . ']' : $ip;
+}
+
+/**
+ * Resolve a Location header value against the URL it was returned for. Handles
+ * absolute URLs, protocol-relative ("//host/path"), and root-relative ("/path")
+ * forms — good enough for the redirect targets real HTTP servers send.
+ */
+function resolveRedirectUrl(string $baseScheme, string $baseHost, string $location): string {
+    if (preg_match('#^https?://#i', $location)) {
+        return $location;
+    }
+    if (str_starts_with($location, '//')) {
+        return $baseScheme . ':' . $location;
+    }
+    if (str_starts_with($location, '/')) {
+        return $baseScheme . '://' . $baseHost . $location;
+    }
+    return $baseScheme . '://' . $baseHost . '/' . ltrim($location, './');
+}
+
+/**
+ * Fetch $url via curl, pinning EVERY hop's connection to its own freshly-vetted IP and
+ * manually following redirects ourselves (CURLOPT_FOLLOWLOCATION is never used here —
+ * if it were, curl would connect straight to whatever host the Location header names
+ * with NO vetting at all, which would silently defeat the whole gate on the very first
+ * 3xx response). Each hop re-runs resolveAndVetHost() on its own host before connecting.
+ *
+ * Returns null if the initial host (or any hop along the way) fails vetting, if the
+ * hop budget is exceeded while still redirecting, or if the transfer fails outright.
+ * On success returns ['url' => <final URL>, 'status' => <final HTTP code>,
+ * 'headers' => <raw header block of the final hop>, 'body' => <final hop response body>].
+ *
+ * $curlOpts are merged in as the base options (e.g. CURLOPT_NOBODY, CURLOPT_TIMEOUT,
+ * CURLOPT_USERAGENT) — FOLLOWLOCATION/RESOLVE/HEADER are always forced by this helper.
+ *
+ * Security note: CURLOPT_RESOLVE pins are host:PORT-scoped — they only cover 80/443
+ * below. A redirect to any other port would make curl fall back to a LIVE DNS lookup
+ * for that host:port pair (confirmed against curl directly), completely bypassing the
+ * pin and reopening the rebinding window. So any hop whose URL names a port other than
+ * the implicit default 80/443 is rejected outright rather than connected to.
+ */
+function fetchViaVettedCurl(string $url, array $curlOpts = [], int $maxHops = 3): ?array {
+    if (!function_exists('curl_init')) {
+        return null;
+    }
+    for ($hop = 0; $hop <= $maxHops; $hop++) {
+        $host = parse_url($url, PHP_URL_HOST);
+        $scheme = parse_url($url, PHP_URL_SCHEME) ?: 'https';
+        $port = parse_url($url, PHP_URL_PORT);
+        if (!$host) {
+            return null;
+        }
+        if ($port !== null && !in_array((int) $port, [80, 443], true)) {
+            return null; // non-standard port — our CURLOPT_RESOLVE pin can't cover it safely
+        }
+        $vet = resolveAndVetHost($host);
+        if ($vet === null) {
+            return null; // unresolvable, or resolves to a private/internal address — stop
+        }
+        $ip = $vet['ip'];
+
+        $ch = curl_init($url);
+        $opts = $curlOpts;
+        $opts[CURLOPT_RETURNTRANSFER] = true;
+        $opts[CURLOPT_HEADER] = true;
+        $opts[CURLOPT_FOLLOWLOCATION] = false;
+        $opts[CURLOPT_RESOLVE] = [$host . ':443:' . bracketIp($ip), $host . ':80:' . bracketIp($ip)];
+        if (defined('CURLOPT_PROTOCOLS')) { $opts[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+        if (defined('CURLOPT_REDIR_PROTOCOLS')) { $opts[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+        curl_setopt_array($ch, $opts);
+        $raw = curl_exec($ch);
+        if ($raw === false) {
+            curl_close($ch);
+            return null;
+        }
+        $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        $rawHeaders = substr($raw, 0, $headerSize);
+        $body = substr($raw, $headerSize);
+
+        $location = null;
+        foreach (preg_split('/\r\n|\n/', trim($rawHeaders)) as $line) {
+            if (preg_match('/^location:\s*(.+)/i', $line, $m)) {
+                $location = trim($m[1]);
+            }
+        }
+
+        if ($status >= 300 && $status < 400 && $location) {
+            $url = resolveRedirectUrl($scheme, $host, $location);
+            continue; // next loop iteration re-vets the NEW host before connecting
+        }
+
+        return ['url' => $url, 'status' => $status, 'headers' => $rawHeaders, 'body' => $body];
+    }
+    return null; // exceeded hop budget while still redirecting
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  SSRF-safe curl_multi batch helper (Issue #196 Step 2)
+//
+//  Runs several outbound HTTP requests CONCURRENTLY via curl_multi, while
+//  preserving every #197 SSRF invariant for EVERY handle in the batch:
+//  redirects are never auto-followed, only http(s) is ever dialled, only
+//  ports 80/443 are ever dialled, and — for any request whose host is
+//  user-controlled — the connection is pinned to a pre-vetted IP via
+//  CURLOPT_RESOLVE, exactly like fetchViaVettedCurl()/httpFetch() already do
+//  for the single-request paths. Callers targeting a FIXED third-party API
+//  host (not user-controlled — e.g. safebrowsing.googleapis.com,
+//  virustotal.com, api.shodan.io, ip-api.com) omit 'pin_ip' and curl resolves
+//  the host normally, exactly like httpFetch()/checkVirusTotal() etc. do
+//  today; callers targeting the user-supplied lookup domain/host itself MUST
+//  call resolveAndVetHost() first and pass the vetted IP as 'pin_ip'.
+//
+//  Modelled on the curl_multi_exec()/curl_multi_select() loop
+//  checkAlternativeTldAvailability() already uses (Issue #196 plan).
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Build the CURLOPT_* option set for ONE request in a curlMultiBatch() batch —
+ * a PURE function (no curl handle, no I/O) so the SSRF invariants can be
+ * asserted on directly in unit tests without a network round-trip.
+ *
+ * $req: ['url' => string, 'pin_ip' => ?string, 'post' => ?string, 'headers' => ?array]
+ *
+ * Returns ['ok' => true, 'opts' => array] when the request is safe to open,
+ * or ['ok' => false, 'error' => string] when it must be REJECTED outright —
+ * the caller (curlMultiBatch()) must never open a connection for a rejected
+ * request.
+ *
+ * Rejected when:
+ *   - the URL doesn't parse to a host + scheme at all;
+ *   - the scheme isn't http/https;
+ *   - the (explicit, or scheme-default) port isn't 80/443 — mirrors
+ *     fetchViaVettedCurl()'s port restriction, since a CURLOPT_RESOLVE pin
+ *     (or the bare-IP-literal check below) only ever covers the standard
+ *     ports;
+ *   - a 'pin_ip' was supplied but fails isPublicIp() — the caller vetted a
+ *     host that turned out to be private/reserved, or passed a bad value;
+ *   - NO 'pin_ip' was supplied AND the URL's host is itself a raw IP literal
+ *     that fails isPublicIp() — an unpinned request has no vetting at all, so
+ *     a literal private/reserved/loopback/metadata IP target is refused
+ *     outright rather than silently connected to. (A bare HOSTNAME with no
+ *     pin_ip — e.g. a fixed third-party API host — is allowed through; it is
+ *     the caller's responsibility, per the #197 contract, to only omit
+ *     pin_ip for hosts that are NOT user-controlled.)
+ */
+function curlMultiHandleOpts(array $req): array {
+    $url = $req['url'] ?? '';
+    $host = parse_url($url, PHP_URL_HOST);
+    $scheme = parse_url($url, PHP_URL_SCHEME);
+    $port = parse_url($url, PHP_URL_PORT);
+
+    if (!$host || !$scheme) {
+        return ['ok' => false, 'error' => 'unparsable_url'];
+    }
+    if (!in_array(strtolower($scheme), ['http', 'https'], true)) {
+        return ['ok' => false, 'error' => 'bad_scheme'];
+    }
+    $effectivePort = $port !== null ? (int) $port : (strtolower($scheme) === 'https' ? 443 : 80);
+    if (!in_array($effectivePort, [80, 443], true)) {
+        return ['ok' => false, 'error' => 'bad_port'];
+    }
+
+    // parse_url(PHP_URL_HOST) returns an IPv6 literal WITH its URL brackets
+    // still attached (e.g. "[::1]"), which filter_var(..., FILTER_VALIDATE_IP)
+    // does NOT recognise as a valid IP — strip them before validating, or a
+    // bracketed private/reserved IPv6 literal URL (e.g. "http://[::1]/") would
+    // silently fail the "is this host itself a private IP?" check below and
+    // be let through unpinned, straight to curl.
+    $hostForIpCheck = $host;
+    if (strlen($hostForIpCheck) > 1 && $hostForIpCheck[0] === '[' && substr($hostForIpCheck, -1) === ']') {
+        $hostForIpCheck = substr($hostForIpCheck, 1, -1);
+    }
+
+    $pinIp = $req['pin_ip'] ?? null;
+    if ($pinIp !== null) {
+        if (!isPublicIp($pinIp)) {
+            return ['ok' => false, 'error' => 'private_ip'];
+        }
+    } elseif (filter_var($hostForIpCheck, FILTER_VALIDATE_IP) && !isPublicIp($hostForIpCheck)) {
+        return ['ok' => false, 'error' => 'private_ip'];
+    }
+
+    $opts = [
+        CURLOPT_URL            => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => false,     // never auto-follow (SSRF-safe — Issue #197)
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_USERAGENT      => 'mwWhoIs',
+        CURLOPT_NOSIGNAL       => 1,
+    ];
+    if (defined('CURLOPT_PROTOCOLS')) { $opts[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+    if (defined('CURLOPT_REDIR_PROTOCOLS')) { $opts[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+
+    if ($pinIp !== null) {
+        $bracketed = bracketIp($pinIp);
+        $opts[CURLOPT_RESOLVE] = [$host . ':443:' . $bracketed, $host . ':80:' . $bracketed];
+    }
+
+    if (!empty($req['post'])) {
+        $opts[CURLOPT_POST] = true;
+        $opts[CURLOPT_POSTFIELDS] = $req['post'];
+    }
+    if (!empty($req['headers'])) {
+        $opts[CURLOPT_HTTPHEADER] = $req['headers'];
+    }
+
+    return ['ok' => true, 'opts' => $opts];
+}
+
+/**
+ * Fire several HTTP requests concurrently via curl_multi, applying
+ * curlMultiHandleOpts()'s SSRF gate to EVERY request before it is ever added
+ * to the multi handle — a rejected request never opens a connection.
+ *
+ * $requests: key => ['url'=>string, 'pin_ip'=>?string, 'post'=>?string, 'headers'=>?array]
+ * $totalTimeout: hard per-handle CURLOPT_TIMEOUT (seconds) AND the wall-clock
+ *   cap on the whole multi loop (defence-in-depth on top of the per-handle
+ *   timeout, in case curl_multi_select() ever undersleeps).
+ *
+ * Returns key => ['status'=>int, 'body'=>?string, 'errno'=>int] for EVERY key
+ * in $requests:
+ *   - a request curlMultiHandleOpts() rejected gets status=0, body=null,
+ *     errno=-1 (never connected);
+ *   - if curl_multi_init() doesn't exist at all, every request gets
+ *     status=0, body=null, errno=-2 — callers MUST treat this the same as a
+ *     transport failure and fall back to their serial code path, exactly
+ *     like checkAlternativeTldAvailability() already falls back today when
+ *     curl_multi_init isn't available.
+ */
+function curlMultiBatch(array $requests, int $totalTimeout = 8): array {
+    $results = [];
+    $pending = [];
+
+    foreach ($requests as $key => $req) {
+        $built = curlMultiHandleOpts($req);
+        if (!$built['ok']) {
+            $results[$key] = ['status' => 0, 'body' => null, 'errno' => -1];
+            continue;
+        }
+        $pending[$key] = $built['opts'];
+    }
+
+    if (empty($pending)) {
+        return $results; // nothing safe to run — no curl_multi_init() call at all
+    }
+
+    if (!function_exists('curl_multi_init')) {
+        foreach ($pending as $key => $opts) {
+            $results[$key] = ['status' => 0, 'body' => null, 'errno' => -2];
+        }
+        return $results;
+    }
+
+    $mh = curl_multi_init();
+    $handles = [];
+    foreach ($pending as $key => $opts) {
+        $opts[CURLOPT_TIMEOUT] = $totalTimeout;
+        $opts[CURLOPT_CONNECTTIMEOUT] = min(3, $totalTimeout);
+        $ch = curl_init();
+        curl_setopt_array($ch, $opts);
+        curl_multi_add_handle($mh, $ch);
+        $handles[$key] = $ch;
+    }
+
+    $deadline = microtime(true) + $totalTimeout;
+    $running = null;
+    do {
+        $status = curl_multi_exec($mh, $running);
+        if ($running) {
+            curl_multi_select($mh, 0.5);
+        }
+    } while ($running > 0 && $status === CURLM_OK && microtime(true) < $deadline);
+
+    foreach ($handles as $key => $ch) {
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $errno = curl_errno($ch);
+        $body = curl_multi_getcontent($ch);
+        curl_multi_remove_handle($mh, $ch);
+        curl_close($ch);
+        $results[$key] = [
+            'status' => $httpCode,
+            'body'   => ($body === '' || $body === false || $body === null) ? null : $body,
+            'errno'  => $errno,
+        ];
+    }
+    curl_multi_close($mh);
+
+    return $results;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  Logging (Issue #43)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -22,7 +588,11 @@ function appLog(string $message, string $level = 'ERROR'): void {
     $logFile = $logDir . DIRECTORY_SEPARATOR . 'error.log';
     $timestamp = date('Y-m-d H:i:s');
     $ip = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'CLI';
-    $entry = "[{$timestamp}] [{$level}] [{$ip}] {$message}" . PHP_EOL;
+    // Strip CR/LF from the message (Issue #203) so attacker-influenced input
+    // logged verbatim (e.g. raw whois/RDAP output, a malformed domain) can't
+    // inject fake extra log lines/entries.
+    $safeMessage = str_replace(["\r", "\n"], ' ', $message);
+    $entry = "[{$timestamp}] [{$level}] [{$ip}] {$safeMessage}" . PHP_EOL;
 
     @file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
 }
@@ -117,7 +687,10 @@ function trackLookup(string $type, string $domain = ''): void {
     }
     $file = CACHE_DIR . DIRECTORY_SEPARATOR . 'lookup_stats.json';
     $stats = file_exists($file) ? json_decode(file_get_contents($file), true) : [];
-    if (!$stats) {
+    // Issue #218: a truncated/corrupted stats file shouldn't be treated as
+    // valid data — reset to defaults rather than risk array-access errors
+    // below on a non-array $stats.
+    if (!is_array($stats)) {
         $stats = ['total' => 0, 'cache_hits' => 0, 'rdap' => 0, 'whois' => 0, 'errors' => 0, 'popular_domains' => []];
     }
 
@@ -162,7 +735,7 @@ function validateCsrfToken(): bool {
 /**
  * Session-based rate limiting (per-user).
  */
-function checkRateLimit(): bool {
+function checkRateLimit(int $limit = RATE_LIMIT_MAX): bool {
     $now = time();
 
     if (!isset($_SESSION['rate_limit']) || ($now - $_SESSION['rate_limit']['start']) > RATE_LIMIT_WINDOW) {
@@ -171,7 +744,7 @@ function checkRateLimit(): bool {
 
     $_SESSION['rate_limit']['count']++;
 
-    return $_SESSION['rate_limit']['count'] <= RATE_LIMIT_MAX;
+    return $_SESSION['rate_limit']['count'] <= $limit;
 }
 
 /**
@@ -179,7 +752,7 @@ function checkRateLimit(): bool {
  * Uses file-based storage in the cache directory.
  * Harder to bypass than session-based limiting.
  */
-function checkIpRateLimit(): bool {
+function checkIpRateLimit(int $limit = RATE_LIMIT_MAX): bool {
     // Use REMOTE_ADDR as primary (cannot be spoofed)
     // Only use X-Forwarded-For if behind a trusted proxy
     $ip = '';
@@ -206,8 +779,9 @@ function checkIpRateLimit(): bool {
         $data = json_decode(file_get_contents($file), true);
     }
 
-    // Reset if window expired or invalid data
-    if (!$data || !isset($data['start']) || ($now - $data['start']) > RATE_LIMIT_WINDOW) {
+    // Reset if window expired or invalid/malformed data (Issue #218) — treat
+    // a corrupted rate-limit file as a miss rather than trusting its shape.
+    if (!is_array($data) || !isset($data['start']) || ($now - $data['start']) > RATE_LIMIT_WINDOW) {
         $data = ['count' => 0, 'start' => $now];
     }
 
@@ -219,7 +793,20 @@ function checkIpRateLimit(): bool {
         cleanExpiredRateLimits($rateLimitDir);
     }
 
-    return $data['count'] <= RATE_LIMIT_MAX;
+    return $data['count'] <= $limit;
+}
+
+/**
+ * Seconds remaining until the current (session-based) rate-limit window
+ * resets — used for the `Retry-After` header on 429 responses (Issue #245).
+ * Mirrors the X-RateLimit-Reset computation in lookup.php; checkRateLimit()
+ * always populates $_SESSION['rate_limit']['start'] before this is called.
+ */
+function rateLimitRetryAfterSeconds(): int {
+    if (isset($_SESSION['rate_limit']['start'])) {
+        return max(1, ($_SESSION['rate_limit']['start'] + RATE_LIMIT_WINDOW) - time());
+    }
+    return RATE_LIMIT_WINDOW;
 }
 
 /**
@@ -234,7 +821,8 @@ function cleanExpiredRateLimits(string $dir): void {
     $now = time();
     foreach ($files as $file) {
         $data = json_decode(file_get_contents($file), true);
-        if (!$data || !isset($data['start']) || ($now - $data['start']) > RATE_LIMIT_WINDOW * 2) {
+        // Issue #218: treat a corrupted/malformed rate-limit file as stale too.
+        if (!is_array($data) || !isset($data['start']) || ($now - $data['start']) > RATE_LIMIT_WINDOW * 2) {
             @unlink($file);
         }
     }
@@ -314,7 +902,7 @@ function getCacheBackend() {
     return ['type' => $backend, 'conn' => $conn];
 }
 
-function getCached(string $domain): ?string {
+function getCached(string $domain, int $ttl = CACHE_TTL): ?string {
     $cache = getCacheBackend();
     $key = 'mwwhois:' . md5($domain);
 
@@ -337,24 +925,33 @@ function getCached(string $domain): ?string {
 
     $data = json_decode(file_get_contents($file), true);
 
-    if (!$data || (time() - $data['ts']) >= CACHE_TTL) {
+    // Issue #218: guard against a truncated/corrupted cache file — treat
+    // anything that isn't a well-formed {ts, result} array as a cache miss
+    // rather than risking array-access errors on a non-array $data.
+    if (!is_array($data) || !isset($data['ts'], $data['result']) || (time() - $data['ts']) >= $ttl) {
         return null;
     }
 
     return $data['result'];
 }
 
-function setCache(string $domain, string $result): void {
+function setCache(string $domain, string $result, int $ttl = CACHE_TTL): void {
     $cache = getCacheBackend();
     $key = 'mwwhois:' . md5($domain);
 
     if ($cache['type'] === 'redis') {
-        $cache['conn']->setex($key, CACHE_TTL, $result);
+        // Issue #218: log write failures (backend name only — never the key or
+        // cached value) so operators can see cache-layer trouble in admin.php.
+        if (!$cache['conn']->setex($key, $ttl, $result)) {
+            appLog('cache write failed: redis backend');
+        }
         return;
     }
 
     if ($cache['type'] === 'memcached') {
-        $cache['conn']->set($key, $result, CACHE_TTL);
+        if (!$cache['conn']->set($key, $result, $ttl)) {
+            appLog('cache write failed: memcached backend');
+        }
         return;
     }
 
@@ -364,7 +961,9 @@ function setCache(string $domain, string $result): void {
     }
 
     $cacheFile = CACHE_DIR . DIRECTORY_SEPARATOR . md5($domain) . '.json';
-    file_put_contents($cacheFile, json_encode(['ts' => time(), 'result' => $result]));
+    if (file_put_contents($cacheFile, json_encode(['ts' => time(), 'result' => $result])) === false) {
+        appLog('cache write failed: file backend');
+    }
 }
 
 
@@ -385,12 +984,40 @@ function updateTldDataIfNeeded(): void {
         }
     }
 
+    // Issue #193: this now runs off the request path (deferred to a shutdown function
+    // that fires after the response has been flushed to the client), so concurrent
+    // "first" requests could otherwise all race to fetch + overwrite the same files at
+    // once. Guard with a non-blocking exclusive lock — if another process already holds
+    // it, that process is already doing the refresh, so just bail out.
+    $lockFile = TLD_META_PATH . '.lock';
+    $lockHandle = @fopen($lockFile, 'c');
+    if (!$lockHandle) {
+        return;
+    }
+    if (!@flock($lockHandle, LOCK_EX | LOCK_NB)) {
+        @fclose($lockHandle);
+        return;
+    }
+
+    // Re-check under the lock — another process may have just finished the refresh
+    // while we were waiting to acquire it.
+    if (file_exists(TLD_META_PATH)) {
+        $meta = json_decode(file_get_contents(TLD_META_PATH), true);
+        if (isset($meta['checked_at']) && (time() - $meta['checked_at']) < 86400) {
+            @flock($lockHandle, LOCK_UN);
+            @fclose($lockHandle);
+            return;
+        }
+    }
+
     $ctx = stream_context_create(['http' => ['timeout' => 5]]);
+    $anySucceeded = false;
 
     // 1. Fetch IANA TLD list
     $tldResponse = @file_get_contents(IANA_TLD_URL, false, $ctx);
     if ($tldResponse !== false) {
         file_put_contents(IANA_TLD_PATH, $tldResponse);
+        $anySucceeded = true;
     }
 
     // 2. Fetch Mozilla PSL → extract ICANN second-level suffixes only
@@ -398,9 +1025,22 @@ function updateTldDataIfNeeded(): void {
     if ($pslResponse !== false) {
         $suffixes = extractSecondLevelSuffixes($pslResponse);
         file_put_contents(SL_SUFFIXES_PATH, implode("\n", $suffixes));
+        $anySucceeded = true;
     }
 
-    file_put_contents(TLD_META_PATH, json_encode(['checked_at' => time()]));
+    // Only stamp checked_at when at least one fetch succeeded — a failed first
+    // fetch (e.g. a transient network hiccup) shouldn't lock in an empty state for
+    // 24h; let the very next request try the refresh again.
+    if ($anySucceeded) {
+        file_put_contents(TLD_META_PATH, json_encode(['checked_at' => time()]));
+    } else {
+        // Issue #218: both upstream fetches failed — log so operators see recurring
+        // TLD/PSL refresh trouble rather than silently running on stale/absent data.
+        appLog('TLD/PSL refresh failed');
+    }
+
+    @flock($lockHandle, LOCK_UN);
+    @fclose($lockHandle);
 }
 
 /**
@@ -499,7 +1139,7 @@ function reverseDnsLookup(string $ip): ?string {
  */
 function ipWhoisLookup(string $ip): ?string {
     $escapedIp = escapeshellarg($ip);
-    $result = shell_exec("whois {$escapedIp} 2>&1");
+    $result = runCommandWithTimeout("whois {$escapedIp}", 8);
     if ($result) {
         return $result;
     }
@@ -521,6 +1161,43 @@ function sanitizeDomainInput(string $input): string {
 
     // Strip null bytes (injection vector)
     $input = str_replace("\0", '', $input);
+
+    // Internationalised domain names (Issue #212): FILTER_SANITIZE_URL just
+    // below strips any byte outside the ASCII URL character set, which
+    // mangles multi-byte UTF-8 sequences instead of leaving them intact
+    // (münchen.de -> mnchen.de, кремль.рф -> ""). So a raw-Unicode IDN host
+    // must be pulled out and converted to its ASCII/punycode A-label form
+    // BEFORE that filter runs, then spliced back in so the rest of this
+    // function's existing ASCII-only pipeline is unaffected. Requires the
+    // intl extension — if it's missing, this step is skipped and the input
+    // flows through unchanged (an already-punycode xn-- domain still
+    // validates via the relaxed isValidDomain() regex; a raw-Unicode domain
+    // simply fails validation later, exactly as it did before this fix).
+    if (function_exists('idn_to_ascii') && preg_match('/[^\x00-\x7F]/', $input)) {
+        // parse_url() resolves a Unicode host correctly when a scheme is
+        // present; for a bare "münchen.de" (no scheme) it returns null, in
+        // which case strip any path/query ourselves so we don't feed
+        // idn_to_ascii a trailing "/path".
+        $preHost = parse_url($input, PHP_URL_HOST);
+        if (!$preHost) {
+            $preHost = preg_replace('~[/?#].*$~', '', $input);
+        }
+        $preHost = preg_replace('/^www\./i', '', $preHost);
+
+        if ($preHost === '' || $preHost === null) {
+            return '';
+        }
+
+        $ascii = idn_to_ascii($preHost, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+        if ($ascii === false) {
+            // Not a valid IDN — fail closed rather than let mangled
+            // Unicode flow through to downstream shell/WHOIS/DNS calls.
+            return '';
+        }
+        // Only the host matters downstream, so replace $input outright —
+        // equivalent to how the ASCII path below only ever keeps the host.
+        $input = $ascii;
+    }
 
     $input = filter_var($input, FILTER_SANITIZE_URL);
 
@@ -545,8 +1222,10 @@ function isValidDomain(string $domain): bool {
         return false;
     }
 
-    // Standard domain format validation (no leading/trailing hyphens per label)
-    return (bool) preg_match('/^(?!-)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/', $domain);
+    // Standard domain format validation (no leading/trailing hyphens per
+    // label). TLD accepts either a normal alphabetic TLD or a punycode
+    // (xn--...) TLD so IDN ccTLDs like .xn--p1ai (.рф) validate (Issue #212).
+    return (bool) preg_match('/^(?!-)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:[a-zA-Z]{2,}|xn--[a-zA-Z0-9-]{2,})$/', $domain);
 }
 
 
@@ -579,6 +1258,25 @@ function detectAvailability(string $text): string {
     foreach ($patterns as $p) {
         if (preg_match($p, $text)) {
             return 'available';
+        }
+    }
+
+    // Known WHOIS error signatures (Issue #216) — these mean the query failed,
+    // not that the domain is registered, so surface them as 'unknown' instead
+    // of falling through to the 'registered' default below.
+    $errorPatterns = [
+        '/network is unreachable/i',
+        '/connection refused/i',
+        '/no whois server/i',
+        '/timed out/i',
+        '/no route to host/i',
+        '/quota exceeded/i',
+        '/try again later/i',
+    ];
+
+    foreach ($errorPatterns as $p) {
+        if (preg_match($p, $text)) {
+            return 'unknown';
         }
     }
 
@@ -648,6 +1346,21 @@ function getDnsRecords(string $domain): array {
     }
 
     return $records;
+}
+
+/**
+ * Return the value of the first A record in a DNS record array (as produced
+ * by getDnsRecords()), or null if there isn't one. Dedupes the several
+ * copy-pasted "find the first A record to use as an IP" loops that used to
+ * be scattered across lookup.php's enrichment pipeline (Issue #218).
+ */
+function firstARecord(array $dns): ?string {
+    foreach ($dns as $rec) {
+        if (($rec['type'] ?? null) === 'A' && !empty($rec['value'])) {
+            return $rec['value'];
+        }
+    }
+    return null;
 }
 
 
@@ -730,26 +1443,27 @@ function checkEmailSecurity(string $domain): array {
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Get geolocation info for an IP address using ip-api.com (free, no key needed).
- * Rate limit: 45 requests/minute.
+ * Build the ip-api.com request spec for getIpGeolocation() — shared with the
+ * batched reputation runner (Issue #196 Step 2, runReputationModuleChecks())
+ * so the URL/params can never drift between the serial and curl_multi paths.
  */
-function getIpGeolocation(string $ip): ?array {
-    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+function geolocationRequest(string $ip): array {
+    return ['url' => 'http://ip-api.com/json/' . urlencode($ip) . '?fields=status,country,countryCode,region,city,isp,org,as'];
+}
+
+/**
+ * Parse an ip-api.com response body into getIpGeolocation()'s return shape.
+ * IGNORES $httpCode — matches the legacy httpFetch()-based implementation,
+ * which has no way to see the HTTP status code at all; only body
+ * presence/shape gates the result. The batched path must replicate this
+ * exactly (not tighten it) for byte-identical output.
+ */
+function parseGeolocationResponse(int $httpCode, ?string $body): ?array {
+    if ($body === null) {
         return null;
     }
 
-    $ctx = stream_context_create(['http' => ['timeout' => 3]]);
-    $response = @file_get_contents(
-        'http://ip-api.com/json/' . urlencode($ip) . '?fields=status,country,countryCode,region,city,isp,org,as',
-        false,
-        $ctx
-    );
-
-    if ($response === false) {
-        return null;
-    }
-
-    $data = json_decode($response, true);
+    $data = json_decode($body, true);
     if (!$data || $data['status'] !== 'success') {
         return null;
     }
@@ -765,6 +1479,21 @@ function getIpGeolocation(string $ip): ?array {
     ];
 }
 
+/**
+ * Get geolocation info for an IP address using ip-api.com (free, no key needed).
+ * Rate limit: 45 requests/minute.
+ */
+function getIpGeolocation(string $ip): ?array {
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+        return null;
+    }
+
+    $req = geolocationRequest($ip);
+    $response = httpFetch($req['url'], ['timeout' => 3]);
+
+    return parseGeolocationResponse(0, $response);
+}
+
 
 // ═══════════════════════════════════════════════════════════════════
 //  SSL/TLS certificate info (Issue #19)
@@ -772,18 +1501,36 @@ function getIpGeolocation(string $ip): ?array {
 
 /**
  * Fetch SSL certificate info for a domain.
+ *
+ * Issue #246: a self-signed/expired/untrusted-chain certificate used to look
+ * identical to a valid, trusted one — misleading for a security tool. The
+ * result now also reports chain trust, hostname coverage, and key/signature
+ * strength (see sslCheckTrust(), sslHostnameMatches(), classifySslKey()).
  */
 function getSslInfo(string $domain): ?array {
+    // Issue #197: vet before connecting, then pin to the checked IP — connecting to
+    // "ssl://{$domain}:443" directly would let the transport re-resolve $domain itself.
+    $vet = resolveAndVetHost($domain);
+    if ($vet === null) {
+        return null;
+    }
+    $target = 'ssl://' . bracketIp($vet['ip']) . ':443';
+
+    // Pass 1 (unchanged from pre-#246 behaviour): verify_peer OFF, purely to fetch the
+    // certificate for detail parsing. Kept this way so self-signed/expired/mismatched
+    // certs still show their fields (subject, SAN, validity window) even when untrusted —
+    // trust itself is established separately in pass 2 below.
     $ctx = stream_context_create([
         'ssl' => [
             'capture_peer_cert' => true,
             'verify_peer' => false,
             'verify_peer_name' => false,
+            'peer_name' => $domain, // keep SNI + hostname matching pinned to the real host
         ],
     ]);
 
     $client = @stream_socket_client(
-        "ssl://{$domain}:443",
+        $target,
         $errno,
         $errstr,
         5,
@@ -802,7 +1549,8 @@ function getSslInfo(string $domain): ?array {
         return null;
     }
 
-    $cert = openssl_x509_parse($params['options']['ssl']['peer_certificate']);
+    $certResource = $params['options']['ssl']['peer_certificate'];
+    $cert = openssl_x509_parse($certResource);
     if (!$cert) {
         return null;
     }
@@ -820,16 +1568,220 @@ function getSslInfo(string $domain): ?array {
     $daysLeft = (int)ceil(($expiryTime - time()) / 86400);
     $result['expires_in'] = $daysLeft . ' days';
     $result['expired'] = ($daysLeft <= 0);
+    // Issue #246: coarse severity tier on top of the existing expires_in/expired fields.
+    $result['expiry_severity'] = classifySslExpirySeverity($daysLeft);
 
     // SAN (Subject Alternative Names)
+    $sanList = [];
     if (isset($cert['extensions']['subjectAltName'])) {
         $sans = array_map('trim', explode(',', $cert['extensions']['subjectAltName']));
-        $result['san'] = array_map(function($s) {
+        $sanList = array_map(function($s) {
             return str_replace('DNS:', '', $s);
         }, $sans);
+        $result['san'] = $sanList;
     }
 
+    // Issue #246: does the CN/SAN actually cover the domain we looked up?
+    $result['hostname_match'] = sslHostnameMatches($domain, $result['subject'], $sanList);
+
+    // Issue #246: key type/size + signature algorithm, from the same captured cert —
+    // no extra connection needed for this part.
+    $pubKey = @openssl_pkey_get_public($certResource);
+    $keyDetails = $pubKey ? @openssl_pkey_get_details($pubKey) : false;
+    $keyType = $keyDetails ? sslKeyTypeName($keyDetails['type'] ?? null) : 'Unknown';
+    $keyBits = $keyDetails['bits'] ?? 0;
+    $sigAlg = $cert['signatureTypeLN'] ?? ($cert['signatureTypeSN'] ?? '');
+    $result['key_type'] = $keyType;
+    $result['key_bits'] = $keyBits;
+    $result['sig_alg'] = $sigAlg;
+    $weakness = classifySslKey($keyType, $keyBits, $sigAlg);
+    $result['weak_key'] = $weakness['weak'];
+    $result['weak_reasons'] = $weakness['reasons'];
+
+    // Pass 2 (Issue #246): SAME pinned target/SNI as pass 1 — verify_peer ON, purely to
+    // learn whether the chain is trusted by the system CA store and the hostname is
+    // covered. Reuses $target (already vetted/pinned above) so no fresh DNS lookup and
+    // no new SSRF surface is introduced by this second handshake.
+    $trust = sslCheckTrust($target, $domain);
+    $result['trusted'] = $trust['trusted'];
+    $result['trust_error'] = $trust['error'];
+
     return $result;
+}
+
+/**
+ * Issue #246: second handshake against the same vetted/pinned target as pass 1 in
+ * getSslInfo(), this time with verify_peer + verify_peer_name ON, solely to learn
+ * whether the chain verifies against the system trust store. Never used for cert
+ * *details* — those come from the verify-off pass 1 connection so untrusted certs
+ * still show their fields. No 'cafile'/'capath' is set, so PHP/OpenSSL falls back to
+ * the host's default CA bundle (openssl_get_cert_locations()) — the same trust store
+ * curl uses elsewhere in this codebase.
+ *
+ * @return array{trusted: bool, error: string|null}
+ */
+function sslCheckTrust(string $target, string $domain): array {
+    $ctx = stream_context_create([
+        'ssl' => [
+            'verify_peer' => true,
+            'verify_peer_name' => true,
+            'peer_name' => $domain,
+            'capture_peer_cert' => false,
+            'allow_self_signed' => false,
+        ],
+    ]);
+
+    // Drain any error queue left over from pass 1 (or earlier requests in this
+    // process) so the messages collected below only reflect this handshake.
+    while (openssl_error_string() !== false) {
+        // no-op: just draining
+    }
+
+    $client = @stream_socket_client($target, $errno, $errstr, 5, STREAM_CLIENT_CONNECT, $ctx);
+
+    if ($client) {
+        fclose($client);
+        return ['trusted' => true, 'error' => null];
+    }
+
+    $opensslErrors = [];
+    while (($e = openssl_error_string()) !== false) {
+        $opensslErrors[] = $e;
+    }
+    $raw = $opensslErrors ? end($opensslErrors) : (string)$errstr;
+
+    return ['trusted' => false, 'error' => sslTrustErrorReason($raw)];
+}
+
+/**
+ * Issue #246: turn a raw OpenSSL/stream-wrapper error string into a short,
+ * human-readable trust-failure reason (expired / self-signed / untrusted-root /
+ * hostname-mismatch / not-yet-valid). Falls back to the trimmed raw message for
+ * anything unrecognised so nothing is silently swallowed.
+ */
+function sslTrustErrorReason(string $raw): string {
+    $raw = trim($raw);
+    if ($raw === '') {
+        return 'TLS trust verification failed';
+    }
+
+    $patterns = [
+        '/self.signed certificate/i' => 'Self-signed certificate',
+        '/certificate has expired/i' => 'Certificate expired',
+        '/certificate is not yet valid/i' => 'Certificate not yet valid',
+        '/unable to get (local issuer certificate|issuer certificate)/i' => 'Untrusted root (issuer not in trust store)',
+        '/did not match expected CN|IP address mismatch|hostname mismatch|verify_peer_name/i' => 'Hostname mismatch',
+        '/certificate revoked/i' => 'Certificate revoked',
+    ];
+    foreach ($patterns as $pattern => $label) {
+        if (preg_match($pattern, $raw)) {
+            return $label;
+        }
+    }
+
+    return $raw;
+}
+
+/**
+ * Issue #246: does $domain match the certificate's CN or any SAN entry? Standard
+ * leftmost-label wildcard matching only (RFC 6125 style) — "*.example.com" covers
+ * "www.example.com" but NOT "example.com" itself or "a.b.example.com".
+ */
+function sslHostnameMatches(string $domain, string $cn, array $sanList): bool {
+    $domain = strtolower(rtrim($domain, '.'));
+    if ($domain === '') {
+        return false;
+    }
+    $names = $sanList;
+    if ($cn !== '') {
+        $names[] = $cn;
+    }
+    foreach ($names as $name) {
+        if (sslNameMatchesDomain($domain, $name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Issue #246: match a single certificate name (CN or one SAN entry) against an
+ * already-lowercased $domain. Split out of sslHostnameMatches() for unit testing.
+ */
+function sslNameMatchesDomain(string $domain, string $name): bool {
+    $name = strtolower(trim($name));
+    if ($name === '') {
+        return false;
+    }
+    if ($name === $domain) {
+        return true;
+    }
+    if (strpos($name, '*.') === 0) {
+        $suffix = substr($name, 1); // ".example.com"
+        if ($suffix !== '' && str_ends_with($domain, $suffix)) {
+            $prefix = substr($domain, 0, -strlen($suffix));
+            // Wildcard covers exactly one leftmost label: "www" matches, "a.b" doesn't.
+            return $prefix !== '' && strpos($prefix, '.') === false;
+        }
+    }
+    return false;
+}
+
+/**
+ * Issue #246: map an OpenSSL numeric key-type constant (from
+ * openssl_pkey_get_details()['type']) to a short display name.
+ */
+function sslKeyTypeName($opensslKeyType): string {
+    // Strict comparisons only: OPENSSL_KEYTYPE_RSA is 0, and a `switch`/`==` match
+    // would let a null/missing type (e.g. openssl_pkey_get_details() failure) be
+    // mistaken for RSA via PHP's loose `null == 0`.
+    if (!is_int($opensslKeyType)) {
+        return 'Unknown';
+    }
+    if ($opensslKeyType === OPENSSL_KEYTYPE_RSA) {
+        return 'RSA';
+    }
+    if ($opensslKeyType === OPENSSL_KEYTYPE_DSA) {
+        return 'DSA';
+    }
+    if ($opensslKeyType === OPENSSL_KEYTYPE_DH) {
+        return 'DH';
+    }
+    if ($opensslKeyType === OPENSSL_KEYTYPE_EC) {
+        return 'EC';
+    }
+    return 'Unknown';
+}
+
+/**
+ * Issue #246: flag weak certificate keys/signatures for a security tool — an RSA key
+ * under 2048 bits, or a SHA-1 signature, are both considered broken/deprecated today.
+ *
+ * @return array{weak: bool, reasons: string[]}
+ */
+function classifySslKey(string $keyType, int $keyBits, string $sigAlg): array {
+    $reasons = [];
+    if ($keyType === 'RSA' && $keyBits > 0 && $keyBits < 2048) {
+        $reasons[] = 'RSA key < 2048 bits (' . $keyBits . '-bit)';
+    }
+    if ($sigAlg !== '' && stripos($sigAlg, 'sha1') !== false) {
+        $reasons[] = 'SHA-1 signature';
+    }
+    return ['weak' => !empty($reasons), 'reasons' => $reasons];
+}
+
+/**
+ * Issue #246: coarse days-to-expiry severity tier layered on top of the existing
+ * expires_in/expired fields (which are left unchanged for backward compatibility).
+ */
+function classifySslExpirySeverity(int $daysLeft): string {
+    if ($daysLeft <= 0) {
+        return 'expired';
+    }
+    if ($daysLeft <= 14) {
+        return 'warn';
+    }
+    return 'ok';
 }
 
 
@@ -924,9 +1876,14 @@ function rdapLookup(string $domain): ?array {
         ]);
         $response = curl_exec($ch);
         $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $errno = curl_errno($ch);
         curl_close($ch);
 
         if ($response === false || $code >= 400) {
+            // Issue #218: wire appLog() into a genuine failure path — the domain has
+            // already been validated upstream, and we log only the HTTP code / curl
+            // errno, never response bodies or headers.
+            appLog("RDAP lookup failed for {$domain}: HTTP {$code} (curl errno {$errno})");
             return null;
         }
     } else {
@@ -946,6 +1903,7 @@ function rdapLookup(string $domain): ?array {
         $response = @file_get_contents($url, false, $ctx);
 
         if ($response === false) {
+            appLog("RDAP lookup failed for {$domain}: no response (stream fallback)");
             return null;
         }
     }
@@ -976,19 +1934,25 @@ function formatRdapResponse(array $rdap): string {
         }
     }
 
+    // Map RDAP event actions to WHOIS-style field names so parseWhoisFields() can extract them
+    $eventActionMap = [
+        'registration'                  => 'Creation Date',
+        'expiration'                    => 'Expiry Date',
+        'last changed'                  => 'Updated Date',
+        'last update of rdap database'  => 'RDAP Last Update',
+        'transfer'                      => 'Transfer Date',
+    ];
+
     if (isset($rdap['events']) && is_array($rdap['events'])) {
         foreach ($rdap['events'] as $e) {
-            $action = '';
-            if (isset($e['eventAction'])) {
-                $action = ucfirst($e['eventAction']);
-            }
+            $action = isset($e['eventAction']) ? $e['eventAction'] : '';
+            $date = isset($e['eventDate']) ? $e['eventDate'] : '';
 
-            $date = '';
-            if (isset($e['eventDate'])) {
-                $date = $e['eventDate'];
-            }
+            $label = isset($eventActionMap[strtolower($action)])
+                ? $eventActionMap[strtolower($action)]
+                : ucfirst($action);
 
-            $lines[] = $action . ": " . $date;
+            $lines[] = $label . ": " . $date;
         }
     }
 
@@ -1087,13 +2051,10 @@ function checkRegistrarReputation(string $registrar): ?array {
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Check a domain against the Google Safe Browsing API.
- *
- * @param  string $domain  The domain to check
- * @param  string $apiKey  Google Safe Browsing API key
- * @return array           ['safe' => bool, 'threats' => array]
+ * Build the Safe Browsing request spec — shared with the batched reputation
+ * runner (Issue #196 Step 2).
  */
-function checkSafeBrowsing(string $domain, string $apiKey): array {
+function safeBrowsingRequest(string $domain, string $apiKey): array {
     $url = 'https://safebrowsing.googleapis.com/v4/threatMatches:find?key=' . urlencode($apiKey);
     $payload = json_encode([
         'client' => ['clientId' => 'mwwhois', 'clientVersion' => '1.0'],
@@ -1108,23 +2069,18 @@ function checkSafeBrowsing(string $domain, string $apiKey): array {
         ],
     ]);
 
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => $payload,
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-        CURLOPT_TIMEOUT => 5,
-    ]);
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+    return ['url' => $url, 'post' => $payload, 'headers' => ['Content-Type: application/json']];
+}
 
-    if ($httpCode !== 200 || !$response) {
+/**
+ * Parse a Safe Browsing response into checkSafeBrowsing()'s return shape.
+ */
+function parseSafeBrowsingResponse(int $httpCode, ?string $body): array {
+    if ($httpCode !== 200 || !$body) {
         return ['safe' => true, 'threats' => [], 'error' => 'API unavailable'];
     }
 
-    $data = json_decode($response, true);
+    $data = json_decode($body, true);
     if (!empty($data['matches'])) {
         $threats = array_map(function ($m) {
             return $m['threatType'];
@@ -1135,36 +2091,56 @@ function checkSafeBrowsing(string $domain, string $apiKey): array {
     return ['safe' => true, 'threats' => []];
 }
 
+/**
+ * Check a domain against the Google Safe Browsing API.
+ *
+ * @param  string $domain  The domain to check
+ * @param  string $apiKey  Google Safe Browsing API key
+ * @return array           ['safe' => bool, 'threats' => array]
+ */
+function checkSafeBrowsing(string $domain, string $apiKey): array {
+    $req = safeBrowsingRequest($domain, $apiKey);
+
+    $ch = curl_init($req['url']);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $req['post'],
+        CURLOPT_HTTPHEADER => $req['headers'],
+        CURLOPT_TIMEOUT => 5,
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return parseSafeBrowsingResponse($httpCode, $response === false ? null : $response);
+}
+
 
 // ═══════════════════════════════════════════════════════════════════
 //  VirusTotal domain reputation (Issue #53)
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Query VirusTotal for domain reputation.
- *
- * @param  string $domain  The domain to check
- * @param  string $apiKey  VirusTotal API key
- * @return array|null      Reputation info or null on failure
+ * Build the VirusTotal request spec — shared with the batched reputation
+ * runner (Issue #196 Step 2).
  */
-function checkVirusTotal(string $domain, string $apiKey): ?array {
-    $url = 'https://www.virustotal.com/api/v3/domains/' . urlencode($domain);
+function virusTotalRequest(string $domain, string $apiKey): array {
+    return [
+        'url' => 'https://www.virustotal.com/api/v3/domains/' . urlencode($domain),
+        'headers' => ['x-apikey: ' . $apiKey],
+    ];
+}
 
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER => ['x-apikey: ' . $apiKey],
-        CURLOPT_TIMEOUT => 5,
-    ]);
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($httpCode !== 200 || !$response) {
+/**
+ * Parse a VirusTotal response into checkVirusTotal()'s return shape.
+ */
+function parseVirusTotalResponse(int $httpCode, ?string $body): ?array {
+    if ($httpCode !== 200 || !$body) {
         return null;
     }
 
-    $data = json_decode($response, true);
+    $data = json_decode($body, true);
     if (empty($data['data']['attributes']['last_analysis_stats'])) {
         return null;
     }
@@ -1180,11 +2156,40 @@ function checkVirusTotal(string $domain, string $apiKey): ?array {
     ];
 }
 
+/**
+ * Query VirusTotal for domain reputation.
+ *
+ * @param  string $domain  The domain to check
+ * @param  string $apiKey  VirusTotal API key
+ * @return array|null      Reputation info or null on failure
+ */
+function checkVirusTotal(string $domain, string $apiKey): ?array {
+    $req = virusTotalRequest($domain, $apiKey);
+
+    $ch = curl_init($req['url']);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => $req['headers'],
+        CURLOPT_TIMEOUT => 5,
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return parseVirusTotalResponse($httpCode, $response === false ? null : $response);
+}
+
 
 function sendJson(array $data, int $status = 200): void {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    // Issue #193: flush the response to the client NOW — any register_shutdown_function
+    // work queued by the caller (e.g. the deferred TLD/PSL refresh) then runs after the
+    // client has already received its reply, instead of the client waiting on it.
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    }
     exit;
 }
 
@@ -1200,10 +2205,24 @@ function sendError(string $message, int $status = 400): void {
 /**
  * Check common subdomains for a domain and return which ones resolve.
  *
- * @param  string $domain  The base domain (e.g. example.com)
- * @return array           Array of ['subdomain' => string, 'ip' => string|null]
+ * Issue #196 Step 2: ~37 prefixes used to be resolved with ~37 SERIAL
+ * gethostbyname() calls (worst case very slow — each one blocks on its own
+ * DNS round-trip). When `dig` is available, resolve them all CONCURRENTLY
+ * using the same background-subshell `.part`->`mv` pattern
+ * checkDnsPropagation() already uses (Issue #194), capped at ~4s total.
+ * Falls back to the original serial gethostbyname() loop when `dig` isn't
+ * on the host. Output shape is IDENTICAL either way:
+ * [['subdomain' => string, 'ip' => string], ...], in prefix-list order,
+ * containing only the prefixes that actually resolved.
+ *
+ * @param  string    $domain        The base domain (e.g. example.com)
+ * @param  bool|null $digAvailable  Override the `dig`-availability
+ *                                   auto-detection (dependency injection for
+ *                                   tests); null (default) auto-detects via
+ *                                   `command -v dig`.
+ * @return array                    Array of ['subdomain' => string, 'ip' => string]
  */
-function discoverSubdomains(string $domain): array {
+function discoverSubdomains(string $domain, ?bool $digAvailable = null): array {
     $prefixes = [
         'www', 'mail', 'ftp', 'smtp', 'pop', 'imap',
         'webmail', 'api', 'cdn', 'dev', 'staging', 'test',
@@ -1214,6 +2233,24 @@ function discoverSubdomains(string $domain): array {
         'media', 'static', 'assets', 'img', 'images',
     ];
 
+    if ($digAvailable === null) {
+        static $hasDig = null;
+        if ($hasDig === null) {
+            $hasDig = (bool) @shell_exec('command -v dig 2>/dev/null');
+        }
+        $digAvailable = $hasDig;
+    }
+
+    return $digAvailable
+        ? discoverSubdomainsViaDig($domain, $prefixes)
+        : discoverSubdomainsSerial($domain, $prefixes);
+}
+
+/**
+ * The ORIGINAL serial gethostbyname()-based implementation, kept intact as
+ * the fallback for hosts without a `dig` binary (Issue #196 Step 2).
+ */
+function discoverSubdomainsSerial(string $domain, array $prefixes): array {
     $results = [];
     foreach ($prefixes as $prefix) {
         $fqdn = $prefix . '.' . $domain;
@@ -1224,6 +2261,88 @@ function discoverSubdomains(string $domain): array {
                 'subdomain' => $fqdn,
                 'ip' => $ip,
             ];
+        }
+    }
+
+    return $results;
+}
+
+/**
+ * Parse one FQDN's raw `dig +short A` output into the discoverSubdomains()
+ * entry shape, or null if it didn't resolve. Pure — no I/O — so the exact
+ * same parsing discoverSubdomainsViaDig() applies after polling temp files
+ * can be unit-tested directly against synthetic dig output. Only the first
+ * line that is itself a literal IPv4 address is used — `dig +short A` can
+ * also emit intermediate CNAME lines for an aliased name, which this skips,
+ * matching gethostbyname()'s A-record-only, CNAME-transparent contract.
+ */
+function parseDigSubdomainOutput(string $fqdn, ?string $output): ?array {
+    if ($output === null || trim($output) === '') {
+        return null;
+    }
+
+    $lines = array_filter(array_map('trim', explode("\n", trim($output))));
+    foreach ($lines as $line) {
+        if (filter_var($line, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return ['subdomain' => $fqdn, 'ip' => $line];
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Parallel `dig`-based subdomain discovery — fires one background `dig`
+ * subshell per prefix (the same `.part`->`mv` pattern checkDnsPropagation()
+ * uses, Issue #194) instead of resolving them one at a time, then polls for
+ * the results with a ~4s hard cap (0.5s initial sleep + up to 3.5s of 100ms
+ * polls — identical budget to checkDnsPropagation()'s).
+ */
+function discoverSubdomainsViaDig(string $domain, array $prefixes): array {
+    $tmpDir = sys_get_temp_dir();
+    $pid = getmypid();
+    $jobs = [];
+
+    foreach ($prefixes as $i => $prefix) {
+        $fqdn = $prefix . '.' . $domain;
+        $tmpFile = $tmpDir . DIRECTORY_SEPARATOR . 'subdomain_' . $pid . '_' . $i;
+        $jobs[$i] = ['fqdn' => $fqdn, 'file' => $tmpFile];
+        // See checkDnsPropagation()'s comment on why this MUST be a
+        // parenthesised subshell (so the whole `dig ...; mv ...` sequence
+        // backgrounds together) writing to a `.part` file that's only
+        // renamed into place once `dig` has actually finished — a bare
+        // `dig ... > $tmpFile &` would create $tmpFile the instant the shell
+        // forks, before dig has produced any output.
+        $cmd = '( dig +short +time=2 +tries=1 A ' . escapeshellarg($fqdn) . ' > '
+             . escapeshellarg($tmpFile . '.part') . ' 2>/dev/null; mv '
+             . escapeshellarg($tmpFile . '.part') . ' ' . escapeshellarg($tmpFile) . ' ) &';
+        @exec($cmd);
+    }
+
+    // Wait for all background processes (max ~4s total, mirrors checkDnsPropagation()).
+    usleep(500000);
+    $waited = 0;
+    while ($waited < 35) {
+        $allDone = true;
+        foreach ($jobs as $job) {
+            if (!file_exists($job['file'])) {
+                $allDone = false;
+                break;
+            }
+        }
+        if ($allDone) break;
+        usleep(100000);
+        $waited++;
+    }
+
+    $results = [];
+    foreach ($jobs as $job) {
+        $output = @file_get_contents($job['file']);
+        @unlink($job['file']);
+        @unlink($job['file'] . '.part'); // in case dig never finished within the time cap
+        $entry = parseDigSubdomainOutput($job['fqdn'], $output === false ? null : $output);
+        if ($entry !== null) {
+            $results[] = $entry;
         }
     }
 
@@ -1301,22 +2420,20 @@ function checkDnssec(string $domain): array {
         }
     }
 
-    // Also try DNSKEY query
-    if (!$result['signed']) {
-        $dnskey = @dns_get_record($domain, DNS_ANY);
-        if ($dnskey) {
-            foreach ($dnskey as $rec) {
-                if (isset($rec['type']) && strtoupper($rec['type']) === 'DNSKEY') {
-                    $result['signed'] = true;
-                    break;
-                }
+    // Also check the same DNS_ANY result for a DNSKEY record (Issue #191 — this used to
+    // issue an identical, second dns_get_record($domain, DNS_ANY) query; $ds already has it)
+    if (!$result['signed'] && $ds) {
+        foreach ($ds as $rec) {
+            if (isset($rec['type']) && strtoupper($rec['type']) === 'DNSKEY') {
+                $result['signed'] = true;
+                break;
             }
         }
     }
 
     // Fallback: use dig if available
     if (!$result['signed']) {
-        $digOutput = @shell_exec('dig +short DS ' . escapeshellarg($domain) . ' 2>/dev/null');
+        $digOutput = @shell_exec('dig +short +time=2 +tries=1 DS ' . escapeshellarg($domain) . ' 2>/dev/null');
         if ($digOutput && trim($digOutput)) {
             $result['signed'] = true;
             $result['ds_records'] = count(array_filter(explode("\n", trim($digOutput))));
@@ -1335,8 +2452,7 @@ function checkDnssec(string $domain): array {
 function checkCertTransparency(string $domain): ?array {
     $url = 'https://crt.sh/?q=' . urlencode($domain) . '&output=json&deduplicate=Y';
 
-    $ctx = stream_context_create(['http' => ['timeout' => 5, 'header' => "User-Agent: mwWhoIs\r\n"]]);
-    $response = @file_get_contents($url, false, $ctx);
+    $response = httpFetch($url, ['timeout' => 5, 'maxbytes' => 2097152]);
     if (!$response) {
         return null;
     }
@@ -1405,27 +2521,26 @@ function assessDomainAgeRisk(array $parsed): ?array {
 //  AbuseIPDB integration (Issue #96)
 // ═══════════════════════════════════════════════════════════════════
 
-function checkAbuseIPDB(string $ip, string $apiKey): ?array {
-    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+/**
+ * Build the AbuseIPDB request spec — shared with the batched reputation
+ * runner (Issue #196 Step 2).
+ */
+function abuseIpdbRequest(string $ip, string $apiKey): array {
+    return [
+        'url' => 'https://api.abuseipdb.com/api/v2/check?' . http_build_query(['ipAddress' => $ip, 'maxAgeInDays' => 90]),
+        'headers' => ['Key: ' . $apiKey, 'Accept: application/json'],
+    ];
+}
+
+/**
+ * Parse an AbuseIPDB response into checkAbuseIPDB()'s return shape.
+ */
+function parseAbuseIpdbResponse(int $httpCode, ?string $body): ?array {
+    if ($httpCode !== 200 || !$body) {
         return null;
     }
 
-    $ch = curl_init();
-    curl_setopt_array($ch, [
-        CURLOPT_URL => 'https://api.abuseipdb.com/api/v2/check?' . http_build_query(['ipAddress' => $ip, 'maxAgeInDays' => 90]),
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 5,
-        CURLOPT_HTTPHEADER => ['Key: ' . $apiKey, 'Accept: application/json'],
-    ]);
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($httpCode !== 200 || !$response) {
-        return null;
-    }
-
-    $data = json_decode($response, true);
+    $data = json_decode($body, true);
     if (!isset($data['data'])) {
         return null;
     }
@@ -1441,24 +2556,52 @@ function checkAbuseIPDB(string $ip, string $apiKey): ?array {
     ];
 }
 
+function checkAbuseIPDB(string $ip, string $apiKey): ?array {
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+        return null;
+    }
+
+    $req = abuseIpdbRequest($ip, $apiKey);
+
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $req['url'],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 5,
+        CURLOPT_HTTPHEADER => $req['headers'],
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return parseAbuseIpdbResponse($httpCode, $response === false ? null : $response);
+}
+
 
 // ═══════════════════════════════════════════════════════════════════
 //  Shodan integration (Issue #97)
 // ═══════════════════════════════════════════════════════════════════
 
-function checkShodan(string $ip, string $apiKey): ?array {
-    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+/**
+ * Build the Shodan request spec — shared with the batched reputation runner
+ * (Issue #196 Step 2).
+ */
+function shodanRequest(string $ip, string $apiKey): array {
+    return ['url' => 'https://api.shodan.io/shodan/host/' . urlencode($ip) . '?key=' . urlencode($apiKey) . '&minify=true'];
+}
+
+/**
+ * Parse a Shodan response into checkShodan()'s return shape. IGNORES
+ * $httpCode — matches the legacy httpFetch()-based implementation, which has
+ * no way to see the HTTP status; only body presence/shape (including the
+ * body-level "error" key) gates the result.
+ */
+function parseShodanResponse(int $httpCode, ?string $body): ?array {
+    if (!$body) {
         return null;
     }
 
-    $url = 'https://api.shodan.io/shodan/host/' . urlencode($ip) . '?key=' . urlencode($apiKey) . '&minify=true';
-    $ctx = stream_context_create(['http' => ['timeout' => 5]]);
-    $response = @file_get_contents($url, false, $ctx);
-    if (!$response) {
-        return null;
-    }
-
-    $data = json_decode($response, true);
+    $data = json_decode($body, true);
     if (!is_array($data) || isset($data['error'])) {
         return null;
     }
@@ -1475,33 +2618,50 @@ function checkShodan(string $ip, string $apiKey): ?array {
     ];
 }
 
+function checkShodan(string $ip, string $apiKey): ?array {
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+        return null;
+    }
+
+    $req = shodanRequest($ip, $apiKey);
+    $response = httpFetch($req['url'], ['timeout' => 5]);
+
+    return parseShodanResponse(0, $response);
+}
+
 
 // ═══════════════════════════════════════════════════════════════════
 //  PhishTank integration (Issue #98)
 // ═══════════════════════════════════════════════════════════════════
 
-function checkPhishTank(string $domain, string $apiKey): ?array {
-    $url = 'https://checkurl.phishtank.com/checkurl/';
+/**
+ * Build the PhishTank request spec — shared with the batched reputation
+ * runner (Issue #196 Step 2).
+ */
+function phishTankRequest(string $domain, string $apiKey): array {
     $postData = http_build_query([
         'url' => 'https://' . $domain,
         'format' => 'json',
         'app_key' => $apiKey,
     ]);
 
-    $ctx = stream_context_create([
-        'http' => [
-            'method' => 'POST',
-            'header' => "Content-Type: application/x-www-form-urlencoded\r\n",
-            'content' => $postData,
-            'timeout' => 5,
-        ],
-    ]);
-    $response = @file_get_contents($url, false, $ctx);
-    if (!$response) {
+    return [
+        'url' => 'https://checkurl.phishtank.com/checkurl/',
+        'post' => $postData,
+        'headers' => ['Content-Type: application/x-www-form-urlencoded'],
+    ];
+}
+
+/**
+ * Parse a PhishTank response into checkPhishTank()'s return shape. IGNORES
+ * $httpCode — matches the legacy httpFetch()-based implementation.
+ */
+function parsePhishTankResponse(int $httpCode, ?string $body): ?array {
+    if (!$body) {
         return null;
     }
 
-    $data = json_decode($response, true);
+    $data = json_decode($body, true);
     if (!isset($data['results'])) {
         return null;
     }
@@ -1514,29 +2674,45 @@ function checkPhishTank(string $domain, string $apiKey): ?array {
     ];
 }
 
+function checkPhishTank(string $domain, string $apiKey): ?array {
+    $req = phishTankRequest($domain, $apiKey);
+
+    $response = httpFetch($req['url'], [
+        'timeout' => 5,
+        'post'    => $req['post'],
+        'headers' => $req['headers'],
+    ]);
+
+    return parsePhishTankResponse(0, $response);
+}
+
 
 // ═══════════════════════════════════════════════════════════════════
 //  URLhaus malware check (Issue #99)
 // ═══════════════════════════════════════════════════════════════════
 
-function checkUrlhaus(string $domain): ?array {
-    $url = 'https://urlhaus-api.abuse.ch/v1/host/';
-    $postData = http_build_query(['host' => $domain]);
+/**
+ * Build the URLhaus request spec — shared with the batched reputation runner
+ * (Issue #196 Step 2).
+ */
+function urlhausRequest(string $domain): array {
+    return [
+        'url' => 'https://urlhaus-api.abuse.ch/v1/host/',
+        'post' => http_build_query(['host' => $domain]),
+        'headers' => ['Content-Type: application/x-www-form-urlencoded'],
+    ];
+}
 
-    $ctx = stream_context_create([
-        'http' => [
-            'method' => 'POST',
-            'header' => "Content-Type: application/x-www-form-urlencoded\r\n",
-            'content' => $postData,
-            'timeout' => 5,
-        ],
-    ]);
-    $response = @file_get_contents($url, false, $ctx);
-    if (!$response) {
+/**
+ * Parse a URLhaus response into checkUrlhaus()'s return shape. IGNORES
+ * $httpCode — matches the legacy httpFetch()-based implementation.
+ */
+function parseUrlhausResponse(int $httpCode, ?string $body): ?array {
+    if (!$body) {
         return null;
     }
 
-    $data = json_decode($response, true);
+    $data = json_decode($body, true);
     if (!is_array($data)) {
         return null;
     }
@@ -1547,6 +2723,18 @@ function checkUrlhaus(string $domain): ?array {
         'blacklists'   => $data['blacklists'] ?? [],
         'tags'         => array_slice($data['tags'] ?? [], 0, 10),
     ];
+}
+
+function checkUrlhaus(string $domain): ?array {
+    $req = urlhausRequest($domain);
+
+    $response = httpFetch($req['url'], [
+        'timeout' => 5,
+        'post'    => $req['post'],
+        'headers' => $req['headers'],
+    ]);
+
+    return parseUrlhausResponse(0, $response);
 }
 
 
@@ -1653,7 +2841,7 @@ function checkDaneTlsa(string $domain): array {
     $host = '_443._tcp.' . $domain;
 
     // PHP dns_get_record doesn't support TLSA natively, use dig
-    $output = @shell_exec('dig +short TLSA ' . escapeshellarg($host) . ' 2>/dev/null');
+    $output = @shell_exec('dig +short +time=2 +tries=1 TLSA ' . escapeshellarg($host) . ' 2>/dev/null');
     if ($output && trim($output)) {
         $lines = array_filter(explode("\n", trim($output)));
         $result['found'] = true;
@@ -1749,27 +2937,75 @@ function assessHostingRisk(?array $geolocation): ?array {
 
 
 // ═══════════════════════════════════════════════════════════════════
+//  Letter-grade thresholds (Issue #218)
+// ═══════════════════════════════════════════════════════════════════
+//
+// Two A–F scales exist in this file and grade two DIFFERENT things — they
+// are intentionally not the same numbers and must not be forced to match:
+//
+//  - HTTP_HEADERS_GRADE_THRESHOLDS (auditHttpHeaders, below): a narrow
+//    presence/absence check over exactly 8 specific HTTP response headers
+//    (HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy,
+//    Permissions-Policy, COOP, CORP).
+//  - SECURITY_SCORE_GRADE_THRESHOLDS (calculateSecurityScore): an 11-way
+//    aggregate composite (HTTPS/SSL, HSTS, DNSSEC, SPF, DMARC, DKIM,
+//    MTA-STS, TLS version, blocklist status, CAA records, malware/phishing)
+//    of which the header check is only one contributing sub-signal.
+//
+// What WAS accidental is that each site duplicated its own if/elseif chain
+// to map a percentage to a grade. gradeFromPercent() below centralises that
+// mapping logic so future edits can't let the two *chains* drift apart,
+// while keeping the two *threshold tables* explicitly separate and named.
+
+const HTTP_HEADERS_GRADE_THRESHOLDS = ['A' => 87, 'B' => 75, 'C' => 62, 'D' => 50, 'E' => 37];
+const SECURITY_SCORE_GRADE_THRESHOLDS = ['A' => 90, 'B' => 75, 'C' => 60, 'D' => 45, 'E' => 30];
+
+/**
+ * Maps a pass-percentage to a letter grade using a threshold table ordered
+ * highest-to-lowest (e.g. ['A' => 90, 'B' => 75, ...]). Falls through to 'F'.
+ */
+function gradeFromPercent(float $pct, array $thresholds): string {
+    foreach ($thresholds as $grade => $min) {
+        if ($pct >= $min) {
+            return $grade;
+        }
+    }
+    return 'F';
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  HTTP Security Headers audit (Issue #106)
 // ═══════════════════════════════════════════════════════════════════
 
 function auditHttpHeaders(string $domain): ?array {
-    $url = 'https://' . $domain;
-    $ctx = stream_context_create(['http' => ['method' => 'HEAD', 'timeout' => 5, 'follow_location' => 1, 'max_redirects' => 3, 'header' => "User-Agent: mwWhoIs Security Audit\r\n"], 'ssl' => ['verify_peer' => false]]);
-    $headers = @get_headers($url, true, $ctx);
-    if (!$headers) {
-        // Try HTTP fallback
-        $url = 'http://' . $domain;
-        $headers = @get_headers($url, true, $ctx);
-        if (!$headers) {
+    // Issue #197: get_headers()'s stream-context wrapper re-resolves the hostname
+    // itself and offers no way to pin a connection, so this now goes through curl
+    // with resolveAndVetHost() + CURLOPT_RESOLVE. Redirects (this used to auto-follow
+    // up to 3 hops) are followed manually so each hop's host gets re-vetted before
+    // it's connected to — see fetchViaVettedCurl().
+    $curlOpts = [
+        CURLOPT_NOBODY         => true,
+        CURLOPT_TIMEOUT        => 5,
+        CURLOPT_CONNECTTIMEOUT => 3,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_USERAGENT      => 'mwWhoIs Security Audit',
+    ];
+    $fetch = fetchViaVettedCurl('https://' . $domain, $curlOpts);
+    if ($fetch === null) {
+        // Try HTTP fallback (matches the original's https-then-http behaviour)
+        $fetch = fetchViaVettedCurl('http://' . $domain, $curlOpts);
+        if ($fetch === null) {
             return null;
         }
     }
 
     // Normalise header keys to lowercase
     $h = [];
-    foreach ($headers as $k => $v) {
-        if (is_string($k)) {
-            $h[strtolower($k)] = is_array($v) ? end($v) : $v;
+    foreach (preg_split('/\r\n|\n/', trim($fetch['headers'])) as $line) {
+        $parts = explode(':', $line, 2);
+        if (count($parts) === 2) {
+            $h[strtolower(trim($parts[0]))] = trim($parts[1]);
         }
     }
 
@@ -1796,19 +3032,11 @@ function auditHttpHeaders(string $domain): ?array {
         }
     }
 
-    $grade = 'F';
     $pct = ($pass / $total) * 100;
-    if ($pct >= 87) {
-        $grade = 'A';
-    } elseif ($pct >= 75) {
-        $grade = 'B';
-    } elseif ($pct >= 62) {
-        $grade = 'C';
-    } elseif ($pct >= 50) {
-        $grade = 'D';
-    } elseif ($pct >= 37) {
-        $grade = 'E';
-    }
+    // Issue #218: thresholds are named + documented above — this grades header
+    // presence only, and is intentionally a different scale from the aggregate
+    // calculateSecurityScore() grade below.
+    $grade = gradeFromPercent($pct, HTTP_HEADERS_GRADE_THRESHOLDS);
 
     return ['grade' => $grade, 'pass' => $pass, 'total' => $total, 'headers' => $results];
 }
@@ -1821,19 +3049,43 @@ function auditHttpHeaders(string $domain): ?array {
 function detectRedirectChain(string $domain): ?array {
     $chain = [];
     $url = 'http://' . $domain;
-    $maxRedirects = 10;
+    $maxRedirects = 5; // Issue #192: was 10 — cap total hops
+    $stillRedirecting = true;
 
     for ($i = 0; $i < $maxRedirects; $i++) {
+        // Issue #197: this manually walks the redirect chain itself (FOLLOWLOCATION is
+        // already off), which is exactly what makes it SSRF-prone — each Location header
+        // is attacker-influenceable once the FIRST hop is. Re-vet every hop's host before
+        // connecting to it, and stop (marking the hop as blocked) instead of following one
+        // that resolves to a private/internal address.
+        $hopHost = parse_url($url, PHP_URL_HOST);
+        $hopPort = parse_url($url, PHP_URL_PORT);
+        // Security: CURLOPT_RESOLVE pins below are host:PORT-scoped (443/80 only) — a
+        // redirect naming any other port would make curl fall back to a LIVE DNS lookup
+        // for that host:port, bypassing the pin entirely. Treat that the same as a
+        // vetting failure rather than connect.
+        $portOk = ($hopPort === null || in_array((int) $hopPort, [80, 443], true));
+        $vet = ($hopHost && $portOk) ? resolveAndVetHost($hopHost) : null;
+        if ($vet === null) {
+            $chain[] = ['url' => $url, 'status' => null, 'blocked' => true];
+            $stillRedirecting = false;
+            break;
+        }
+
         $ch = curl_init($url);
-        curl_setopt_array($ch, [
+        $curlOpts = [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
-            CURLOPT_TIMEOUT => 5,
+            CURLOPT_TIMEOUT => 3, // Issue #192: was 5 — per-hop TOTAL time cap
             CURLOPT_HEADER => true,
             CURLOPT_NOBODY => true,
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_USERAGENT => 'mwWhoIs',
-        ]);
+            CURLOPT_RESOLVE => [$hopHost . ':443:' . bracketIp($vet['ip']), $hopHost . ':80:' . bracketIp($vet['ip'])],
+        ];
+        if (defined('CURLOPT_PROTOCOLS')) { $curlOpts[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+        if (defined('CURLOPT_REDIR_PROTOCOLS')) { $curlOpts[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+        curl_setopt_array($ch, $curlOpts);
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $redirectUrl = curl_getinfo($ch, CURLINFO_REDIRECT_URL);
@@ -1844,11 +3096,18 @@ function detectRedirectChain(string $domain): ?array {
         if ($httpCode >= 300 && $httpCode < 400 && $redirectUrl) {
             $url = $redirectUrl;
         } else {
+            $stillRedirecting = false;
             break;
         }
     }
 
-    $suspicious = count($chain) > 5;
+    // Suspicious = still redirecting when we hit our own hop cap (was "count($chain) > 5"
+    // against a maxRedirects of 10; with the cap now equal to 5 that bare count comparison
+    // could never fire, and would also false-flag a chain that resolves cleanly on hop 5).
+    // Issue #197: a chain that redirects to a private/internal address is inherently
+    // suspicious too — flag it rather than just quietly truncating.
+    $wasBlocked = !empty(end($chain)['blocked']);
+    $suspicious = ($stillRedirecting && count($chain) >= $maxRedirects) || $wasBlocked;
     $httpToHttps = false;
     if (count($chain) >= 2 && str_starts_with($chain[0]['url'], 'http://') && str_starts_with(end($chain)['url'], 'https://')) {
         $httpToHttps = true;
@@ -1863,11 +3122,21 @@ function detectRedirectChain(string $domain): ?array {
 // ═══════════════════════════════════════════════════════════════════
 
 function auditTlsVersions(string $domain): ?array {
+    // Issue #197: vet before connecting; pin every curl call AND the openssl s_client
+    // fallback below to the checked IP (openssl s_client does its own DNS resolution
+    // and would otherwise completely bypass the gate).
+    $vet = resolveAndVetHost($domain);
+    if ($vet === null) {
+        return null;
+    }
+    $ip = $vet['ip'];
+    $resolvePin = [$domain . ':443:' . bracketIp($ip)];
+
     $result = ['versions' => [], 'cipher' => null, 'protocol' => null, 'insecure' => false];
 
     // Check negotiated TLS version
     $ch = curl_init('https://' . $domain);
-    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_NOBODY => true, CURLOPT_TIMEOUT => 5, CURLOPT_SSL_VERIFYPEER => false]);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_NOBODY => true, CURLOPT_TIMEOUT => 5, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_RESOLVE => $resolvePin]);
     curl_exec($ch);
     $sslVersion = curl_getinfo($ch, CURLINFO_SSL_VERIFYRESULT);
     $protocol = curl_getinfo($ch, CURLINFO_PROTOCOL);
@@ -1878,8 +3147,12 @@ function auditTlsVersions(string $domain): ?array {
         // Not available in all PHP versions
     }
 
-    // Fallback: use openssl s_client
-    $output = @shell_exec('echo | timeout 5 openssl s_client -connect ' . escapeshellarg($domain . ':443') . ' 2>/dev/null | grep "Protocol\|Cipher"');
+    // Fallback: use openssl s_client — connect to the vetted IP directly (never the
+    // hostname, which openssl would resolve itself), pass -servername for correct SNI.
+    $output = @shell_exec(
+        'echo | timeout 5 openssl s_client -connect ' . escapeshellarg(bracketIp($ip) . ':443')
+        . ' -servername ' . escapeshellarg($domain) . ' 2>/dev/null | grep "Protocol\|Cipher"'
+    );
     if ($output) {
         if (preg_match('/Protocol\s*:\s*(.+)/i', $output, $m)) {
             $result['protocol'] = trim($m[1]);
@@ -1902,7 +3175,7 @@ function auditTlsVersions(string $domain): ?array {
 
     foreach ($tests as $name => $const) {
         $ch = curl_init('https://' . $domain);
-        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_NOBODY => true, CURLOPT_TIMEOUT => 3, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_SSLVERSION => $const]);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_NOBODY => true, CURLOPT_TIMEOUT => 3, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_SSLVERSION => $const, CURLOPT_RESOLVE => $resolvePin]);
         $ok = curl_exec($ch);
         $err = curl_errno($ch);
         curl_close($ch);
@@ -1941,7 +3214,7 @@ function checkCaaRecords(string $domain): array {
 
     // Fallback via dig
     if (!$result['found']) {
-        $output = @shell_exec('dig +short CAA ' . escapeshellarg($domain) . ' 2>/dev/null');
+        $output = @shell_exec('dig +short +time=2 +tries=1 CAA ' . escapeshellarg($domain) . ' 2>/dev/null');
         if ($output && trim($output)) {
             $lines = array_filter(explode("\n", trim($output)));
             foreach ($lines as $line) {
@@ -1955,6 +3228,35 @@ function checkCaaRecords(string $domain): array {
     }
 
     return $result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Outbound SMTP (port 25) egress probe (Issue #195)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Detect whether outbound port 25 is reachable at all from this host. Shared
+ * hosting commonly DROPs outbound port 25 at the firewall, which makes every
+ * fsockopen($mx, 25) in checkSmtpSecurity() below take a flat ~5s (its connect
+ * timeout) for no result. Probe a known-good public MX once a day and cache the
+ * boolean so every lookup after the first doesn't pay that cost again.
+ */
+function isSmtpEgressOpen(): bool {
+    $cacheKey = 'smtp_egress_open';
+    $cached = getCached($cacheKey, 86400);
+    if ($cached !== null) {
+        return $cached === '1';
+    }
+
+    $fp = @fsockopen('gmail-smtp-in.l.google.com', 25, $errno, $errstr, 3);
+    $open = (bool) $fp;
+    if ($fp) {
+        fclose($fp);
+    }
+
+    setCache($cacheKey, $open ? '1' : '0', 86400);
+    return $open;
 }
 
 
@@ -1980,7 +3282,24 @@ function checkSmtpSecurity(string $domain): ?array {
 
     $result = ['mx_host' => $mxHost, 'banner' => null, 'starttls' => false, 'reachable' => false];
 
-    $fp = @fsockopen($mxHost, 25, $errno, $errstr, 5);
+    // Issue #195: skip the doomed flat-~5s connect attempt entirely when outbound
+    // port 25 is known to be blocked.
+    if (!isSmtpEgressOpen()) {
+        $result['reachable'] = null;
+        $result['blocked_egress'] = true;
+        return $result;
+    }
+
+    // Issue #197: the domain's own MX target is attacker-controlled (a malicious domain
+    // can publish an MX record pointing at internal infrastructure) — vet it and connect
+    // to the checked IP, never the hostname itself.
+    $mxVet = resolveAndVetHost($mxHost);
+    if ($mxVet === null) {
+        $result['ssrf_blocked'] = true;
+        return $result;
+    }
+
+    $fp = @fsockopen(bracketIp($mxVet['ip']), 25, $errno, $errstr, 5);
     if (!$fp) {
         return $result;
     }
@@ -2017,8 +3336,7 @@ function checkSmtpSecurity(string $domain): ?array {
 
 function reverseIpLookup(string $ip): ?array {
     $url = 'https://api.hackertarget.com/reverseiplookup/?q=' . urlencode($ip);
-    $ctx = stream_context_create(['http' => ['timeout' => 5, 'header' => "User-Agent: mwWhoIs\r\n"]]);
-    $response = @file_get_contents($url, false, $ctx);
+    $response = httpFetch($url, ['timeout' => 5]);
     if (!$response || str_contains($response, 'error')  || str_contains($response, 'API count') ) {
         return null;
     }
@@ -2035,6 +3353,13 @@ function reverseIpLookup(string $ip): ?array {
 function checkHttpVersions(string $domain): array {
     $result = ['http2' => false, 'http3' => false, 'protocol' => null];
 
+    // Issue #197: vet before connecting; return the same default/failure shape without
+    // connecting if the host doesn't resolve to a public address.
+    $vet = resolveAndVetHost($domain);
+    if ($vet === null) {
+        return $result;
+    }
+
     $ch = curl_init('https://' . $domain);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
@@ -2043,16 +3368,22 @@ function checkHttpVersions(string $domain): array {
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_2_0,
         CURLOPT_HEADER => true,
+        CURLOPT_RESOLVE => [$domain . ':443:' . bracketIp($vet['ip']), $domain . ':80:' . bracketIp($vet['ip'])],
     ]);
     $response = curl_exec($ch);
     $httpVersion = curl_getinfo($ch, CURLINFO_HTTP_VERSION);
     curl_close($ch);
 
-    if ($httpVersion === CURL_HTTP_VERSION_2_0 || $httpVersion === 2) {
+    if ($httpVersion === CURL_HTTP_VERSION_1_0) {
+        $result['protocol'] = 'HTTP/1.0';
+    } elseif ($httpVersion === CURL_HTTP_VERSION_1_1) {
+        $result['protocol'] = 'HTTP/1.1';
+    } elseif ($httpVersion === CURL_HTTP_VERSION_2_0) {
         $result['http2'] = true;
         $result['protocol'] = 'HTTP/2';
-    } elseif ($httpVersion === CURL_HTTP_VERSION_1_1 || $httpVersion === 1) {
-        $result['protocol'] = 'HTTP/1.1';
+    } elseif (defined('CURL_HTTP_VERSION_3') && $httpVersion === CURL_HTTP_VERSION_3) {
+        $result['http3'] = true;
+        $result['protocol'] = 'HTTP/3';
     }
 
     // Check for HTTP/3 via Alt-Svc header
@@ -2094,6 +3425,16 @@ function checkIpv6Readiness(string $domain): array {
 function measureResponseTimes(string $domain): array {
     $result = ['dns_ms' => null, 'ttfb_ms' => null, 'total_ms' => null];
 
+    // Issue #197: vet before connecting; return the same default/failure shape without
+    // connecting if the host doesn't resolve to a public address. Note: pinning the
+    // connection via CURLOPT_RESOLVE means curl skips its own DNS lookup for this
+    // request, so CURLINFO_NAMELOOKUP_TIME (dns_ms below) now reflects that skipped
+    // lookup (~0ms) rather than a live resolution — an accepted trade-off of the fix.
+    $vet = resolveAndVetHost($domain);
+    if ($vet === null) {
+        return $result;
+    }
+
     $ch = curl_init('https://' . $domain);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
@@ -2101,6 +3442,7 @@ function measureResponseTimes(string $domain): array {
         CURLOPT_TIMEOUT => 10,
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_USERAGENT => 'mwWhoIs',
+        CURLOPT_RESOLVE => [$domain . ':443:' . bracketIp($vet['ip']), $domain . ':80:' . bracketIp($vet['ip'])],
     ]);
     curl_exec($ch);
 
@@ -2151,35 +3493,281 @@ function checkNsDiversity(string $domain): array {
 
 
 // ═══════════════════════════════════════════════════════════════════
-//  Domain name suggestions (Issue #116)
+//  Domain name suggestions (Issue #116, #164)
 // ═══════════════════════════════════════════════════════════════════
 
-function suggestAlternativeDomains(string $domain): array {
-    $parts = explode('.', $domain, 2);
-    $name = $parts[0];
-    $currentTld = $parts[1] ?? 'com';
+/**
+ * Curated list of popular TLDs checked when offering alternatives.
+ * Ordered roughly by demand — generic first, then tech/new gTLDs, then ccTLDs.
+ */
+function getPopularTlds(): array {
+    return [
+        // Classic generic
+        'com', 'net', 'org', 'info', 'biz', 'pro',
+        // Tech / new gTLDs
+        'io', 'co', 'dev', 'app', 'ai', 'tech', 'cloud', 'online', 'site', 'store', 'xyz', 'me',
+        // UK / EU
+        'co.uk', 'uk', 'eu', 'de', 'fr', 'es', 'it', 'nl', 'ch',
+        // Americas / APAC
+        'us', 'ca', 'au', 'nz', 'in', 'jp',
+    ];
+}
 
-    $altTlds = ['com', 'net', 'org', 'io', 'co', 'info', 'biz', 'dev', 'app', 'xyz', 'me', 'co.uk', 'uk'];
-    $suggestions = [];
+/**
+ * Extract the left-hand label (SLD) from a domain, honouring multi-part
+ * suffixes like co.uk. For "acme.co.uk" this returns "acme".
+ */
+function splitDomainLabel(string $domain): array {
+    $domain = strtolower($domain);
+    $registrable = extractRegistrableDomain($domain);
+    $parts = explode('.', $registrable, 2);
+    $label = $parts[0];
+    $tld = $parts[1] ?? '';
+    return ['label' => $label, 'tld' => $tld];
+}
 
-    foreach ($altTlds as $tld) {
+/**
+ * Fast per-TLD availability check using parallel RDAP requests with caching.
+ * Falls back to DNS NS presence as a "registered" signal when RDAP is unreachable.
+ *
+ * Returns an array of ['domain', 'tld', 'availability', 'cached'] entries,
+ * one per TLD (excluding the current TLD).
+ */
+function checkAlternativeTldAvailability(string $label, string $currentTld, array $tlds): array {
+    $results = [];
+    $pending = [];
+
+    foreach ($tlds as $tld) {
         if ($tld === $currentTld) {
             continue;
         }
-        $candidate = $name . '.' . $tld;
-        $whois = @shell_exec('whois ' . escapeshellarg($candidate) . ' 2>&1');
-        if ($whois) {
-            $avail = detectAvailability($whois);
-            if ($avail === 'available') {
-                $suggestions[] = $candidate;
-            }
+        $candidate = $label . '.' . $tld;
+        $cached = getCached('alt:' . $candidate);
+        if ($cached !== null) {
+            $results[$candidate] = ['domain' => $candidate, 'tld' => $tld, 'availability' => $cached, 'cached' => true];
+            continue;
         }
-        if (count($suggestions) >= 5) {
-            break; // Limit to 5 suggestions
+        $pending[$candidate] = $tld;
+    }
+
+    if (!empty($pending) && function_exists('curl_multi_init')) {
+        $mh = curl_multi_init();
+        $handles = [];
+
+        foreach ($pending as $candidate => $tld) {
+            $ch = curl_init('https://rdap.org/domain/' . urlencode($candidate));
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS      => 3,
+                CURLOPT_TIMEOUT        => 4,
+                CURLOPT_CONNECTTIMEOUT => 2,
+                CURLOPT_HTTPHEADER     => ['Accept: application/rdap+json'],
+                CURLOPT_USERAGENT      => 'mwWhoisLookup/1.0',
+                CURLOPT_PROTOCOLS      => CURLPROTO_HTTPS,
+                CURLOPT_NOSIGNAL       => 1,
+            ]);
+            curl_multi_add_handle($mh, $ch);
+            $handles[$candidate] = $ch;
+        }
+
+        $running = null;
+        do {
+            curl_multi_exec($mh, $running);
+            if ($running) {
+                curl_multi_select($mh, 1.0);
+            }
+        } while ($running > 0);
+
+        foreach ($handles as $candidate => $ch) {
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $body = curl_multi_getcontent($ch);
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
+
+            $availability = 'unknown';
+            if ($code === 404) {
+                // rdap.org also returns a bare 404 for TLDs it has no RDAP
+                // endpoint for at all — not just for genuinely unregistered
+                // names (Issue #215). Confirm against live NS records before
+                // trusting the 404; if the name resolves, downgrade to
+                // 'unknown' rather than wrongly reporting it available.
+                $availability = @checkdnsrr($candidate, 'NS') ? 'unknown' : 'available';
+            } elseif ($code >= 200 && $code < 300 && $body) {
+                $data = json_decode($body, true);
+                if (is_array($data) && isset($data['ldhName'])) {
+                    $availability = 'registered';
+                } elseif (is_array($data) && isset($data['errorCode']) && (int)$data['errorCode'] === 404) {
+                    $availability = 'available';
+                }
+            }
+
+            // DNS NS presence is strong "registered" evidence when RDAP is inconclusive
+            if ($availability === 'unknown' && @checkdnsrr($candidate, 'NS')) {
+                $availability = 'registered';
+            }
+
+            $results[$candidate] = [
+                'domain' => $candidate,
+                'tld' => $pending[$candidate],
+                'availability' => $availability,
+                'cached' => false,
+            ];
+            setCache('alt:' . $candidate, $availability);
+        }
+
+        curl_multi_close($mh);
+    } elseif (!empty($pending)) {
+        // curl_multi not available — fall back to DNS NS check only
+        foreach ($pending as $candidate => $tld) {
+            $availability = @checkdnsrr($candidate, 'NS') ? 'registered' : 'unknown';
+            $results[$candidate] = [
+                'domain' => $candidate,
+                'tld' => $tld,
+                'availability' => $availability,
+                'cached' => false,
+            ];
+            setCache('alt:' . $candidate, $availability);
         }
     }
 
+    // Preserve input TLD order
+    $ordered = [];
+    foreach ($tlds as $tld) {
+        if ($tld === $currentTld) {
+            continue;
+        }
+        $candidate = $label . '.' . $tld;
+        if (isset($results[$candidate])) {
+            $ordered[] = $results[$candidate];
+        }
+    }
+    return $ordered;
+}
+
+/**
+ * Back-compat wrapper — returns a flat list of available candidate domains
+ * (up to $limit entries). Used by older UI code paths.
+ */
+function suggestAlternativeDomains(string $domain, int $limit = 5): array {
+    $split = splitDomainLabel($domain);
+    if ($split['label'] === '' || $split['tld'] === '') {
+        return [];
+    }
+    $results = checkAlternativeTldAvailability($split['label'], $split['tld'], getPopularTlds());
+    $suggestions = [];
+    foreach ($results as $r) {
+        if ($r['availability'] === 'available') {
+            $suggestions[] = $r['domain'];
+            if (count($suggestions) >= $limit) {
+                break;
+            }
+        }
+    }
     return $suggestions;
+}
+
+/**
+ * Full TLD availability grid for the requested domain. Returns a structured
+ * payload for the frontend availability grid and JSON API.
+ */
+function getTldAvailabilityGrid(string $domain): array {
+    $split = splitDomainLabel($domain);
+    if ($split['label'] === '' || $split['tld'] === '') {
+        return ['label' => '', 'current_tld' => '', 'results' => []];
+    }
+    return [
+        'label' => $split['label'],
+        'current_tld' => $split['tld'],
+        'results' => checkAlternativeTldAvailability($split['label'], $split['tld'], getPopularTlds()),
+    ];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  TLD reference list (Issue — /tlds page)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Loads the IANA TLD list from disk (populated by updateTldDataIfNeeded()).
+ * Returns an array of lowercase TLDs with the leading dot stripped.
+ */
+function loadIanaTldList(): array {
+    if (!file_exists(IANA_TLD_PATH)) {
+        return [];
+    }
+    $lines = file(IANA_TLD_PATH, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    $tlds = [];
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '' || str_starts_with($line, '#')) {
+            continue;
+        }
+        // IANA file is UPPERCASE A-label; normalise to lowercase.
+        // Keep Punycode (xn--...) as-is; front-end can render Unicode form separately.
+        $tlds[] = strtolower($line);
+    }
+    sort($tlds, SORT_STRING);
+    return $tlds;
+}
+
+/**
+ * Classify a TLD into one of: country (ccTLD), sponsored, generic (legacy gTLD),
+ * infrastructure, or new_gtld. Classification is heuristic but matches IANA
+ * categories closely enough for reference display purposes.
+ */
+function classifyTld(string $tld): string {
+    $tld = strtolower(ltrim($tld, '.'));
+
+    if ($tld === 'arpa') {
+        return 'infrastructure';
+    }
+
+    static $sponsored = [
+        'aero', 'asia', 'cat', 'coop', 'edu', 'gov', 'int', 'jobs',
+        'mil', 'mobi', 'museum', 'post', 'tel', 'travel', 'xxx',
+    ];
+    if (in_array($tld, $sponsored, true)) {
+        return 'sponsored';
+    }
+
+    static $generic = ['com', 'net', 'org', 'info', 'biz', 'name', 'pro'];
+    if (in_array($tld, $generic, true)) {
+        return 'generic';
+    }
+
+    // ccTLDs: two-letter ASCII OR Punycode two-letter IDN ccTLDs (xn-- …).
+    // IANA's Punycode country-codes decode to a single-label country TLD.
+    if (preg_match('/^[a-z]{2}$/', $tld)) {
+        return 'country';
+    }
+    if (str_starts_with($tld, 'xn--')) {
+        // IDN ccTLDs are flagged as country; IDN gTLDs will be misclassified
+        // here but that is acceptable for a reference view.
+        return 'country';
+    }
+
+    return 'new_gtld';
+}
+
+/**
+ * Returns the IANA TLD list grouped by category, with counts.
+ * Categories: generic, country, sponsored, new_gtld, infrastructure.
+ */
+function getTldsByCategory(): array {
+    $tlds = loadIanaTldList();
+    $groups = [
+        'generic'        => [],
+        'country'        => [],
+        'sponsored'      => [],
+        'new_gtld'       => [],
+        'infrastructure' => [],
+    ];
+    foreach ($tlds as $tld) {
+        $cat = classifyTld($tld);
+        $groups[$cat][] = $tld;
+    }
+    return $groups;
 }
 
 
@@ -2188,17 +3776,43 @@ function suggestAlternativeDomains(string $domain): array {
 // ═══════════════════════════════════════════════════════════════════
 
 function detectTechStack(string $domain): ?array {
-    $ctx = stream_context_create(['http' => ['timeout' => 5, 'method' => 'GET', 'header' => "User-Agent: mwWhoIs\r\n", 'follow_location' => 1, 'max_redirects' => 3], 'ssl' => ['verify_peer' => false]]);
-    $html = @file_get_contents('https://' . $domain, false, $ctx);
+    // Issue #197: vet before connecting. The redirect-following fetch below re-vets
+    // each hop itself (see fetchViaVettedCurl()), but bail out up front if the domain
+    // itself doesn't resolve to a public address.
+    $vet = resolveAndVetHost($domain);
+    if ($vet === null) {
+        return null;
+    }
+
+    // Issue #192: needs response headers + redirect-following, which httpFetch()'s
+    // SSRF-safe/body-only contract doesn't support — use curl directly here with the
+    // same hard TOTAL timeout cap (idle-only stream timeouts let a slow response hang).
+    // Issue #197: CURLOPT_FOLLOWLOCATION is no longer used (it would connect straight
+    // to whatever host a Location header names, completely unvetted); fetchViaVettedCurl()
+    // walks redirects itself, re-vetting + re-pinning every hop.
     $headers = [];
-    if (isset($http_response_header)) {
-        foreach ($http_response_header as $h) {
+    $html = null;
+    $fetch = fetchViaVettedCurl('https://' . $domain, [
+        CURLOPT_TIMEOUT        => 5,       // TOTAL time cap
+        CURLOPT_CONNECTTIMEOUT => 2,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_USERAGENT      => 'mwWhoIs',
+        CURLOPT_MAXFILESIZE    => 3145728, // 3 MB cap
+    ]);
+    if ($fetch !== null) {
+        $html = $fetch['body'];
+        foreach (preg_split('/\r\n|\n/', trim($fetch['headers'])) as $h) {
             $parts = explode(':', $h, 2);
             if (count($parts) === 2) {
                 $headers[strtolower(trim($parts[0]))] = trim($parts[1]);
             }
         }
     }
+    // Issue #197: the old curl-unavailable fallback (a plain stream-context
+    // file_get_contents()) had no way to pin the connection to the vetted IP — it would
+    // re-resolve $domain itself, reopening the exact rebinding window this gate closes.
+    // If curl isn't available, fetchViaVettedCurl() returns null and we simply have no
+    // headers/html to analyse, rather than silently falling back to an unpinned fetch.
 
     $techs = [];
 
@@ -2275,9 +3889,18 @@ function detectTechStack(string $domain): ?array {
 
 function analyseRobotsTxt(string $domain): ?array {
     $result = ['robots_found' => false, 'sitemap_found' => false, 'disallowed' => [], 'sitemaps' => [], 'crawl_delay' => null];
-    $ctx = stream_context_create(['http' => ['timeout' => 5, 'header' => "User-Agent: mwWhoIs\r\n"], 'ssl' => ['verify_peer' => false]]);
 
-    $robots = @file_get_contents('https://' . $domain . '/robots.txt', false, $ctx);
+    // Issue #197: vet before connecting; pin BOTH fetches below to the checked IP.
+    // Vetting once up front (instead of once per fetch) also means both requests hit
+    // the exact same checked address — no gap between the two calls for a rebinding
+    // attacker to swap the DNS answer.
+    $vet = resolveAndVetHost($domain);
+    if ($vet === null) {
+        return null;
+    }
+    $resolvePin = [$domain . ':443:' . bracketIp($vet['ip']), $domain . ':80:' . bracketIp($vet['ip'])];
+
+    $robots = httpFetch('https://' . $domain . '/robots.txt', ['timeout' => 5, 'resolve' => $resolvePin]);
     if ($robots && stripos($robots, '<html') === false) {
         $result['robots_found'] = true;
         foreach (explode("\n", $robots) as $line) {
@@ -2296,9 +3919,30 @@ function analyseRobotsTxt(string $domain): ?array {
         $result['disallowed'] = array_slice(array_unique($result['disallowed']), 0, 20);
     }
 
-    // Check sitemap.xml
-    $sitemapHeaders = @get_headers('https://' . $domain . '/sitemap.xml', true, $ctx);
-    if ($sitemapHeaders && isset($sitemapHeaders[0]) && str_contains($sitemapHeaders[0], '200') ) {
+    // Check sitemap.xml — Issue #197: replaced get_headers()'s stream-context wrapper
+    // (which re-resolves the hostname itself, with no way to pin it) with a curl HEAD
+    // request pinned to the already-vetted IP.
+    $sitemapStatus = null;
+    if (function_exists('curl_init')) {
+        $ch = curl_init('https://' . $domain . '/sitemap.xml');
+        $chOpts = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_NOBODY         => true,
+            CURLOPT_HEADER         => true,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_USERAGENT      => 'mwWhoIs',
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_RESOLVE        => $resolvePin,
+        ];
+        if (defined('CURLOPT_PROTOCOLS')) { $chOpts[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+        if (defined('CURLOPT_REDIR_PROTOCOLS')) { $chOpts[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS; }
+        curl_setopt_array($ch, $chOpts);
+        curl_exec($ch);
+        $sitemapStatus = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+    }
+    if ($sitemapStatus === 200) {
         $result['sitemap_found'] = true;
         if (!in_array('https://' . $domain . '/sitemap.xml', $result['sitemaps'])) {
             $result['sitemaps'][] = 'https://' . $domain . '/sitemap.xml';
@@ -2313,7 +3957,7 @@ function analyseRobotsTxt(string $domain): ?array {
 //  DNS propagation checker (Issue #126)
 // ═══════════════════════════════════════════════════════════════════
 
-function checkDnsPropagation(string $domain): array {
+function checkDnsPropagation(string $domain, bool $full = false): array {
     global $config;
 
     $resolvers = $config['dns_resolvers'] ?? [];
@@ -2324,18 +3968,36 @@ function checkDnsPropagation(string $domain): array {
         }
     }
 
+    // Issue #194: curate the default panel down from the full ~187-entry enabled list.
+    // Callers that explicitly want everything (the dns_propagation_only refresh
+    // endpoint, given `full=1`) pass $full = true.
+    if (!$full) {
+        $max = $config['dns_propagation_max'] ?? 25;
+        $enabled = array_slice($enabled, 0, $max);
+    }
+
     // Run all dig queries in parallel using temp files
     $tmpDir = sys_get_temp_dir();
     $tmpFiles = [];
     foreach ($enabled as $i => $resolver) {
         $tmpFile = $tmpDir . DIRECTORY_SEPARATOR . 'dns_prop_' . getmypid() . '_' . $i;
         $tmpFiles[$i] = $tmpFile;
-        $cmd = 'dig @' . escapeshellarg($resolver['ip']) . ' +short +time=2 +tries=1 A '
-             . escapeshellarg($domain) . ' > ' . escapeshellarg($tmpFile) . ' 2>/dev/null &';
+        // Issue #194: write to a .part file and mv it into place once dig has actually
+        // finished. The previous `dig ... > $tmpFile` redirection CREATES $tmpFile the
+        // instant the shell forks the background job — before dig has run at all — so
+        // file_exists($tmpFile) was true immediately and the poll loop below exited on
+        // its very first check, returning mostly-empty results. Wrapped in a subshell
+        // so the WHOLE sequence backgrounds together: without the parens, `&` only
+        // applies to the last command in a `;`-separated list, so dig itself would run
+        // synchronously and every resolver would be queried one at a time instead of
+        // in parallel.
+        $cmd = '( dig @' . escapeshellarg($resolver['ip']) . ' +short +time=2 +tries=1 A '
+             . escapeshellarg($domain) . ' > ' . escapeshellarg($tmpFile . '.part') . ' 2>/dev/null; mv '
+             . escapeshellarg($tmpFile . '.part') . ' ' . escapeshellarg($tmpFile) . ' ) &';
         @exec($cmd);
     }
 
-    // Wait for all background processes (max 4s total)
+    // Wait for all background processes (max 4s total — unchanged overall time cap)
     usleep(500000);
     $waited = 0;
     while ($waited < 35) {
@@ -2356,6 +4018,7 @@ function checkDnsPropagation(string $domain): array {
     foreach ($enabled as $i => $resolver) {
         $output = @file_get_contents($tmpFiles[$i]);
         @unlink($tmpFiles[$i]);
+        @unlink($tmpFiles[$i] . '.part'); // in case a resolver never finished within the time cap
         $ips = $output ? array_filter(array_map('trim', explode("\n", trim($output)))) : [];
         $results[] = [
             'id' => $resolver['id'] ?? $i,
@@ -2513,18 +4176,10 @@ function calculateSecurityScore(array $data): array {
     }
     $total = count($details);
     $pct = $total > 0 ? round(($passed / $total) * 100) : 0;
-    $grade = 'F';
-    if ($pct >= 90) {
-        $grade = 'A';
-    } elseif ($pct >= 75) {
-        $grade = 'B';
-    } elseif ($pct >= 60) {
-        $grade = 'C';
-    } elseif ($pct >= 45) {
-        $grade = 'D';
-    } elseif ($pct >= 30) {
-        $grade = 'E';
-    }
+    // Issue #218: thresholds are named + documented above (see
+    // SECURITY_SCORE_GRADE_THRESHOLDS) — this is the canonical, authoritative
+    // security-score grade; its cutoffs are unchanged from before.
+    $grade = gradeFromPercent($pct, SECURITY_SCORE_GRADE_THRESHOLDS);
 
     return ['grade' => $grade, 'score' => $pct, 'passed' => $passed, 'total' => $total, 'details' => $details];
 }
@@ -2540,13 +4195,13 @@ function checkMultiDnsbl(string $ip): array {
     }
 
     $reversed = implode('.', array_reverse(explode('.', $ip)));
+    // Issue #191: dnsbl.sorbs.net (SORBS, decommissioned 2024) and cbl.abuseat.org
+    // (CBL, folded into Spamhaus ZEN) are dead zones that just time out every lookup.
     $zones = [
         'zen.spamhaus.org' => 'Spamhaus ZEN',
         'b.barracudacentral.org' => 'Barracuda',
         'bl.spamcop.net' => 'SpamCop',
-        'dnsbl.sorbs.net' => 'SORBS',
         'dnsbl-1.uceprotect.net' => 'UCEPROTECT L1',
-        'cbl.abuseat.org' => 'CBL',
         'dyna.spamrats.com' => 'SpamRATS',
         'bl.mailspike.net' => 'Mailspike',
     ];

@@ -3,11 +3,32 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
-## [a201d44] - 2026-03-24T22:55:05Z
+## [aed2e12] - 2026-07-11T08:34:57Z
 
-**build: promote beta to live — sync public_html with public_html_beta**
+**refactor: extract enrichment into module registry (no behaviour change)**
 
-- Commit: [`a201d44`](https://github.com/MWBMPartners/phpWhoIs/commit/a201d44fad3f0eb2272ad5c250fe4c556b32e112)
+- Commit: [`aed2e12`](https://github.com/MWBMPartners/phpWhoIs/commit/aed2e1247e648e19780ab0b744784ed29b815db8)
+
+
+## [b8dd9d0] - 2026-07-10T09:50:33Z
+
+**feat: enhance application ID assignment logic and add bundle ID**
+
+- Commit: [`b8dd9d0`](https://github.com/MWBMPartners/phpWhoIs/commit/b8dd9d004adbc7f9f24a46e17b63d333e876262f)
+
+
+## [371386c] - 2026-04-21T15:06:56Z
+
+**Merge pull request #184 from MWBMPartners/claude/add-tld-listing-GiisC**
+
+- Commit: [`371386c`](https://github.com/MWBMPartners/phpWhoIs/commit/371386cf5dd36f7136dd0b459475ae4ae4c8c0de)
+
+
+## [a01f94e] - 2026-03-24T23:11:09Z
+
+**fix: PWA install banner on iOS — show share instructions instead of broken button**
+
+- Commit: [`a01f94e`](https://github.com/MWBMPartners/phpWhoIs/commit/a01f94edd9c33121529c04be55542e0d220a1faf)
 
 
 ## [39e068d] - 2026-03-24T22:30:26Z

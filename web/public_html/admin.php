@@ -13,11 +13,30 @@ if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php';
 }
 
+// Prevent the admin key from leaking to a linked-to site via Referer (Issue #202).
+header('Referrer-Policy: no-referrer');
+
 // ─── Auth check (reuse debug key) ───
+// Issue #202: prefer the X-Admin-Key header or a POST field over ?key= — a
+// query-string secret leaks into server/proxy access logs, browser history,
+// and the Referer header. ?key= is kept working for backwards compatibility
+// but is the least-safe of the three, so it's tried last.
+// TODO: a full session-based admin login is a future improvement; this
+// shared-secret gate is intentionally minimal.
 $debugKey = isset($config['debug_key']) ? $config['debug_key'] : null;
-if (!$debugKey || !isset($_GET['key']) || !hash_equals($debugKey, $_GET['key'])) {
+$suppliedKey = '';
+if (isset($_SERVER['HTTP_X_ADMIN_KEY'])) {
+    $suppliedKey = (string) ($_SERVER['HTTP_X_ADMIN_KEY'] ?? '');
+} elseif (isset($_POST['key'])) {
+    $suppliedKey = (string) ($_POST['key'] ?? '');
+} elseif (isset($_GET['key'])) {
+    // Cast defensively: hash_equals() requires a string, and ?key[]=...
+    // would otherwise pass an array through and TypeError.
+    $suppliedKey = (string) ($_GET['key'] ?? '');
+}
+if (!$debugKey || $suppliedKey === '' || !hash_equals((string) $debugKey, $suppliedKey)) {
     http_response_code(403);
-    echo json_encode(['error' => 'Unauthorized. Provide ?key=<debug_key>']);
+    echo json_encode(['error' => 'Unauthorized. Provide the key via the X-Admin-Key header, a POST field, or (legacy) ?key=<debug_key>']);
     exit;
 }
 
@@ -33,9 +52,14 @@ $stats = [];
 // Cache stats
 $cacheDir = CACHE_DIR;
 $cacheFiles = is_dir($cacheDir) ? glob($cacheDir . '/*.json') : [];
+// Issue #218: report the backend actually in use (getCacheBackend() attempts
+// a live connection) rather than just whether the Redis/Memcached PHP
+// extensions are installed — a Redis extension can be present but the
+// server unreachable, in which case the app is really running on the file
+// fallback.
 $stats['cache'] = [
     'total_entries' => count($cacheFiles),
-    'backend' => class_exists('Redis') ? 'redis' : (class_exists('Memcached') ? 'memcached' : 'file'),
+    'backend' => getCacheBackend()['type'],
 ];
 
 // Rate limit stats

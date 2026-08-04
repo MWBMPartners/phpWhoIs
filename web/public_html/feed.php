@@ -98,8 +98,8 @@ echo '<?xml-stylesheet type="text/xsl" href="feed.xsl"?>' . PHP_EOL;
     <item>
         <title><?php echo htmlspecialchars($item['title'] ?: 'Update ' . $item['hash']); ?></title>
         <link><?php echo htmlspecialchars($item['link'] ?: $baseUrl); ?></link>
-        <description><![CDATA[<?php echo nl2br(htmlspecialchars($item['description'])); ?>]]></description>
-        <pubDate><?php echo date('r', strtotime($item['date'])); ?></pubDate>
+        <description><![CDATA[<?php echo nl2br(str_replace(']]>', ']]]]><![CDATA[>', (string)$item['description'])); ?>]]></description>
+        <pubDate><?php $ts = strtotime($item['date']); echo date('r', $ts !== false ? $ts : time()); ?></pubDate>
         <guid isPermaLink="false"><?php echo htmlspecialchars($item['hash']); ?></guid>
     </item>
 <?php endforeach; ?>
