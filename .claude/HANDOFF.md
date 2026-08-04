@@ -88,6 +88,13 @@ producing a needless daily commit. Fix: skip writing when resolver data is uncha
 - [done] Issue **#252** filed (CI hardening: `deploy.yml` deploys even when the sync job fails — confirmed on `main`). Beta-dependent workflow items flagged "verify on beta".
 - [done] Remaining analysis findings preserved in `.claude/memory/findings_backlog.md` (security + workflow items to verify on `beta`; docs/OpenAPI/Swagger deferred). MEMORY.md index updated.
 - [deferred] Tasks #4 (deep planning), #5 (docs), #6 (OpenAPI/Swagger UI) — per user-declined scope decision, NOT done on this stale-main branch. Do on a fresh `beta`-based branch if pursued.
+- [DONE] **Promotion chain complete (2026-08-04, at owner's explicit request).** Fix promoted to production:
+  - **#253** `claude/daily-update-tasks-failures-q0w1xt → alpha` — merged (conflict: `.claude/HANDOFF.md`, took ours).
+  - **#254** integration branch `claude/promote-dns-to-beta → beta` — merged (conflicts on the 2 DNS files + HANDOFF resolved in favour of the layout-invariant version; beta's hardcoded `public_html` was a strict subset; NO `web/`/`tests/` regressions). No deploy (beta's `deploy.yml` is `paths:web/**`-gated; no web changes).
+  - **#255** `beta → main` — merged. **Production release v1.48.0 → v1.50.3** (169 commits/95 files). All CI green (PHP lint, PHPUnit, actionlint, CodeQL). **Production SFTP deploy SUCCEEDED** (run 30914193391).
+  - `main` now runs the fixed layout-invariant DNS workflow — daily failure resolved from next 04:00 UTC run.
+  - **#251 CLOSED** (fix live on main). **#252 CLOSED** — superseded: beta's rewritten single-source `deploy.yml` (now on main) has one `deploy` job gated only by `if: vars.SFTP_ENABLED=='true'`; the old sync-job + `always()` structure no longer exists.
+  - Security + remaining workflow-robustness findings still open in `findings_backlog.md` for a future `beta`-based pass.
 
 ## Deep-analysis key findings (Fable 5, 2026-08-04)
 
