@@ -94,7 +94,7 @@ info:
 
     ## Security
     - Content Security Policy (CSP) on all pages
-    - Subresource Integrity (SRI) on CDN assets
+    - Swagger UI self-hosted (no third-party CDN for API-docs assets); Bootstrap served from jsdelivr CDN
     - WHOIS contact masking available for GDPR compliance
   version: "1.50.0"
   contact:
@@ -384,11 +384,30 @@ paths:
 
   /feed:
     get:
-      operationId: rssFeed
-      summary: RSS feed of watched domain changes
+      operationId: changelogFeed
+      summary: RSS feed of application changelog entries
+      description: |
+        Parses `CHANGELOG.md` into an RSS 2.0 feed of recent application changes (not domain/watchlist
+        changes — see `/feed-watchlist` for that). Limited to the most recent 20 entries.
       responses:
         "200":
-          description: RSS 2.0 feed
+          description: RSS 2.0 feed of changelog entries
+          content:
+            application/xml:
+              schema:
+                type: string
+
+  /feed-watchlist:
+    get:
+      operationId: watchlistFeed
+      summary: RSS feed of WHOIS changes for watched domains
+      description: |
+        Returns an RSS 2.0 feed built from the watched-domains change log written by `monitor.php`
+        (falls back to last-checked status items when no change log exists yet). Access is currently
+        gated client-side only, via the browser's `watchedDomains` localStorage.
+      responses:
+        "200":
+          description: RSS 2.0 feed of watched-domain changes
           content:
             application/rss+xml:
               schema:

@@ -1,6 +1,6 @@
 # WHOIS Lookup — Beta
 
-**Version:** 1.50.3-beta
+**Version:** 1.50.5-beta
 **Branch:** `beta`
 **Status:** Active development
 
@@ -129,7 +129,7 @@ Using `?Only` automatically hides the security score and domain summary. A singl
 
 ## Requirements
 
-- PHP 8.4+
+- PHP 8.0+ (8.4 recommended)
 - `curl` extension (recommended for RDAP)
 - `whois` system command
 - `session` support

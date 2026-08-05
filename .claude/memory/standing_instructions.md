@@ -42,7 +42,7 @@
 - **One working branch, one PR (created later).** Do **not** open multiple PRs — this avoids PR
   merge race conditions.
 - Commit **all** changes to the working branch that will target **`alpha`**.
-- Branch flow for this repo: `claude/*` → **`alpha`** → `beta` → `main` (production).
+- Branch flow for this repo: `claude/*` → **`alpha`** → `beta` → `release-candidate` → `main` (production).
 - If a designated branch's PR was already merged, restart from the latest base rather than
   stacking new commits on merged history.
 
