@@ -1,7 +1,61 @@
 # Handoff Document — mwWhoIs
 
 > Living document. Update as work progresses so any session can resume instantly.
-> Last updated: 2026-08-04 (session: daily-update-tasks-failures).
+> Last updated: 2026-08-05 (session: daily-update-tasks-failures — round 2).
+
+---
+
+## ⏱️ ACTIVE SESSION (2026-08-05) — NEW failure: CSV fetch timeout on `alpha`
+
+**This is a DIFFERENT bug from the 2026-08-04 path-mismatch fix (that one is DONE and live on all branches).**
+
+### What happened
+Daily "Update DNS Resolvers" run **#134** (run_id 30977141653, 2026-08-05 05:07 UTC): the
+**matrix workflow is now working** (both legs run) — `update (beta)` **succeeded** (14s), but
+`update (alpha)` **failed** (40s) at the CSV fetch:
+```
+Fetching https://public-dns.info/nameservers.csv ...     @ 05:07:31.004
+Error: failed to fetch CSV from public-dns.info          @ 05:08:01.677   (= 30.7s)
+```
+
+### Root cause (CONFIRMED)
+`scripts/update-dns-resolvers.php` (~lines 81-88) fetches the CSV with a **single**
+`@file_get_contents($csvUrl, false, $ctx)` — `'timeout' => 30`, **no retry, no fallback**,
+and `exit(1)` on ANY failure. The 30.7s gap == the 30s stream timeout → the fetch **timed out**
+for the alpha runner while the beta runner (seconds apart) got through. A transient upstream
+slowness thus turns a **non-critical daily maintenance job red** and emails the owner a false alarm.
+
+### Branch ground truth (re-verified 2026-08-05 — supersedes stale notes further down)
+- `public_html_beta/` **exists on ALL of alpha, beta, main** (layouts have re-converged).
+- `scripts/update-dns-resolvers.php`, `.github/workflows/update-dns-resolvers.yml`,
+  `docs.php` (10745B) and `assets/api/openapi.yaml` (16328B) are **byte-identical across
+  alpha/beta/main** and our working HEAD. No divergence — docs/OpenAPI work is now LOW risk
+  (beta's feared "v1.50 ~1500-line openapi" is NOT present; current is the 16KB version everywhere).
+- Working branch `claude/daily-update-tasks-failures-q0w1xt`: PR #253 already merged into alpha.
+  This session **merged `origin/alpha` back in** (non-destructive, no force-push) so the branch is
+  a strict superset of alpha → the NEXT PR (to be created later, when owner asks) shows a clean diff.
+
+### Plan for this session (in order)
+1. **[phase 1 — PRIMARY]** Harden the CSV fetch: retry + exponential backoff, timeout tuning,
+   empty/garbage-body guard, **soft-fail** (`::warning::` + exit 0, keep last-known-good) on total
+   fetch failure vs **hard-fail** on malformed CSV / write / syntax errors. Add a dependency-free
+   PHPUnit test (fail-then-succeed / all-fail). Deep analysis via **Fable 5** (running now).
+2. **[phase 2]** Thorough docs sweep: README.md (PHP version, branch flow, DNS auto-update),
+   **SECURITY.md** (replace GitHub stub with a real policy), in-app `docs.php`, `.claude/` memory.
+3. **[phase 2]** OpenAPI/Swagger: refresh `assets/api/openapi.yaml` to match current features;
+   **vendor Swagger UI locally** (assets/vendor/swagger-ui/) for shared hosting + fix the
+   `docs.php:200` broken `SwaggerUIStandalonePreset` reference + CSP self-hosting.
+4. Per task: individual commit + push to working branch, update/close the GitHub issue, update
+   `.claude/` memory + this handoff. **No PR stacking** — one branch, one later PR to `alpha`.
+
+### Progress (this session)
+- [done] Root cause confirmed from run #134 logs (30.7s == stream timeout).
+- [done] Branch ground truth re-verified; branch brought up to date with alpha (merge 503e84b).
+- [done] Docs surface scoped (README/SECURITY/docs.php/openapi all read).
+- [in progress] Fable 5 deep-analysis of the fetch fix (agent running).
+- [pending] phases 1 & 2 implementation.
+
+---
 
 ## Current working branch
 
