@@ -1,0 +1,18 @@
+# ============================================================================
+# mwWhoIs (DomainCheckr) — Deny all web access to this secrets directory
+# Defence-in-depth: this directory also lives OUTSIDE the deployed web root
+# (a sibling of public_html/), so it should never be reachable over HTTP.
+# This .htaccess blocks access if it is ever accidentally exposed.
+# Real key files here (keys.php) are gitignored — only this guard and the
+# *.example.php template are tracked. Works on Apache 2.2 AND 2.4.
+# ============================================================================
+
+<IfModule mod_authz_core.c>
+    # Apache 2.4+
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    # Apache 2.2
+    Order allow,deny
+    Deny from all
+</IfModule>

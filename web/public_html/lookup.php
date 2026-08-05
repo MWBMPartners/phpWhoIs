@@ -17,6 +17,13 @@ header("X-Frame-Options: DENY");
 header("X-XSS-Protection: 1; mode=block");
 header("Referrer-Policy: strict-origin-when-cross-origin");
 header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'");
+// HSTS (Issue #203) — only sent over HTTPS; a proxy/load-balancer terminating
+// TLS in front of the app sets X-Forwarded-Proto rather than $_SERVER['HTTPS'].
+$_isHttpsRequest = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+if ($_isHttpsRequest) {
+    header("Strict-Transport-Security: max-age=31536000; includeSubDomains");
+}
 
 // ─── Constants ───
 define('IANA_TLD_URL', 'https://data.iana.org/TLD/tlds-alpha-by-domain.txt');
@@ -41,6 +48,29 @@ if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'config.php';
 }
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
+// Module registry + endpoints (Issue #196, Steps 1/3/4) — moduleRegistry()/
+// runModuleChecks()/deriveSpamhausFromMultiDnsbl() used by the enrichment
+// loop below, plus the `?modules=` dispatcher (handleModuleRequest()) wired
+// in further down.
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'modules.php';
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  Module-request collision guard (Issue #196 Step 4) — `?modules=` is a
+//  distinct endpoint from the two below (each has its own auth/rate-limit
+//  handling) and must run BEFORE either of them, so a request combining
+//  `modules` with `suggest`/`dns_propagation_only` is rejected outright
+//  rather than silently falling through to whichever branch happens to be
+//  checked first.
+// ═══════════════════════════════════════════════════════════════════
+
+if (isset($_GET['modules']) && trim((string)$_GET['modules']) !== '' &&
+    ((isset($_GET['suggest']) && $_GET['suggest'] === '1') || !empty($_POST['dns_propagation_only']))) {
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(400);
+    echo json_encode(['error' => 'The modules parameter cannot be combined with suggest or dns_propagation_only.']);
+    exit;
+}
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -48,15 +78,46 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 
 // ═══════════════════════════════════════════════════════════════════
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['suggest']) && $_GET['suggest'] === '1') {
+    header('Content-Type: application/json');
+
+    // Auth gate (Issue #198): this endpoint used to run with NO auth check at
+    // all, letting anonymous cross-origin callers fire the parallel RDAP grid.
+    // Require the same policy as the main handler below — a valid API key OR
+    // a valid CSRF token.
+    $suggestApiKeyHeader = isset($_SERVER['HTTP_X_API_KEY']) ? trim($_SERVER['HTTP_X_API_KEY']) : '';
+    $suggestApiKeyConfig = $suggestApiKeyHeader ? validateApiKey($suggestApiKeyHeader) : null;
+    if (!$suggestApiKeyConfig && !validateCsrfToken()) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Invalid request. Please refresh the page and try again.']);
+        exit;
+    }
+
     $suggestDomain = isset($_POST['domain']) ? trim((string)$_POST['domain']) : '';
     $suggestDomain = sanitizeDomainInput($suggestDomain);
-    if ($suggestDomain && isValidDomain($suggestDomain)) {
-        header('Content-Type: application/json');
-        echo json_encode(['suggestions' => suggestAlternativeDomains($suggestDomain)]);
-    } else {
-        header('Content-Type: application/json');
-        echo json_encode(['suggestions' => []]);
+    if (!$suggestDomain || !isValidDomain($suggestDomain)) {
+        echo json_encode(['suggestions' => [], 'grid' => null]);
+        exit;
     }
+    // Rate-limit the suggest endpoint just like the main lookup.
+    if (!checkRateLimit() || !checkIpRateLimit()) {
+        header('Retry-After: ' . rateLimitRetryAfterSeconds());
+        http_response_code(429);
+        echo json_encode(['error' => 'Rate limit exceeded.']);
+        exit;
+    }
+    // session no longer needed — release the lock so concurrent requests aren't serialized
+    session_write_close();
+    $grid = getTldAvailabilityGrid($suggestDomain);
+    $suggestions = [];
+    foreach ($grid['results'] as $r) {
+        if ($r['availability'] === 'available') {
+            $suggestions[] = $r['domain'];
+        }
+    }
+    echo json_encode([
+        'suggestions' => $suggestions,
+        'grid' => $grid,
+    ]);
     exit;
 }
 
@@ -106,14 +167,30 @@ if ($apiKeyHeader) {
     $jsonFormat = true; // API key users always get JSON
 }
 
-// CSRF (skip for JSON API requests and API key users)
-if (!$jsonFormat && !$apiKeyConfig && !validateCsrfToken()) {
+// CSRF required unless a valid API key was supplied (Issue #198). Previously
+// `format=json` alone bypassed CSRF, which let an anonymous, cross-origin
+// `POST lookup?format=json` (no API key) run the entire outbound lookup
+// pipeline with no auth at all — usable for CSRF-to-SSRF and resource abuse.
+if (!$apiKeyConfig && !validateCsrfToken()) {
     sendError('Invalid request. Please refresh the page and try again.', 403);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Module endpoint dispatch (Issue #196, Step 4) — `?modules=core|score|
+//  dns|web|email|reputation|subdomains`. Runs AFTER the auth gate above
+//  (every module request is already authenticated) and BEFORE the
+//  unconditional rate-limit call below (handleModuleRequest() applies its
+//  own rate limiting, with a lookup_token exemption). Exits; never returns.
+// ═══════════════════════════════════════════════════════════════════
+$moduleParam = isset($_GET['modules']) ? strtolower(trim((string)$_GET['modules'])) : '';
+if ($moduleParam !== '') {
+    handleModuleRequest($moduleParam, $apiKeyConfig, $dnt, $config);
 }
 
 // Rate limit — use API key tier limit if applicable
 $rateLimit = $apiKeyConfig ? getApiKeyRateLimit($apiKeyConfig) : RATE_LIMIT_MAX;
-if (!checkRateLimit() || !checkIpRateLimit()) {
+if (!checkRateLimit($rateLimit) || !checkIpRateLimit($rateLimit)) {
+    header('Retry-After: ' . rateLimitRetryAfterSeconds());
     sendError('Rate limit exceeded. Please wait before trying again.', 429);
 }
 
@@ -125,8 +202,16 @@ header('X-RateLimit-Limit: ' . $rateLimit);
 header('X-RateLimit-Remaining: ' . $rateLimitRemaining);
 header('X-RateLimit-Reset: ' . $rateLimitReset);
 
-// Update TLD data (IANA + second-level suffixes, throttled to once per day)
-updateTldDataIfNeeded();
+// session no longer needed — release the lock so concurrent requests aren't serialized
+session_write_close();
+
+// Update TLD data (IANA + second-level suffixes, throttled to once per day).
+// Issue #193: deferred to a shutdown function so it runs AFTER the response has
+// been flushed to the client (see sendJson()'s fastcgi_finish_request() call)
+// instead of one unlucky request paying the ~10s fetch cost inline.
+register_shutdown_function(function () {
+    updateTldDataIfNeeded();
+});
 
 // Parse & validate input
 $rawDomainInput = '';
@@ -141,7 +226,16 @@ if (!empty($_POST['dns_propagation_only'])) {
         sendError('Invalid domain name.');
     }
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['dns_propagation' => checkDnsPropagation($domain)]);
+    // session no longer needed — release the lock so concurrent requests aren't serialized
+    session_write_close();
+    // Issue #194: curated subset by default; pass full=1 to get every enabled resolver.
+    $fullPropagation = !empty($_POST['full']);
+    echo json_encode(['dns_propagation' => checkDnsPropagation($domain, $fullPropagation)]);
+    // This endpoint doesn't go through sendJson() — flush explicitly so the deferred
+    // TLD refresh above doesn't keep this (lightweight, frequently-polled) endpoint waiting.
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    }
     exit;
 }
 
@@ -170,6 +264,45 @@ if ($isIpLookup) {
         sendError('Invalid domain name.');
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    //  Full-response cache (Issue #189) — a hit here skips the ENTIRE lookup
+    //  pipeline (WHOIS/RDAP fetch + ~35-check enrichment pipeline), not just
+    //  the raw WHOIS text. Keyed by DNT and by response shape (the JSON API
+    //  shape carries 'raw'; the HTML-embed shape carries masked/escaped
+    //  'whois' instead) so a hit always matches what THIS request expects
+    //  back. source=whois requests always bypass the cache (read-side only)
+    //  so the diff feature keeps seeing a fresh WHOIS fetch.
+    // ═══════════════════════════════════════════════════════════════════
+    $fullKey = 'full:' . $domain . ($dnt ? ':dnt' : '') . ($jsonFormat ? ':json' : '');
+    if ($sourceParam !== 'whois') {
+        $cachedFullRaw = getCached($fullKey);
+        if ($cachedFullRaw !== null) {
+            $cachedFullResponse = json_decode($cachedFullRaw, true);
+            if (is_array($cachedFullResponse)) {
+                if (!$dnt) trackLookup('cache_hit', $domain);
+                $cachedFullResponse['cached'] = true;
+                $cachedFullResponse['verification_token'] = ($domain && session_id())
+                    ? generateVerificationToken($domain, session_id())
+                    : null;
+                $cachedFullResponse['rate_limit'] = ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit];
+                // Issue #196 Step 4: additive field — lets a UI that already
+                // rendered this cached legacy response start firing
+                // `?modules=` follow-up fetches (e.g. modules=score) without
+                // an extra modules=core round trip, exempt from rate-limit
+                // counting for 180s. Freshly minted on every response (never
+                // cached — see the unset() below) since it's a short-lived,
+                // per-caller token.
+                $cachedFullResponse['lookup_token'] = ($domain && session_id())
+                    ? issueLookupToken($domain, resolveLookupTokenBinding($apiKeyConfig, $apiKeyHeader))
+                    : null;
+                // Issue #198: no wildcard CORS — the same-origin web UI authenticates
+                // via the CSRF token (no CORS needed) and API-key clients are
+                // server-to-server (CORS is a browser-only concept, so it's moot there).
+                sendJson($cachedFullResponse);
+            }
+        }
+    }
+
     // ─── Lookup pipeline ───
     $whoisText = getCached($domain);
     $fromCache = ($whoisText !== null);
@@ -191,7 +324,7 @@ if ($isIpLookup) {
 
     // Fall back to system WHOIS
     if (!$whoisText) {
-        $whoisText = shell_exec("whois " . escapeshellarg($domain) . " 2>&1");
+        $whoisText = runCommandWithTimeout("whois " . escapeshellarg($domain), 8);
         $dataSource = 'whois';
         if (!$dnt) trackLookup('whois', $domain);
     }
@@ -215,40 +348,63 @@ if ($isIpLookup) {
     $dns = getDnsRecords($domain);
 }
 
-// Email security check (Issue #56) — only for domain lookups
+// Enrichment pipeline defaults (Issue #190) — declared here so the response-array
+// assembly below always has a defined value, even when the pipeline is skipped
+// for available (unregistered) domains, since the frontend hides these panes anyway.
 $emailSecurity = [];
-if (!$isIpLookup && $domain) {
-    $emailSecurity = checkEmailSecurity($domain);
-}
-
-// SSL/TLS certificate info (Issue #19) — only for domain lookups
 $sslInfo = null;
-if (!$isIpLookup && $domain) {
-    $sslInfo = getSslInfo($domain);
-}
+$registrarReputation = null;
+$safeBrowsing = null;
+$virusTotal = null;
+$hibp = null;
+$screenshotUrl = null;
+$dnssec = null;
+$certTransparency = null;
+$domainAgeRisk = null;
+$abuseIpDb = null;
+$shodan = null;
+$phishTank = null;
+$urlhaus = null;
+$spamhaus = null;
+$mtaSts = null;
+$bimi = null;
+$daneTlsa = null;
+$whoisPrivacy = null;
+$hostingRisk = null;
+$httpHeaders = null;
+$redirectChain = null;
+$tlsAudit = null;
+$caaRecords = null;
+$smtpSecurity = null;
+$reverseIp = null;
+$httpVersions = null;
+$ipv6 = null;
+$responseTimes = null;
+$nsDiversity = null;
+$domainSuggestions = [];
+$techStack = null;
+$robotsTxt = null;
+$dnsPropagation = null;
+$multiDnsbl = null;
+$subdomains = [];
+$geolocation = null;
+
+// Enrichment pipeline (Issue #190) — skipped entirely for available/unregistered
+// domains, since the frontend hides every enrichment pane in that case anyway.
+//
+// Issue #196 Step 1: the ~30 per-check blocks that used to sit inline here were
+// extracted into includes/modules.php's moduleRegistry()/runModuleChecks(). The
+// checks that stay inline below (registrar_reputation, screenshot_url,
+// domain_age_risk, whois_privacy, domain_suggestions) are the "core" response
+// keys per the Issue #196 plan — they're local/derived-from-existing-data
+// computations, not part of the dns/web/email/reputation/subdomains module
+// grouping, so runCoreLookup() extraction is deferred to a later step.
+if ($availability !== 'available') {
 
 // Registrar reputation check (Issue #51)
 $registrarReputation = null;
 if (!empty($parsed['Registrar'])) {
     $registrarReputation = checkRegistrarReputation($parsed['Registrar']);
-}
-
-// Google Safe Browsing (Issue #52) — only if API key configured; skip if DNT
-$safeBrowsing = null;
-if (!$dnt && !$isIpLookup && $domain && !empty($config['safe_browsing_api_key'])) {
-    $safeBrowsing = checkSafeBrowsing($domain, $config['safe_browsing_api_key']);
-}
-
-// VirusTotal (Issue #53) — only if API key configured; skip if DNT
-$virusTotal = null;
-if (!$dnt && !$isIpLookup && $domain && !empty($config['virustotal_api_key'])) {
-    $virusTotal = checkVirusTotal($domain, $config['virustotal_api_key']);
-}
-
-// Have I Been Pwned (Issue #65) — only if API key configured; skip if DNT
-$hibp = null;
-if (!$dnt && !$isIpLookup && $domain && !empty($config['hibp_api_key'])) {
-    $hibp = checkHibpDomain($domain, $config['hibp_api_key']);
 }
 
 // Screenshot URL (Issue #55) — generate if enabled; skip if DNT
@@ -261,93 +417,10 @@ if (!$dnt && !$isIpLookup && $domain && !empty($config['screenshot_enabled'])) {
     $screenshotUrl = $screenshotBase . '/width/600/' . urlencode('https://' . $domain);
 }
 
-// DNSSEC check (Issue #93) — no API key needed
-$dnssec = null;
-if (!$isIpLookup && $domain) {
-    $dnssec = checkDnssec($domain);
-}
-
-// Certificate Transparency (Issue #94) — skip if DNT (third-party request)
-$certTransparency = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $certTransparency = checkCertTransparency($domain);
-}
-
 // Domain age risk scoring (Issue #95) — uses existing parsed data
 $domainAgeRisk = null;
 if (!$isIpLookup && !empty($parsed)) {
     $domainAgeRisk = assessDomainAgeRisk($parsed);
-}
-
-// AbuseIPDB (Issue #96) — only if API key configured; skip if DNT
-$abuseIpDb = null;
-if (!$dnt && !empty($config['abuseipdb_api_key'])) {
-    $checkIp = $isIpLookup ? $domain : null;
-    if (!$checkIp && !empty($dns)) {
-        foreach ($dns as $rec) {
-            if ($rec['type'] === 'A' && !empty($rec['value'])) { $checkIp = $rec['value']; break; }
-        }
-    }
-    if ($checkIp) {
-        $abuseIpDb = checkAbuseIPDB($checkIp, $config['abuseipdb_api_key']);
-    }
-}
-
-// Shodan (Issue #97) — only if API key configured; skip if DNT
-$shodan = null;
-if (!$dnt && !empty($config['shodan_api_key'])) {
-    $checkIp = $isIpLookup ? $domain : null;
-    if (!$checkIp && !empty($dns)) {
-        foreach ($dns as $rec) {
-            if ($rec['type'] === 'A' && !empty($rec['value'])) { $checkIp = $rec['value']; break; }
-        }
-    }
-    if ($checkIp) {
-        $shodan = checkShodan($checkIp, $config['shodan_api_key']);
-    }
-}
-
-// PhishTank (Issue #98) — only if API key configured; skip if DNT
-$phishTank = null;
-if (!$dnt && !$isIpLookup && $domain && !empty($config['phishtank_api_key'])) {
-    $phishTank = checkPhishTank($domain, $config['phishtank_api_key']);
-}
-
-// URLhaus (Issue #99) — free, no API key; skip if DNT
-$urlhaus = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $urlhaus = checkUrlhaus($domain);
-}
-
-// Spamhaus DNSBL (Issue #100) — no API key needed
-$spamhaus = null;
-if (!$isIpLookup && !empty($dns)) {
-    foreach ($dns as $rec) {
-        if ($rec['type'] === 'A' && !empty($rec['value'])) {
-            $spamhaus = checkSpamhaus($rec['value']);
-            break;
-        }
-    }
-} elseif ($isIpLookup) {
-    $spamhaus = checkSpamhaus($domain);
-}
-
-// MTA-STS (Issue #101) — no API key needed
-$mtaSts = null;
-if (!$isIpLookup && $domain) {
-    $mtaSts = checkMtaSts($domain);
-}
-
-// BIMI (Issue #102) — no API key needed
-$bimi = null;
-if (!$isIpLookup && $domain) {
-    $bimi = checkBimi($domain);
-}
-
-// DANE/TLSA (Issue #103) — no API key needed
-$daneTlsa = null;
-if (!$isIpLookup && $domain) {
-    $daneTlsa = checkDaneTlsa($domain);
 }
 
 // WHOIS privacy detection (Issue #104) — uses existing data
@@ -356,131 +429,76 @@ if (!$isIpLookup && $whoisText) {
     $whoisPrivacy = detectWhoisPrivacy($whoisText, $parsed);
 }
 
-// Hosting country risk (Issue #105) — uses existing geolocation data
-$hostingRisk = null;
-
-// HTTP security headers audit (Issue #106) — skip if DNT
-$httpHeaders = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $httpHeaders = auditHttpHeaders($domain);
-}
-
-// Redirect chain (Issue #107) — skip if DNT
-$redirectChain = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $redirectChain = detectRedirectChain($domain);
-}
-
-// TLS audit (Issue #108) — skip if DNT
-$tlsAudit = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $tlsAudit = auditTlsVersions($domain);
-}
-
-// CAA records (Issue #109) — no API key needed
-$caaRecords = null;
-if (!$isIpLookup && $domain) {
-    $caaRecords = checkCaaRecords($domain);
-}
-
-// SMTP security (Issue #110) — no API key needed
-$smtpSecurity = null;
-if (!$isIpLookup && $domain) {
-    $smtpSecurity = checkSmtpSecurity($domain);
-}
-
-// Reverse IP (Issue #111) — skip if DNT (third-party API)
-$reverseIp = null;
-if (!$dnt && !empty($dns)) {
-    foreach ($dns as $rec) {
-        if ($rec['type'] === 'A' && !empty($rec['value'])) {
-            $reverseIp = reverseIpLookup($rec['value']);
-            break;
-        }
-    }
-}
-
-// HTTP version check (Issue #112) — skip if DNT
-$httpVersions = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $httpVersions = checkHttpVersions($domain);
-}
-
-// IPv6 readiness (Issue #113) — no API key needed
-$ipv6 = null;
-if (!$isIpLookup && $domain) {
-    $ipv6 = checkIpv6Readiness($domain);
-}
-
-// Response times (Issue #114) — skip if DNT
-$responseTimes = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $responseTimes = measureResponseTimes($domain);
-}
-
-// NS diversity (Issue #115) — no API key needed
-$nsDiversity = null;
-if (!$isIpLookup && $domain) {
-    $nsDiversity = checkNsDiversity($domain);
-}
-
 // Domain suggestions (Issue #116) — only for registered/unavailable domains
 $domainSuggestions = [];
 
-// Technology stack detection (Issue #124) — skip if DNT
-$techStack = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $techStack = detectTechStack($domain);
-}
+// ═══════════════════════════════════════════════════════════════════
+//  Module registry enrichment (Issue #196 Step 1)
+//
+//  Replaces the formerly-inline dns/web/email/reputation/subdomains check
+//  blocks with a data-driven loop over includes/modules.php's
+//  moduleRegistry(). Each module's gating and function calls are byte-for-
+//  byte the same as the code they replace — only the dispatch mechanism
+//  changed. See includes/modules.php for the descriptor map and gating
+//  logic, and tests/ModulesTest.php for the registry-completeness proof.
+// ═══════════════════════════════════════════════════════════════════
+$moduleCtx = [
+    'domain' => $domain,
+    'is_ip'  => $isIpLookup,
+    'dns'    => $dns,
+    'parsed' => $parsed,
+    'dnt'    => $dnt,
+    'config' => $config,
+];
 
-// Robots.txt & sitemap analysis (Issue #125) — skip if DNT
-$robotsTxt = null;
-if (!$dnt && !$isIpLookup && $domain) {
-    $robotsTxt = analyseRobotsTxt($domain);
-}
+$dnsModule = runModuleChecks('dns', $moduleCtx);
+setModuleCache('dns', $domain, $dnt, $dnsModule); // Issue #196 Step 3: warm the module cache
+if (array_key_exists('dnssec', $dnsModule['data'])) { $dnssec = $dnsModule['data']['dnssec']; }
+if (array_key_exists('ipv6', $dnsModule['data'])) { $ipv6 = $dnsModule['data']['ipv6']; }
+if (array_key_exists('ns_diversity', $dnsModule['data'])) { $nsDiversity = $dnsModule['data']['ns_diversity']; }
+if (array_key_exists('dns_propagation', $dnsModule['data'])) { $dnsPropagation = $dnsModule['data']['dns_propagation']; }
 
-// DNS propagation (Issue #126)
-$dnsPropagation = null;
-if (!$isIpLookup && $domain) {
-    $dnsPropagation = checkDnsPropagation($domain);
-}
+$webModule = runModuleChecks('web', $moduleCtx);
+setModuleCache('web', $domain, $dnt, $webModule); // Issue #196 Step 3: warm the module cache
+if (array_key_exists('ssl', $webModule['data'])) { $sslInfo = $webModule['data']['ssl']; }
+if (array_key_exists('http_headers', $webModule['data'])) { $httpHeaders = $webModule['data']['http_headers']; }
+if (array_key_exists('tls_audit', $webModule['data'])) { $tlsAudit = $webModule['data']['tls_audit']; }
+if (array_key_exists('http_versions', $webModule['data'])) { $httpVersions = $webModule['data']['http_versions']; }
+if (array_key_exists('redirect_chain', $webModule['data'])) { $redirectChain = $webModule['data']['redirect_chain']; }
+if (array_key_exists('response_times', $webModule['data'])) { $responseTimes = $webModule['data']['response_times']; }
+if (array_key_exists('tech_stack', $webModule['data'])) { $techStack = $webModule['data']['tech_stack']; }
+if (array_key_exists('robots_txt', $webModule['data'])) { $robotsTxt = $webModule['data']['robots_txt']; }
+if (array_key_exists('cert_transparency', $webModule['data'])) { $certTransparency = $webModule['data']['cert_transparency']; }
+if (array_key_exists('dane_tlsa', $webModule['data'])) { $daneTlsa = $webModule['data']['dane_tlsa']; }
+if (array_key_exists('caa_records', $webModule['data'])) { $caaRecords = $webModule['data']['caa_records']; }
 
-// Multi-DNSBL (Issue #133) — replaces single Spamhaus check
-$multiDnsbl = null;
-if (!empty($dns)) {
-    foreach ($dns as $rec) {
-        if ($rec['type'] === 'A' && !empty($rec['value'])) {
-            $multiDnsbl = checkMultiDnsbl($rec['value']);
-            break;
-        }
-    }
-} elseif ($isIpLookup) {
-    $multiDnsbl = checkMultiDnsbl($domain);
-}
+$emailModule = runModuleChecks('email', $moduleCtx);
+setModuleCache('email', $domain, $dnt, $emailModule); // Issue #196 Step 3: warm the module cache
+if (array_key_exists('email_security', $emailModule['data'])) { $emailSecurity = $emailModule['data']['email_security']; }
+if (array_key_exists('mta_sts', $emailModule['data'])) { $mtaSts = $emailModule['data']['mta_sts']; }
+if (array_key_exists('bimi', $emailModule['data'])) { $bimi = $emailModule['data']['bimi']; }
+if (array_key_exists('smtp_security', $emailModule['data'])) { $smtpSecurity = $emailModule['data']['smtp_security']; }
+if (array_key_exists('hibp', $emailModule['data'])) { $hibp = $emailModule['data']['hibp']; }
+if (array_key_exists('multi_dnsbl', $emailModule['data'])) { $multiDnsbl = $emailModule['data']['multi_dnsbl']; }
+if (array_key_exists('spamhaus', $emailModule['data'])) { $spamhaus = $emailModule['data']['spamhaus']; }
 
-// Subdomain discovery (Issue #46) — only for domain lookups
-$subdomains = [];
-if (!$isIpLookup && $domain) {
-    $subdomains = discoverSubdomains($domain);
-}
+$reputationModule = runModuleChecks('reputation', $moduleCtx);
+setModuleCache('reputation', $domain, $dnt, $reputationModule); // Issue #196 Step 3: warm the module cache
+if (array_key_exists('safe_browsing', $reputationModule['data'])) { $safeBrowsing = $reputationModule['data']['safe_browsing']; }
+if (array_key_exists('virustotal', $reputationModule['data'])) { $virusTotal = $reputationModule['data']['virustotal']; }
+if (array_key_exists('phishtank', $reputationModule['data'])) { $phishTank = $reputationModule['data']['phishtank']; }
+if (array_key_exists('urlhaus', $reputationModule['data'])) { $urlhaus = $reputationModule['data']['urlhaus']; }
+if (array_key_exists('abuseipdb', $reputationModule['data'])) { $abuseIpDb = $reputationModule['data']['abuseipdb']; }
+if (array_key_exists('shodan', $reputationModule['data'])) { $shodan = $reputationModule['data']['shodan']; }
+if (array_key_exists('geolocation', $reputationModule['data'])) { $geolocation = $reputationModule['data']['geolocation']; }
+if (array_key_exists('hosting_risk', $reputationModule['data'])) { $hostingRisk = $reputationModule['data']['hosting_risk']; }
 
-// IP geolocation (Issue #18) — for first A record, or for IP lookups; skip if DNT
-$geolocation = null;
-if (!$dnt) {
-    if ($isIpLookup) {
-        $geolocation = getIpGeolocation($domain);
-    } elseif (!empty($dns)) {
-        foreach ($dns as $record) {
-            if ($record['type'] === 'A' && !empty($record['value'])) {
-                $geolocation = getIpGeolocation($record['value']);
-                break;
-            }
-        }
-    }
-}
+$subdomainsModule = runModuleChecks('subdomains', $moduleCtx);
+setModuleCache('subdomains', $domain, $dnt, $subdomainsModule); // Issue #196 Step 3: warm the module cache
+if (array_key_exists('subdomains', $subdomainsModule['data'])) { $subdomains = $subdomainsModule['data']['subdomains']; }
+if (array_key_exists('reverse_ip', $subdomainsModule['data'])) { $reverseIp = $subdomainsModule['data']['reverse_ip']; }
 
-// Hosting country risk (Issue #105) — computed after geolocation
-$hostingRisk = assessHostingRisk($geolocation);
+} // end enrichment pipeline (Issue #190)
 
 // Domain suggestions (Issue #116/#164) — now on-demand only, triggered by separate request
 // Automatic suggestions removed to speed up main lookup response
@@ -503,9 +521,9 @@ if (!$isIpLookup && $domain && session_id()) {
 }
 
 if ($jsonFormat) {
-    header('Access-Control-Allow-Origin: *');
-    header('Access-Control-Allow-Methods: POST');
-    header('Access-Control-Allow-Headers: Content-Type');
+    // Issue #198: no wildcard CORS — the same-origin web UI authenticates via
+    // the CSRF token (no CORS needed) and API-key clients are server-to-server
+    // (CORS is a browser-only concept, so it's moot there).
     $response = [
         'domain'       => $domain,
         'is_ip'        => $isIpLookup,
@@ -554,11 +572,28 @@ if ($jsonFormat) {
         'multi_dnsbl' => $multiDnsbl,
         'security_score' => $securityScore,
         'verification_token' => $verificationToken,
+        // Issue #196 Step 4: additive field — freshly minted here (never
+        // cached, see the unset() below) rather than reused from
+        // $verificationToken's guard: unlike domain-ownership verification,
+        // lookup_token exemption is meaningful for IP lookups too (the
+        // email/reputation modules apply to IPs), so it deliberately omits
+        // the `!$isIpLookup` check.
+        'lookup_token' => ($domain && session_id())
+            ? issueLookupToken($domain, resolveLookupTokenBinding($apiKeyConfig, $apiKeyHeader))
+            : null,
         'rate_limit' => ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit],
         'dnt' => $dnt,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;
+    }
+    // Full-response cache (Issue #189) — store everything EXCEPT the per-request/
+    // per-session fields (verification_token, rate_limit, lookup_token), which
+    // are re-injected fresh on every cache hit above.
+    if (!$isIpLookup) {
+        $responseToCache = $response;
+        unset($responseToCache['verification_token'], $responseToCache['rate_limit'], $responseToCache['lookup_token']);
+        setCache($fullKey, json_encode($responseToCache));
     }
     sendJson($response);
 } else {
@@ -568,12 +603,22 @@ if ($jsonFormat) {
         // WHOIS contact masking (Issue #137)
         if (!empty($config['mask_whois_contacts'])) {
             $whoisOutput = preg_replace('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', '[email redacted]', $whoisOutput);
-            $whoisOutput = preg_replace('/\+?[0-9][\d\s.()-]{7,}/', '[phone redacted]', $whoisOutput);
+            // Issue #218: only redact digit-runs on lines carrying a phone-like
+            // label (Phone/Fax/Tel/Telephone). The old unscoped pattern also
+            // matched dates (2020-01-15), IPs, and registry IDs on unrelated lines.
+            $whoisOutput = preg_replace_callback(
+                '/^(.*\b(?:Phone|Fax|Tel)\w*.*)$/mi',
+                function ($m) {
+                    return preg_replace('/\+?[0-9][\d\s.()-]{7,}/', '[phone redacted]', $m[0]);
+                },
+                $whoisOutput
+            );
         }
     }
 
     $response = [
         'whois'        => htmlspecialchars($whoisOutput, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+        'domain'       => $domain,
         'is_ip'        => $isIpLookup,
         'availability' => $availability,
         'data_source'  => $dataSource,
@@ -619,11 +664,27 @@ if ($jsonFormat) {
         'multi_dnsbl' => $multiDnsbl,
         'security_score' => $securityScore,
         'verification_token' => $verificationToken,
+        // Issue #196 Step 4: additive field — freshly minted here (never
+        // cached, see the unset() below) rather than reused from
+        // $verificationToken's guard: unlike domain-ownership verification,
+        // lookup_token exemption is meaningful for IP lookups too (the
+        // email/reputation modules apply to IPs), so it deliberately omits
+        // the `!$isIpLookup` check.
+        'lookup_token' => ($domain && session_id())
+            ? issueLookupToken($domain, resolveLookupTokenBinding($apiKeyConfig, $apiKeyHeader))
+            : null,
         'rate_limit' => ['used' => $rateLimitUsed, 'remaining' => $rateLimitRemaining, 'limit' => $rateLimit],
         'dnt' => $dnt,
     ];
     if ($reverseDns) {
         $response['reverse_dns'] = $reverseDns;
+    }
+    // Full-response cache (Issue #189) — see the matching comment in the $jsonFormat
+    // branch above for what's stored and why.
+    if (!$isIpLookup) {
+        $responseToCache = $response;
+        unset($responseToCache['verification_token'], $responseToCache['rate_limit'], $responseToCache['lookup_token']);
+        setCache($fullKey, json_encode($responseToCache));
     }
     sendJson($response);
 }

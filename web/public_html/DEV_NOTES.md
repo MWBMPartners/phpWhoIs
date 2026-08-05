@@ -64,10 +64,13 @@ The auto-increment will continue from that version on the next push.
 
 ## Branching
 
-| Branch | Purpose | Deploys to |
-|---|---|---|
-| `main` | Production/stable | `public_html/` via SFTP |
-| `beta` | Active development | `public_html_beta/` via SFTP |
+| Branch | Purpose | Server folder | SFTP secret |
+|---|---|---|---|
+| `alpha` | Development (experimental) | `public_html_dev_alpha` | `SFTP_DEV_PATH` |
+| `beta` | Active development | `public_html_dev_beta` | `SFTP_BETA_PATH` |
+| `main` | Production/stable | `public_html` | `SFTP_LIVE_PATH` |
+
+All branches deploy from the same `web/public_html/` source folder.
 
 ### Workflow
 
@@ -86,10 +89,10 @@ git push origin main --tags
 
 ## Development status
 
-The development status in `includes/infoAppVer.php` is set automatically:
+The development status in `includes/infoAppVer.php` is set automatically via a CI-injected `.env-channel` file:
 
-- **Deploy action (Option 1):** When deploying from `main`, the GitHub Action sets `Development Status` to `NULL` before uploading
-- **Runtime failsafe (Option 2):** `includes/infoAppVer.php` checks `__DIR__` — if not in `public_html_beta/` or `public_html_dev/`, status is forced to `NULL`
+- **For production (`main`):** GitHub Actions sets `Development Status` to `NULL` before uploading
+- **For development (`alpha`/`beta`):** GitHub Actions sets `Development Status` to the channel name (`alpha` or `beta`)
 
 ## SFTP deployment
 
@@ -108,18 +111,33 @@ Deployment is controlled by the `SFTP_ENABLED` repository variable (Settings →
 | `SFTP_USER` | SFTP username |
 | `SFTP_PASSWORD` | SFTP password (used if `SFTP_KEY` is not set) |
 | `SFTP_KEY` | SSH private key (takes priority over password) |
-| `SFTP_LIVE_PATH` | Remote path for production (`public_html/`) |
-| `SFTP_BETA_PATH` | Remote path for beta (`public_html_beta/`) |
+| `SFTP_DEV_PATH` | Remote path for alpha branch (`public_html_dev_alpha`) — no trailing slash |
+| `SFTP_BETA_PATH` | Remote path for beta branch (`public_html_dev_beta`) — no trailing slash |
+| `SFTP_LIVE_PATH` | Remote path for production (`public_html`) — no trailing slash |
+
+### API keys and secrets
+
+API keys and third-party credentials are stored in `web/.auth/keys.php` (gitignored). The `.auth/` directory contains:
+
+| File | Purpose |
+|---|---|
+| `keys.php` | Active keys and credentials (gitignored, not tracked) |
+| `keys.example.php` | Template showing the structure and format |
+| `.htaccess` | Deny-all protection (prevents web access) |
+
+On the server, the `.auth/` folder sits above the web root (sibling of the deployed `public_html/` folder), and is loaded by `includes/config.php` at runtime.
 
 ## GitHub Actions
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `deploy.yml` | Push to `main` or `beta` | SFTP upload of changed files |
-| `version-bump.yml` | Push to `beta` (code changes) | Auto-increment semver in `includes/infoAppVer.php` |
-| `changelog.yml` | Push to `main` or `beta` | Auto-append entry to `CHANGELOG.md` |
+| `deploy.yml` | Push to `main`, `beta`, or `alpha` | SFTP upload of changed files to appropriate server folder |
+| `version-bump.yml` | Push to `main`, `beta`, or `alpha` (code changes) | Auto-increment semver in `includes/infoAppVer.php` |
+| `changelog.yml` | Push to `main`, `beta`, or `alpha` | Auto-append entry to `CHANGELOG.md` |
 | `release.yml` | Tag push (`v*`) | Create GitHub Release (stable or pre-release) |
 | `update-dns-resolvers.yml` | Daily 04:00 UTC / manual | Auto-update DNS resolver list from public-dns.info |
+
+All workflows deploy from `web/public_html/` source and determine the target server folder via branch name and SFTP path secrets.
 
 ## URL Parameters
 

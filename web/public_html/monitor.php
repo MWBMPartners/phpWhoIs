@@ -12,6 +12,12 @@
  * Format: { "example.com": { "webhook": "https://...", "last_parsed": {...}, "added": "..." } }
  */
 
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    header('Content-Type: text/plain');
+    exit('Forbidden: this endpoint runs from cron (CLI) only.');
+}
+
 // ─── Bootstrap ───
 define('CACHE_DIR', sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'mwwhois_cache');
 define('CACHE_TTL', 900);
@@ -44,7 +50,7 @@ foreach ($watched as $domain => $config) {
         continue;
     }
 
-    $parsed = parseWhois($whoisText);
+    $parsed = parseWhoisFields($whoisText);
     $lastParsed = isset($config['last_parsed']) ? $config['last_parsed'] : [];
 
     // Compare

@@ -23,6 +23,8 @@ build/
 vendor/
 composer.lock
 .phpunit.cache/
+.phpunit.result.cache
+*.phar
 
 # Auto-generated TLD data (fetched at runtime)
 tlds.txt
@@ -35,7 +37,13 @@ public_suffix_list.dat
 # rule above targets Composer's root vendor/ dir). /docs serves these locally so
 # the API docs work on shared hosting with no CDN. Re-include the directory
 # first, then its contents (a file cannot be re-included if its parent is ignored).
-!web/public_html_beta/assets/vendor/
-!web/public_html_beta/assets/vendor/**
 !web/public_html/assets/vendor/
 !web/public_html/assets/vendor/**
+
+# Secrets in web/.auth/ — the real keys.php is NEVER committed; only the
+# .htaccess guard and the *.example.php template are tracked.
+web/.auth/*
+!web/.auth/.htaccess
+!web/.auth/keys.example.php
+# CI-injected deploy channel marker
+web/public_html/.env-channel

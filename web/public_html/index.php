@@ -6,6 +6,7 @@
 
 // ─── Session & CSRF ───
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'session_config.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'asset_version.php';
 $csrfToken = $_SESSION['csrf_token'];
 
 // ─── Security headers ───
@@ -14,6 +15,13 @@ header("X-Frame-Options: DENY");
 header("X-XSS-Protection: 1; mode=block");
 header("Referrer-Policy: strict-origin-when-cross-origin");
 header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net; img-src 'self' data: https://image.thum.io https://api.qrserver.com https://*.gstatic.com; connect-src 'self'");
+// HSTS (Issue #203) — only sent over HTTPS; a proxy/load-balancer terminating
+// TLS in front of the app sets X-Forwarded-Proto rather than $_SERVER['HTTPS'].
+$_isHttpsRequest = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+if ($_isHttpsRequest) {
+    header("Strict-Transport-Security: max-age=31536000; includeSubDomains");
+}
 
 // ─── Config ───
 $config = [];
@@ -25,15 +33,38 @@ if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR
 $modeDev = false;
 $modeDebug = false;
 
+// Issue #202: prefer the X-Admin-Key header or a POST field over ?key= — a
+// query-string secret leaks into server/proxy access logs, browser history,
+// and the Referer header. ?key= is kept working for backwards compatibility
+// but is the least-safe of the three, so it's tried last.
+// TODO: a full session-based admin login is a future improvement; this
+// shared-secret gate is intentionally minimal.
 if (isset($_GET['dev'])) {
     $debugKey = isset($config['debug_key']) ? $config['debug_key'] : null;
-    if ($debugKey && isset($_GET['key']) && hash_equals($debugKey, $_GET['key'])) {
+    $suppliedKey = '';
+    if (isset($_SERVER['HTTP_X_ADMIN_KEY'])) {
+        $suppliedKey = (string) ($_SERVER['HTTP_X_ADMIN_KEY'] ?? '');
+    } elseif (isset($_POST['key'])) {
+        $suppliedKey = (string) ($_POST['key'] ?? '');
+    } elseif (isset($_GET['key'])) {
+        // Cast defensively: hash_equals() requires a string, and ?key[]=...
+        // would otherwise pass an array through and TypeError.
+        $suppliedKey = (string) ($_GET['key'] ?? '');
+    }
+    if ($debugKey && $suppliedKey !== '' && hash_equals((string) $debugKey, $suppliedKey)) {
         $modeDev = true;
 
         if (isset($_GET['debug'])) {
             $modeDebug = true;
         }
     }
+}
+
+if ($modeDev) {
+    // Prevent the debug/admin key from leaking to a linked-to site via
+    // Referer (Issue #202) — overrides the site-wide policy set above for
+    // this request only, since no output has been sent yet.
+    header('Referrer-Policy: no-referrer');
 }
 
 if ($modeDebug) {
@@ -94,7 +125,19 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
         $pageDescription = 'Free domain WHOIS and RDAP lookup tool. Check domain registration, availability, DNS records, expiry dates, and registrar information.';
     }
     
-    $pageUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+    // Host-header allow-list (Issue #203): HTTP_HOST is attacker-controlled and
+    // is used below to build the canonical/og:url meta tags. Reject anything
+    // outside a normal hostname[:port] charset and fall back to the
+    // server-configured name (SERVER_NAME comes from the vhost config, not the
+    // client-supplied Host header) rather than trusting the raw header.
+    $_rawHost = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '';
+    if (preg_match('/^[A-Za-z0-9.:-]+$/', $_rawHost)) {
+        $_safeHost = $_rawHost;
+    } else {
+        $_fallbackHost = isset($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : 'localhost';
+        $_safeHost = preg_match('/^[A-Za-z0-9.:-]+$/', $_fallbackHost) ? $_fallbackHost : 'localhost';
+    }
+    $pageUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_safeHost . $_SERVER['REQUEST_URI'];
 ?>
     <title><?php echo htmlspecialchars($pageTitle); ?></title>
     <meta name="description" content="<?php echo htmlspecialchars($pageDescription); ?>">
@@ -141,7 +184,7 @@ if (isset($app["Application"]["Vendor"]["Parent"]["Name"]) && $app["Application"
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'style.css'); ?>">
+    <link rel="stylesheet" href="assets/css/style.css?v=<?php echo assetVersion(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'style.css'); ?>">
 </head>
 <body>
     <!-- Skip links -->
@@ -476,7 +519,6 @@ if ($_showPortfolioIcon): ?>
         var formattedResult = '';
         var rawWhoisText = '';
         var lastLookupData = null;
-        var lastCompareData = null;
         var isRawView = false;
 
         // HTML escape helper to prevent XSS
@@ -484,6 +526,28 @@ if ($_showPortfolioIcon): ?>
             var div = document.createElement('div');
             div.appendChild(document.createTextNode(str));
             return div.innerHTML;
+        }
+
+        // Display helper for internationalised domains (Issue #212). The
+        // server always returns the ASCII/punycode A-label form (see
+        // sanitizeDomainInput()). There's no reliable built-in browser API
+        // to decode punycode back to its Unicode (U-label) form, so rather
+        // than pull in a punycode library we show the A-label and flag it
+        // clearly as an IDN instead of silently displaying opaque xn--...
+        // text. ASCII-only domains are returned unchanged.
+        function formatDomainDisplay(domain) {
+            var safe = esc(domain);
+            if (domain && domain.indexOf('xn--') !== -1) {
+                return safe + ' <span class="badge bg-secondary" title="Internationalised domain name (punycode A-label)">IDN</span>';
+            }
+            return safe;
+        }
+
+        // CSV cell escape helper to prevent formula injection (Issue #201)
+        function csvEscape(v) {
+            var s = (v === null || v === undefined) ? '' : String(v);
+            if (/^[=+\-@\t\r]/.test(s)) { s = "'" + s; }   // neutralise spreadsheet formulas
+            return '"' + s.replace(/"/g, '""') + '"';        // quote + double embedded quotes
         }
         var currentDomain = '';
 
@@ -640,8 +704,6 @@ if ($_showPortfolioIcon): ?>
                 });
         }
 
-        function t(key) { return i18nStrings[key] || key; }
-
         function applyTranslations() {
             document.querySelectorAll('[data-i18n]').forEach(function (el) {
                 var key = el.dataset.i18n;
@@ -671,7 +733,12 @@ if ($_showPortfolioIcon): ?>
         var systemDarkMQ = window.matchMedia('(prefers-color-scheme: dark)');
 
         // Load saved settings as defaults (URL params override these)
-        var savedSettings = JSON.parse(localStorage.getItem('appSettings') || '{}');
+        var savedSettings = {};
+        try {
+            savedSettings = JSON.parse(localStorage.getItem('appSettings') || '{}');
+        } catch (e) {
+            savedSettings = {}; // Issue #218: malformed localStorage shouldn't break the page
+        }
         if (!urlParams.has('hideSecScore') && savedSettings.hideSecScore) paramHideSecScore = true;
         if (!urlParams.has('hideDomainSummary') && savedSettings.hideSummary) paramHideSummary = true;
         if (paramOnlyTabs.length === 0 && savedSettings.defaultTabs && savedSettings.defaultTabs.length > 0 && savedSettings.defaultTabs.length < 6) {
@@ -720,7 +787,12 @@ if ($_showPortfolioIcon): ?>
 
         // Settings modal controls
         function loadSettingsUI() {
-            var s = JSON.parse(localStorage.getItem('appSettings') || '{}');
+            var s = {};
+            try {
+                s = JSON.parse(localStorage.getItem('appSettings') || '{}');
+            } catch (e) {
+                s = {}; // Issue #218: malformed localStorage shouldn't break the page
+            }
             document.getElementById('settingHideSecScore').checked = !!s.hideSecScore;
             document.getElementById('settingHideSummary').checked = !!s.hideSummary;
             var allTabs = ['whois', 'dns', 'email', 'ssl', 'subdomains', 'security'];
@@ -1010,7 +1082,14 @@ if ($_showPortfolioIcon): ?>
         var domainInput = document.getElementById('domain');
         var domainFeedback = document.getElementById('domainFeedback');
         var lookupBtn = document.getElementById('lookupBtn');
-        var domainRegex = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+        // Issue #212: accept IDN / punycode domains. Labels may contain
+        // non-ASCII Unicode letters (raw IDN, e.g. münchen.de — the server
+        // converts to punycode) and the TLD accepts either a normal
+        // alphabetic TLD, a punycode xn-- TLD (example.xn--p1ai), or a raw
+        // Unicode TLD (example.рф). This is a client-side UX gate only —
+        // the server (isValidDomain/sanitizeDomainInput) remains the source
+        // of truth and re-validates/normalises everything.
+        var domainRegex = /^(?:[a-zA-Z0-9\u00A1-\uFFFF](?:[a-zA-Z0-9\u00A1-\uFFFF-]{0,61}[a-zA-Z0-9\u00A1-\uFFFF])?\.)+(?:[a-zA-Z]{2,}|xn--[a-zA-Z0-9-]{2,}|[\u00A1-\uFFFF]{2,})$/;
         var ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
         var validationTimer = null;
 
@@ -1198,9 +1277,6 @@ if ($_showPortfolioIcon): ?>
             cr.innerHTML = html;
             cr.style.display = '';
 
-            // Store for export
-            lastCompareData = { domain1: d1, domain2: d2, data1: data1, data2: data2 };
-
             document.getElementById('exportCompareJsonBtn').addEventListener('click', function () {
                 var exp = { compare_date: new Date().toISOString(), domains: [
                     { domain: d1, availability: data1.availability, parsed: data1.parsed, dns: data1.dns, ssl: data1.ssl },
@@ -1225,12 +1301,12 @@ if ($_showPortfolioIcon): ?>
                         allKeys[k] = true;
                     }
                 }
-                var csv = 'Field,"' + d1 + '","' + d2 + '"\n';
-                csv += '"Availability","' + (data1.availability || '') + '","' + (data2.availability || '') + '"\n';
+                var csv = [csvEscape('Field'), csvEscape(d1), csvEscape(d2)].join(',') + '\n';
+                csv += [csvEscape('Availability'), csvEscape(data1.availability || ''), csvEscape(data2.availability || '')].join(',') + '\n';
                 for (var key in allKeys) {
                     var v1 = data1.parsed && data1.parsed[key] ? (Array.isArray(data1.parsed[key]) ? data1.parsed[key].join('; ') : data1.parsed[key]) : '';
                     var v2 = data2.parsed && data2.parsed[key] ? (Array.isArray(data2.parsed[key]) ? data2.parsed[key].join('; ') : data2.parsed[key]) : '';
-                    csv += '"' + key + '","' + v1 + '","' + v2 + '"\n';
+                    csv += [csvEscape(key), csvEscape(v1), csvEscape(v2)].join(',') + '\n';
                 }
                 var a = document.createElement('a');
                 a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -1240,24 +1316,47 @@ if ($_showPortfolioIcon): ?>
             });
         }
 
-        // ── Main lookup ──
+        // ── Main lookup (Issue #196 Step 6: progressive core-first loading +
+        // concurrent module fetches) ──
+
+        // Shared POST helper for the core/module endpoints. Builds the
+        // standard FormData (domain, csrf_token, optional lookup_token) and
+        // resolves with the parsed JSON body. Deliberately does NOT gate on
+        // r.ok — every core/module error path (400 invalid domain, 429 rate
+        // limit) still returns a valid JSON body with an `error` field, so
+        // callers just check data.error; a genuinely broken response (no
+        // body, non-JSON) still rejects the promise via r.json() itself.
+        function postLookup(url, domain, token) {
+            var fd = new FormData();
+            fd.append('domain', domain);
+            fd.append('csrf_token', CSRF);
+            if (token) {
+                fd.append('lookup_token', token);
+            }
+            return fetch(url, { method: 'POST', body: fd }).then(function (r) {
+                return r.json();
+            });
+        }
+
+        // lookupGen is a monotonically-increasing generation counter. Every
+        // triggerLookup() call bumps it and closes over its own `gen`. Every
+        // async callback below (the core fetch, every module fetch, every
+        // retry) checks `gen === lookupGen` before touching the DOM — so if
+        // the user fires a second lookup while the first one's module
+        // fetches are still in flight, the stale generation's late-arriving
+        // responses are silently dropped instead of clobbering the second
+        // lookup's results.
+        var lookupGen = 0;
+
         function triggerLookup(domain) {
+            var gen = ++lookupGen;
             currentDomain = domain;
             showLoading(true);
             hideResults();
 
-            var fd = new FormData();
-            fd.append('domain', domain);
-            fd.append('csrf_token', CSRF);
-
-            fetch('lookup?nocache=' + Date.now(), { method: 'POST', body: fd })
-                .then(function (r) {
-                    if (!r.ok) {
-                        throw new Error('Server error: ' + r.status);
-                    }
-                    return r.json();
-                })
+            postLookup('lookup?modules=core&nocache=' + Date.now(), domain)
                 .then(function (data) {
+                    if (gen !== lookupGen) return; // superseded by a newer lookup
                     showLoading(false);
                     if (data.error) {
                         showError(data.error);
@@ -1271,27 +1370,179 @@ if ($_showPortfolioIcon): ?>
                     }
                     rawWhoisText = data.whois || '';
                     lastLookupData = data;
-                    displayResults(data);
+                    renderCore(data);
                     saveToHistory(currentDomain, data);
+                    if (!data.modules_available || !data.modules_available.length) {
+                        return; // available domain, or nothing left to enrich
+                    }
+                    startModuleFetches(data, gen);
                 })
                 .catch(function (err) {
+                    if (gen !== lookupGen) return;
                     showLoading(false);
                     showError('Lookup failed: ' + err.message);
                 });
         }
 
+        // Fires the enrichment module fetches CONCURRENTLY, then — once
+        // they've all settled — the score module (which reads their
+        // server-side per-module caches). `core` is the modules=core
+        // response; `gen` is this lookup's generation.
+        function startModuleFetches(core, gen) {
+            var mods = core.modules_available.filter(function (m) { return m !== 'score'; });
+            var promises = [];
+
+            mods.forEach(function (m) {
+                if (m === 'reputation' && core.dnt) {
+                    // Reputation is nothing but fixed 3rd-party API calls
+                    // under DNT (every check except the geolocation-derived
+                    // hosting_risk is individually dnt-gated server-side
+                    // too) — skip the round trip entirely instead of
+                    // fetching an almost-empty envelope.
+                    renderReputationSkippedDnt();
+                    return;
+                }
+                renderModuleSkeleton(m, core.dnt);
+                setTabSpinner(m, true);
+                var p = postLookup('lookup?modules=' + m + '&nocache=' + Date.now(), core.domain, core.lookup_token)
+                    .then(function (res) {
+                        if (gen !== lookupGen) return;
+                        setTabSpinner(m, false);
+                        if (res && res.status === 'error') {
+                            renderModuleFailed(m);
+                        } else {
+                            renderModule(m, res);
+                        }
+                    })
+                    .catch(function () {
+                        if (gen !== lookupGen) return;
+                        setTabSpinner(m, false, true);
+                        renderModuleFailed(m);
+                    });
+                promises.push(p);
+            });
+
+            Promise.allSettled(promises).then(function () {
+                if (gen !== lookupGen) return;
+                // core.modules_available is populated from moduleRegistry()'s
+                // 5 grouping-module keys only (dns/web/email/reputation/
+                // subdomains) — it never contains 'score' (see
+                // includes/modules.php's handleModuleRequest()). Score has
+                // its own gate instead, mirroring the legacy inline gate
+                // (`if (!$isIpLookup && $domain)` in the same file's
+                // modules=score branch): fire it whenever this wasn't an IP
+                // lookup and there was at least one enrichment module to
+                // fetch in the first place (i.e. not an "available" domain,
+                // where startModuleFetches() is never even called).
+                if (core.is_ip || !mods.length) return;
+                renderModuleSkeleton('score', core.dnt);
+                setTabSpinner('score', true);
+                postLookup('lookup?modules=score&nocache=' + Date.now(), core.domain, core.lookup_token)
+                    .then(function (res) {
+                        if (gen !== lookupGen) return;
+                        setTabSpinner('score', false);
+                        if (res && res.status === 'error') {
+                            renderModuleFailed('score');
+                        } else {
+                            renderModule('score', res);
+                        }
+                    })
+                    .catch(function () {
+                        if (gen !== lookupGen) return;
+                        setTabSpinner('score', false, true);
+                        renderModuleFailed('score');
+                    });
+            });
+        }
+
+        // Re-fires a single failed module fetch from its "Retry" link,
+        // reusing the still-current lookup's lookup_token (valid ~180s from
+        // issuance; if it has since expired the request is simply counted
+        // against the normal rate limit instead of being rejected — never a
+        // hard failure).
+        function retryModule(name) {
+            if (!lastLookupData || !lastLookupData.domain) return;
+            var gen = lookupGen;
+            renderModuleSkeleton(name, lastLookupData.dnt);
+            setTabSpinner(name, true);
+            postLookup('lookup?modules=' + name + '&nocache=' + Date.now(), lastLookupData.domain, lastLookupData.lookup_token)
+                .then(function (res) {
+                    if (gen !== lookupGen) return;
+                    setTabSpinner(name, false);
+                    if (res && res.status === 'error') {
+                        renderModuleFailed(name);
+                    } else {
+                        renderModule(name, res);
+                    }
+                })
+                .catch(function () {
+                    if (gen !== lookupGen) return;
+                    setTabSpinner(name, false, true);
+                    renderModuleFailed(name);
+                });
+        }
+
+        // Event delegation for the "Retry" links renderModuleFailed()
+        // generates dynamically (so a plain addEventListener at creation
+        // time isn't an option).
+        document.addEventListener('click', function (e) {
+            var link = e.target.closest ? e.target.closest('[data-retry-module]') : null;
+            if (!link) return;
+            e.preventDefault();
+            retryModule(link.getAttribute('data-retry-module'));
+        });
+
         // ── Bulk lookup ──
         var bulkResultsData = [];
 
+        // bulkGen mirrors the lookupGen pattern above: it guards against a
+        // second bulk submit racing a still-running first one (both target
+        // the same #bulkResults element by id) by letting a stale run's
+        // callbacks recognise they've been superseded and stop touching the
+        // DOM / advancing their own queue.
+        var bulkGen = 0;
+
+        // postLookupBulk mirrors postLookup() but inspects the HTTP status
+        // BEFORE parsing the body (Issue #213), so a 429 can be told apart
+        // from a genuine per-domain error. On 429 it throws an Error with
+        // isRateLimited=true and retryAfter (seconds, read from the
+        // Retry-After header the server always sends on 429 — see
+        // lookup.php — defaulting to 60 if the header is missing or
+        // unparseable) instead of resolving, so the caller can pause and
+        // retry rather than rendering an error row. Any other status still
+        // resolves via r.json() exactly like postLookup(), so non-429
+        // responses (including per-domain errors such as an invalid
+        // domain) parse and render exactly as before.
+        function postLookupBulk(url, domain, token) {
+            var fd = new FormData();
+            fd.append('domain', domain);
+            fd.append('csrf_token', CSRF);
+            if (token) {
+                fd.append('lookup_token', token);
+            }
+            return fetch(url, { method: 'POST', body: fd }).then(function (r) {
+                if (r.status === 429) {
+                    var retryAfter = parseInt(r.headers.get('Retry-After'), 10);
+                    if (!isFinite(retryAfter) || retryAfter <= 0) {
+                        retryAfter = 60;
+                    }
+                    var err = new Error('Rate limit exceeded');
+                    err.isRateLimited = true;
+                    err.retryAfter = retryAfter;
+                    throw err;
+                }
+                return r.json();
+            });
+        }
+
         function triggerBulkLookup(domains) {
+            var gen = ++bulkGen;
             showLoading(true);
             hideResults();
             bulkResultsData = [];
             var acc = document.getElementById('bulkResults');
             acc.innerHTML = '';
             acc.style.display = '';
-            var done = 0;
-            var total = domains.length;
 
             // Show progress bar
             var progressEl = document.getElementById('bulkProgress');
@@ -1300,63 +1551,145 @@ if ($_showPortfolioIcon): ?>
             var progressPercent = document.getElementById('bulkProgressPercent');
             progressEl.style.display = '';
             progressBar.style.width = '0%';
-            progressText.textContent = 'Looking up 0 of ' + total + '...';
+            progressBar.classList.remove('bg-success', 'bg-warning');
+            progressText.textContent = 'Looking up 0 of ' + domains.length + '...';
             progressPercent.textContent = '0%';
 
-            domains.forEach(function (domain, i) {
-                setTimeout(function () {
-                    var fd = new FormData();
-                    fd.append('domain', domain);
-                    fd.append('csrf_token', CSRF);
+            var BULK_STAGGER_MS = 1000;
+            // Per-domain retry cap (Issue #213): a domain that keeps getting
+            // 429'd (e.g. the window never clears) is retried this many
+            // times before it's given up on and rendered as a real error
+            // row, so the queue can never stall forever on one domain.
+            var BULK_MAX_RETRIES = 3;
 
-                    fetch('lookup?nocache=' + Date.now(), { method: 'POST', body: fd })
-                        .then(function (r) { return r.json(); })
-                        .then(function (data) {
-                            // Store for export (Issue #49)
-                            bulkResultsData.push({ domain: domain, data: data });
-
-                            var badgeClass = data.availability === 'available' ? 'bg-success' : 'bg-info';
-                            var badgeText = data.availability === 'available' ? 'Available' : 'Registered';
-                            var regBtn = data.availability === 'available' ? ' ' + buildRegisterButtons(domain) : '';
-                            var item = document.createElement('div');
-                            item.className = 'accordion-item';
-                            item.innerHTML =
-                                '<h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-' + i + '">' +
-                                esc(domain) + ' <span class="badge ' + badgeClass + ' ms-2">' + badgeText + '</span>' + regBtn +
-                                '</button></h2>' +
-                                '<div id="bulk-' + i + '" class="accordion-collapse collapse"><div class="accordion-body"><pre>' +
-                                esc(data.whois || data.error || 'No data') + '</pre></div></div>';
-                            acc.appendChild(item);
-                        })
-                        .catch(function (err) {
-                            var item = document.createElement('div');
-                            item.className = 'accordion-item';
-                            item.innerHTML =
-                                '<h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-' + i + '">' +
-                                esc(domain) + ' <span class="badge bg-danger ms-2">Error</span>' +
-                                '</button></h2>' +
-                                '<div id="bulk-' + i + '" class="accordion-collapse collapse"><div class="accordion-body"><div class="alert alert-danger mb-0"><i class="bi bi-exclamation-triangle-fill me-2"></i>' +
-                                esc(err.message || 'Lookup failed') + '</div></div></div>';
-                            acc.appendChild(item);
-                        })
-                        .finally(function () {
-                            ++done;
-                            var pct = Math.round((done / total) * 100);
-                            progressBar.style.width = pct + '%';
-                            progressBar.setAttribute('aria-valuenow', pct);
-                            progressText.textContent = 'Looking up ' + done + ' of ' + total + '...';
-                            progressPercent.textContent = pct + '%';
-                            if (done === total) {
-                                showLoading(false);
-                                progressText.textContent = 'Complete — ' + total + ' domains looked up';
-                                progressBar.classList.add('bg-success');
-                                if (bulkResultsData.length > 0) {
-                                    document.getElementById('bulkExportButtons').style.display = 'flex';
-                                }
-                            }
-                        });
-                }, i * 1000);
+            var queue = domains.map(function (domain) {
+                return { domain: domain, retries: 0 };
             });
+            var total = queue.length;
+            var completed = 0;
+            var countdownTimer = null;
+
+            function updateProgress() {
+                var pct = Math.round((completed / total) * 100);
+                progressBar.style.width = pct + '%';
+                progressBar.setAttribute('aria-valuenow', pct);
+                progressText.textContent = 'Looking up ' + completed + ' of ' + total + '...';
+                progressPercent.textContent = pct + '%';
+            }
+
+            function renderResultItem(domain, index, data) {
+                var badgeClass = data.availability === 'available' ? 'bg-success' : 'bg-info';
+                var badgeText = data.availability === 'available' ? 'Available' : 'Registered';
+                var regBtn = data.availability === 'available' ? ' ' + buildRegisterButtons(domain) : '';
+                var item = document.createElement('div');
+                item.className = 'accordion-item';
+                item.innerHTML =
+                    '<h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-' + index + '">' +
+                    esc(domain) + ' <span class="badge ' + badgeClass + ' ms-2">' + badgeText + '</span>' + regBtn +
+                    '</button></h2>' +
+                    '<div id="bulk-' + index + '" class="accordion-collapse collapse"><div class="accordion-body"><pre>' +
+                    esc(data.whois || data.error || 'No data') + '</pre></div></div>';
+                acc.appendChild(item);
+            }
+
+            function renderErrorItem(domain, index, message) {
+                var item = document.createElement('div');
+                item.className = 'accordion-item';
+                item.innerHTML =
+                    '<h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bulk-' + index + '">' +
+                    esc(domain) + ' <span class="badge bg-danger ms-2">Error</span>' +
+                    '</button></h2>' +
+                    '<div id="bulk-' + index + '" class="accordion-collapse collapse"><div class="accordion-body"><div class="alert alert-danger mb-0"><i class="bi bi-exclamation-triangle-fill me-2"></i>' +
+                    esc(message || 'Lookup failed') + '</div></div></div>';
+                acc.appendChild(item);
+            }
+
+            function finishBulk() {
+                showLoading(false);
+                progressText.textContent = 'Complete — ' + total + ' domains looked up';
+                progressBar.classList.add('bg-success');
+                if (bulkResultsData.length > 0) {
+                    document.getElementById('bulkExportButtons').style.display = 'flex';
+                }
+            }
+
+            // Pauses the whole queue for retryAfterSeconds, showing a live
+            // countdown in the progress text, then resolves so processing
+            // can resume exactly where it left off (Issue #213).
+            function pauseForRateLimit(retryAfterSeconds) {
+                return new Promise(function (resolve) {
+                    var remaining = Math.max(1, retryAfterSeconds);
+                    progressBar.classList.add('bg-warning');
+                    function render() {
+                        progressText.textContent = 'Rate limit reached — resuming in ' + remaining + 's… (' + completed + ' of ' + total + ' done)';
+                    }
+                    render();
+                    countdownTimer = setInterval(function () {
+                        if (gen !== bulkGen) {
+                            clearInterval(countdownTimer);
+                            countdownTimer = null;
+                            resolve();
+                            return;
+                        }
+                        remaining--;
+                        if (remaining <= 0) {
+                            clearInterval(countdownTimer);
+                            countdownTimer = null;
+                            progressBar.classList.remove('bg-warning');
+                            resolve();
+                            return;
+                        }
+                        render();
+                    }, 1000);
+                });
+            }
+
+            // Processes the queue one domain at a time (sequential, not
+            // parallel-staggered) so a 429 can pause the *whole* queue —
+            // not just the domain that triggered it — and resume from
+            // exactly where it left off once the Retry-After window has
+            // elapsed. Issue #196 Step 6: bulk only ever reads
+            // availability, whois, parsed and data_source (see
+            // renderResultItem() and the CSV/JSON export handlers below) —
+            // all core fields — so it routes through the lighter
+            // modules=core endpoint instead of the full response.
+            function processNext(index) {
+                if (gen !== bulkGen) return; // superseded by a newer bulk run
+                if (index >= queue.length) {
+                    finishBulk();
+                    return;
+                }
+                var entry = queue[index];
+                postLookupBulk('lookup?modules=core&nocache=' + Date.now(), entry.domain)
+                    .then(function (data) {
+                        if (gen !== bulkGen) return;
+                        bulkResultsData.push({ domain: entry.domain, data: data }); // Store for export (Issue #49)
+                        renderResultItem(entry.domain, index, data);
+                        completed++;
+                        updateProgress();
+                        setTimeout(function () { processNext(index + 1); }, BULK_STAGGER_MS);
+                    })
+                    .catch(function (err) {
+                        if (gen !== bulkGen) return;
+                        if (err && err.isRateLimited && entry.retries < BULK_MAX_RETRIES) {
+                            entry.retries++;
+                            pauseForRateLimit(err.retryAfter).then(function () {
+                                if (gen !== bulkGen) return;
+                                processNext(index); // retry the same domain, queue position unchanged
+                            });
+                            return;
+                        }
+                        var message = (err && err.isRateLimited)
+                            ? 'Rate limited after ' + BULK_MAX_RETRIES + ' retries — please try again later.'
+                            : ((err && err.message) || 'Lookup failed');
+                        renderErrorItem(entry.domain, index, message);
+                        completed++;
+                        updateProgress();
+                        setTimeout(function () { processNext(index + 1); }, BULK_STAGGER_MS);
+                    });
+            }
+
+            processNext(0);
         }
 
         // ── Bulk export (Issue #49) ──
@@ -1365,9 +1698,14 @@ if ($_showPortfolioIcon): ?>
             var csv = 'Domain,Availability,Registrar,Creation Date,Expiry Date,Data Source\n';
             bulkResultsData.forEach(function (r) {
                 var p = r.data.parsed || {};
-                csv += '"' + r.domain + '","' + (r.data.availability || '') + '","' +
-                    (p['Registrar'] || '') + '","' + (p['Creation Date'] || '') + '","' +
-                    (p['Expiry Date'] || '') + '","' + (r.data.data_source || '') + '"\n';
+                csv += [
+                    csvEscape(r.domain),
+                    csvEscape(r.data.availability || ''),
+                    csvEscape(p['Registrar'] || ''),
+                    csvEscape(p['Creation Date'] || ''),
+                    csvEscape(p['Expiry Date'] || ''),
+                    csvEscape(r.data.data_source || '')
+                ].join(',') + '\n';
             });
             var a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -1389,13 +1727,159 @@ if ($_showPortfolioIcon): ?>
         });
 
         // ── Display results ──
-        function displayResults(data) {
+        // Issue #196: display is split into slot-based per-key renderers.
+        // renderCore() renders the core (always-present) fields AND stamps
+        // pre-created empty placeholder <div id="slot-*"> elements into
+        // every result pane — one slot per render KEY, in the exact position
+        // that key's content occupies today — so a later renderModule() call
+        // (fired progressively, per async module fetch — see triggerLookup()/
+        // startModuleFetches()) can only ever fill an already-positioned slot
+        // and can never reorder the pane's layout.
+        function stampResultSlots() {
+            document.getElementById('parsedFields').innerHTML =
+                '<div id="slot-security_score"></div>' +
+                '<div id="slot-parsed"></div>' +
+                '<div id="slot-geolocation"></div>' +
+                '<div id="slot-redirect_chain"></div>' +
+                '<div id="slot-response_times"></div>' +
+                '<div id="slot-timeline"></div>';
+            document.getElementById('dnsResultPane').innerHTML =
+                '<div id="slot-dns"></div>' +
+                '<div id="slot-dnssec"></div>' +
+                '<div id="slot-ipv6"></div>' +
+                '<div id="slot-ns_diversity"></div>' +
+                '<div id="slot-dns_propagation"></div>';
+            document.getElementById('emailSecurityPane').innerHTML =
+                '<div id="slot-email_security"></div>' +
+                '<div id="slot-smtp"></div>' +
+                '<div id="slot-multi_dnsbl"></div>';
+            document.getElementById('sslPane').innerHTML =
+                '<div id="slot-ssl"></div>' +
+                '<div id="slot-shodan"></div>' +
+                '<div id="slot-http_headers"></div>' +
+                '<div id="slot-tls_audit"></div>' +
+                '<div id="slot-caa"></div>' +
+                '<div id="slot-http_versions"></div>';
+            document.getElementById('subdomainsPane').innerHTML =
+                '<div id="slot-reverse_ip"></div>' +
+                '<div id="slot-tech_stack"></div>' +
+                '<div id="slot-robots_txt"></div>' +
+                '<div id="slot-subdomains"></div>';
+            document.getElementById('securityPane').innerHTML =
+                '<div id="slot-security_details"></div>';
+        }
+
+        // ── EPP domain-status codes (Issue #225) ──
+        // Status codes are the most-Googled WHOIS field, and raw values like
+        // "clientTransferProhibited" are opaque registry jargon. This maps
+        // ICANN's standard EPP status codes to a plain-English label/
+        // description + a severity tier, so renderEppStatusChips() (called
+        // from renderCore()'s Domain Summary table below) can turn the raw
+        // "Status" values into chips with a tooltip and an ICANN reference
+        // link instead of plain text. client* codes are set by the sponsoring
+        // registrar, server* by the registry — functionally the same thing
+        // from an end user's point of view, so each pair shares wording.
+        var EPP_STATUS_CODES = {
+            ok: { label: 'OK', desc: 'Normal status — no restrictions; the domain is in good standing.', severity: 'ok' },
+            addPeriod: { label: 'Add Grace Period', desc: 'Domain was registered within the last few days and can still be deleted by the registrar for a full refund.', severity: 'info' },
+            autoRenewPeriod: { label: 'Auto-Renew Grace Period', desc: 'Domain was automatically renewed and is in a short grace period where that renewal can still be reversed.', severity: 'info' },
+            inactive: { label: 'Inactive', desc: 'Domain has no active name servers configured, so it will not resolve.', severity: 'warn' },
+            pendingCreate: { label: 'Pending Create', desc: 'A registration request has been received and is being processed.', severity: 'info' },
+            pendingRenew: { label: 'Pending Renew', desc: 'A renewal request has been received and is being processed.', severity: 'info' },
+            pendingRestore: { label: 'Pending Restore', desc: 'Domain is being restored from the redemption period, awaiting registry confirmation.', severity: 'info' },
+            pendingTransfer: { label: 'Pending Transfer', desc: 'A transfer request has been received and is awaiting approval or the auto-approval window.', severity: 'info' },
+            pendingUpdate: { label: 'Pending Update', desc: 'An update to the domain’s data has been received and is being processed.', severity: 'info' },
+            pendingDelete: { label: 'Pending Delete', desc: 'Domain is scheduled for deletion and will be released soon unless it is restored.', severity: 'danger' },
+            redemptionPeriod: { label: 'Redemption Period', desc: 'Domain was deleted and can only be restored by the registrant, at a cost, before it is permanently released.', severity: 'danger' },
+            renewPeriod: { label: 'Renew Period', desc: 'Domain was just renewed and is in a short grace period where that renewal can still be reversed.', severity: 'info' },
+            transferPeriod: { label: 'Transfer Period', desc: 'Domain was just transferred to a new registrar and is in a short post-transfer grace period.', severity: 'info' },
+            clientDeleteProhibited: { label: 'Client Delete Prohibited', desc: 'The current registrar has blocked deletion of this domain.', severity: 'info' },
+            serverDeleteProhibited: { label: 'Server Delete Prohibited', desc: 'The registry has blocked deletion of this domain.', severity: 'info' },
+            clientHold: { label: 'Client Hold', desc: 'The registrar has removed this domain from the DNS zone — the website and email will not work.', severity: 'danger' },
+            serverHold: { label: 'Server Hold', desc: 'The registry has removed this domain from the DNS zone — the website and email will not work.', severity: 'danger' },
+            clientRenewProhibited: { label: 'Client Renew Prohibited', desc: 'The current registrar has blocked renewal of this domain.', severity: 'warn' },
+            serverRenewProhibited: { label: 'Server Renew Prohibited', desc: 'The registry has blocked renewal of this domain.', severity: 'warn' },
+            clientTransferProhibited: { label: 'Client Transfer Prohibited', desc: 'The current registrar has locked this domain against transfer — usually a good sign, set intentionally to prevent unauthorised transfers.', severity: 'info' },
+            serverTransferProhibited: { label: 'Server Transfer Prohibited', desc: 'The registry has locked this domain against transfer — usually a good sign, set intentionally to prevent unauthorised transfers.', severity: 'info' },
+            clientUpdateProhibited: { label: 'Client Update Prohibited', desc: 'The current registrar has blocked changes to this domain’s data.', severity: 'info' },
+            serverUpdateProhibited: { label: 'Server Update Prohibited', desc: 'The registry has blocked changes to this domain’s data.', severity: 'info' }
+        };
+        var EPP_STATUS_BADGE_CLASS = { ok: 'bg-success', info: 'bg-secondary', warn: 'bg-warning text-dark', danger: 'bg-danger' };
+
+        // Normalises one raw "Domain Status" entry down to the canonical
+        // camelCase EPP code used as EPP_STATUS_CODES' keys. Handles the two
+        // shapes this app's parsed data can contain: a bare/registry WHOIS
+        // code that often has a reference URL appended by the registry
+        // (e.g. "clientTransferProhibited https://icann.org/epp#..." —
+        // see formatRdapResponse()/parseWhoisFields() in includes/functions.php),
+        // and RDAP's space-separated form (e.g. "client transfer prohibited",
+        // per RFC 8056). Never throws — worst case it returns the trimmed
+        // raw text unchanged, which renderEppStatusChips() then shows as an
+        // unrecognised/neutral chip.
+        function normalizeEppStatusCode(raw) {
+            var s = String(raw || '').trim();
+            s = s.replace(/\s+(https?:\/\/\S+)$/i, '').trim(); // strip a trailing registry-appended URL
+            if (!s || s.indexOf(' ') === -1) {
+                return s; // already a bare token (EPP camelCase, or an unrecognised single word)
+            }
+            return s.toLowerCase().split(/\s+/).map(function (word, i) {
+                return i === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1);
+            }).join('');
+        }
+
+        // Renders one or more raw EPP/RDAP status strings as a row of
+        // Bootstrap badge "chips": known codes get a severity colour, a
+        // plain-English tooltip, and a link to ICANN's EPP status-code
+        // reference; unrecognised codes still render safely as a neutral
+        // chip showing the raw code so an unexpected/future status can
+        // never break the summary table.
+        function renderEppStatusChips(statuses) {
+            var list = Array.isArray(statuses) ? statuses : [statuses];
+            var chips = list.filter(function (s) { return s !== null && s !== undefined && String(s).trim() !== ''; }).map(function (raw) {
+                var code = normalizeEppStatusCode(raw);
+                // hasOwnProperty guard: `code` is derived from external WHOIS/RDAP
+                // text, so a crafted status string (e.g. one that normalises to
+                // "__proto__" or "constructor") must not resolve to an inherited
+                // Object.prototype member via plain bracket lookup — that would be
+                // treated as a "known" status and misrender (safely, but wrongly).
+                var info = Object.prototype.hasOwnProperty.call(EPP_STATUS_CODES, code) ? EPP_STATUS_CODES[code] : null;
+                var badgeClass = info ? (EPP_STATUS_BADGE_CLASS[info.severity] || 'bg-secondary') : 'bg-light text-dark border';
+                var tooltipText = info
+                    ? (info.label + ' — ' + info.desc)
+                    : ('Status code "' + (code || String(raw)) + '" — not in ICANN’s standard EPP list; shown as reported.');
+                // esc() only escapes &/</> (safe for element content); it does not
+                // escape quotes, which matters here because this lands in a
+                // title="..." attribute — escape those separately (Issue #225).
+                var titleAttr = esc(tooltipText).replace(/"/g, '&quot;');
+                var codeLabel = esc(code || String(raw));
+                var chip = '<span class="badge ' + badgeClass + '" title="' + titleAttr + '">' + codeLabel + '</span>';
+                if (info) {
+                    chip = '<a href="https://icann.org/epp#' + encodeURIComponent(code) + '" target="_blank" rel="noopener noreferrer" class="text-decoration-none">' + chip + '</a>';
+                }
+                return chip;
+            });
+            return '<div class="d-flex flex-wrap gap-1">' + chips.join('') + '</div>';
+        }
+
+        // ── renderCore: availability badge + register buttons + screenshot,
+        // source badge, core summary table (+ its reputation/email summary
+        // alerts via renderSummaryAlert), WHOIS pane, DNS table, suggest
+        // button, timeline, wayback + action buttons, ?Only= filtering,
+        // updateWatchButtons. Returns false if rendering stopped early
+        // (available/unregistered domain — matches the legacy early return),
+        // true otherwise. ──
+        function renderCore(data) {
             // Availability badge
             var avBadge = document.getElementById('availabilityBadge');
-            if (data.availability === 'available') {
+            if (data.is_ip) {
+                // IP lookups have no domain-availability concept (Issue #217) —
+                // neutral badge, no "is registered" text and no watch button.
+                avBadge.innerHTML = '<div class="alert alert-secondary d-flex align-items-center">' +
+                    '<div><i class="bi bi-hdd-network-fill me-2"></i><strong>' + esc(currentDomain) + '</strong>&nbsp;&mdash; IP address lookup</div></div>';
+            } else if (data.availability === 'available') {
                 var regButtons = buildRegisterButtons(currentDomain);
                 avBadge.innerHTML = '<div class="alert alert-success d-flex align-items-center justify-content-between flex-wrap gap-2">' +
-                    '<div><i class="bi bi-check-circle-fill me-2"></i><strong>' + esc(currentDomain) + '</strong> appears to be available!</div>' +
+                    '<div><i class="bi bi-check-circle-fill me-2"></i><strong>' + formatDomainDisplay(currentDomain) + '</strong> appears to be available!</div>' +
                     '<div class="d-flex gap-1 flex-wrap">' + regButtons + '</div></div>';
                 avBadge.style.display = '';
                 // Hide all result sections for available/unregistered domains (Issue #174)
@@ -1409,11 +1893,11 @@ if ($_showPortfolioIcon): ?>
                 document.getElementById('subdomainsPane').style.display = 'none';
                 document.getElementById('securityPane').style.display = 'none';
                 document.getElementById('actionButtons').style.cssText = 'display:none !important';
-                return;
+                return false;
             } else {
                 var watchBtn = ' <button class="btn btn-outline-secondary btn-sm ms-auto watchDomainBtn" data-domain="' + esc(currentDomain) + '" aria-label="Watch for expiry"><i class="bi bi-eye"></i></button>';
                 avBadge.innerHTML = '<div class="alert alert-info d-flex align-items-center">' +
-                    '<div><i class="bi bi-info-circle-fill me-2"></i><strong>' + esc(currentDomain) + '</strong>&nbsp;is registered.</div>' + watchBtn + '</div>';
+                    '<div><i class="bi bi-info-circle-fill me-2"></i><strong>' + formatDomainDisplay(currentDomain) + '</strong>&nbsp;is registered.</div>' + watchBtn + '</div>';
             }
             avBadge.style.display = '';
 
@@ -1430,6 +1914,10 @@ if ($_showPortfolioIcon): ?>
             document.getElementById('subdomainsPane').style.display = 'none';
             document.getElementById('securityPane').style.display = 'none';
 
+            // Stamp pre-created empty per-key slots into every pane before any
+            // module content is written (Issue #196 Step 5/6 seam).
+            stampResultSlots();
+
             // Source badge
             var dsBadge = document.getElementById('dataSourceBadge');
             dsBadge.innerHTML = '<span class="badge bg-secondary">Source: ' + (data.data_source || 'whois').toUpperCase() + (data.cached ? ' (cached)' : '') + '</span>';
@@ -1439,9 +1927,18 @@ if ($_showPortfolioIcon): ?>
             }
             dsBadge.style.display = '';
 
-            // Parsed fields card
+            // Parsed fields card — core summary table + a dedicated
+            // #slot-alerts div for the reputation/email/core summary alerts
+            // (renderSummaryAlert). Kept nested inside this same slot
+            // (slot-parsed) because the legacy markup put the alert <div>s
+            // INSIDE the same card-body, below the table, before the card is
+            // closed — splitting them into an independent sibling slot would
+            // visually move the alerts outside the bordered card. Issue #196
+            // Step 6: #slot-alerts lets renderSummaryAlert() be called again
+            // later (from renderModule()) as each module's alert-bearing
+            // keys arrive, appending into the same slot instead of
+            // re-rendering the whole card.
             if (data.parsed && Object.keys(data.parsed).length) {
-                var pf = document.getElementById('parsedFields');
                 var html = '<div class="card"><div class="card-header"><strong>Domain Summary</strong></div><div class="card-body"><table class="table table-sm mb-0">';
                 for (var key in data.parsed) {
                     var val = Array.isArray(data.parsed[key]) ? data.parsed[key].join(', ') : data.parsed[key];
@@ -1454,98 +1951,20 @@ if ($_showPortfolioIcon): ?>
                             cls = ' class="table-warning"';
                         }
                     }
-                    html += '<tr' + cls + '><td class="fw-bold">' + key + '</td><td>' + val + '</td></tr>';
+                    // Issue #225: render the "Status" field (EPP domain-status
+                    // codes, e.g. clientTransferProhibited) as explainer chips
+                    // instead of raw comma-joined text. Every other field keeps
+                    // its existing plain-text rendering.
+                    var cellHtml = (key === 'Status')
+                        ? renderEppStatusChips(data.parsed[key])
+                        : esc(val);
+                    html += '<tr' + cls + '><td class="fw-bold">' + esc(key) + '</td><td>' + cellHtml + '</td></tr>';
                 }
-                html += '</table>';
-                // Safe Browsing warning (Issue #52)
-                if (data.safe_browsing && !data.safe_browsing.safe) {
-                    html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-shield-exclamation me-1" aria-hidden="true"></i><strong>Security Warning:</strong> This domain is flagged by Google Safe Browsing — ' + esc(data.safe_browsing.threats.join(', ')) + '</div>';
-                }
-
-                // VirusTotal reputation (Issue #53)
-                if (data.virustotal) {
-                    var vt = data.virustotal;
-                    var vtClass = vt.malicious > 0 ? 'alert-danger' : (vt.suspicious > 0 ? 'alert-warning' : 'alert-info');
-                    var vtIcon = vt.malicious > 0 ? 'bi-shield-x' : (vt.suspicious > 0 ? 'bi-shield-exclamation' : 'bi-shield-check');
-                    html += '<div class="alert ' + vtClass + ' mt-2 mb-0 small"><i class="bi ' + vtIcon + ' me-1" aria-hidden="true"></i><strong>VirusTotal:</strong> ' + vt.malicious + ' malicious, ' + vt.suspicious + ' suspicious, ' + vt.harmless + ' clean detections</div>';
-                }
-
-                // Registrar reputation flag (Issue #51)
-                if (data.registrar_reputation) {
-                    var repClass = data.registrar_reputation.rating === 'warning' ? 'alert-danger' : 'alert-warning';
-                    var repIcon = data.registrar_reputation.rating === 'warning' ? 'bi-exclamation-triangle-fill' : 'bi-exclamation-circle-fill';
-                    html += '<div class="alert ' + repClass + ' mt-2 mb-0 small"><i class="bi ' + repIcon + ' me-1" aria-hidden="true"></i><strong>Registrar Notice:</strong> ' + esc(data.registrar_reputation.reason) + '</div>';
-                }
-
-                // Domain age risk (Issue #95)
-                if (data.domain_age_risk) {
-                    var dar = data.domain_age_risk;
-                    var darClass = dar.risk === 'high' ? 'alert-danger' : (dar.risk === 'medium' ? 'alert-warning' : 'alert-info');
-                    var darIcon = dar.risk === 'high' ? 'bi-exclamation-triangle-fill' : (dar.risk === 'medium' ? 'bi-exclamation-circle' : 'bi-info-circle');
-                    if (dar.risk !== 'low') {
-                        html += '<div class="alert ' + darClass + ' mt-2 mb-0 small"><i class="bi ' + darIcon + ' me-1" aria-hidden="true"></i><strong>Domain Age:</strong> ' + esc(dar.reason) + ' (' + dar.days_old + ' days)</div>';
-                    }
-                }
-
-                // WHOIS privacy (Issue #104)
-                if (data.whois_privacy && data.whois_privacy.privacy_enabled) {
-                    html += '<div class="alert alert-info mt-2 mb-0 small"><i class="bi bi-shield-lock me-1" aria-hidden="true"></i><strong>WHOIS Privacy:</strong> Registrant data is protected (' + esc(data.whois_privacy.indicators.slice(0, 3).join(', ')) + ')</div>';
-                }
-
-                // Hosting risk (Issue #105)
-                if (data.hosting_risk && data.hosting_risk.risk !== 'low') {
-                    var hrClass = data.hosting_risk.risk === 'high' ? 'alert-danger' : 'alert-warning';
-                    html += '<div class="alert ' + hrClass + ' mt-2 mb-0 small"><i class="bi bi-geo-alt me-1" aria-hidden="true"></i><strong>Hosting:</strong> ' + esc(data.hosting_risk.reason) + ' (' + esc(data.hosting_risk.country) + ')</div>';
-                }
-
-                // PhishTank (Issue #98)
-                if (data.phishtank && data.phishtank.is_phish) {
-                    html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-bug me-1" aria-hidden="true"></i><strong>PhishTank:</strong> This domain is flagged as a known phishing site</div>';
-                }
-
-                // URLhaus (Issue #99)
-                if (data.urlhaus && data.urlhaus.urls_total > 0) {
-                    html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-radioactive me-1" aria-hidden="true"></i><strong>URLhaus:</strong> ' + data.urlhaus.urls_total + ' malware URL(s) associated with this domain</div>';
-                }
-
-                // Spamhaus (Issue #100)
-                if (data.spamhaus && data.spamhaus.listed) {
-                    html += '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-envelope-x me-1" aria-hidden="true"></i><strong>Spamhaus:</strong> IP is listed on ' + data.spamhaus.lists.length + ' blocklist(s): ' + esc(data.spamhaus.lists.map(function(l){ return l.label; }).join(', ')) + '</div>';
-                }
-
-                // AbuseIPDB (Issue #96)
-                if (data.abuseipdb && data.abuseipdb.abuse_score > 0) {
-                    var abuseClass = data.abuseipdb.abuse_score > 50 ? 'alert-danger' : 'alert-warning';
-                    html += '<div class="alert ' + abuseClass + ' mt-2 mb-0 small"><i class="bi bi-flag me-1" aria-hidden="true"></i><strong>AbuseIPDB:</strong> Abuse confidence ' + data.abuseipdb.abuse_score + '%, ' + data.abuseipdb.total_reports + ' report(s)' + (data.abuseipdb.is_tor ? ' — Tor exit node' : '') + '</div>';
-                }
-
-                html += '</div></div>';
-                pf.innerHTML = html;
-                pf.style.display = '';
-            }
-
-            // IP geolocation (Issue #18)
-            if (data.geolocation) {
-                var geo = data.geolocation;
-                var geoHtml = '<div class="card mt-3"><div class="card-header"><strong>Server Location</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                if (geo.city) {
-                    geoHtml += '<tr><td class="fw-bold">City</td><td>' + esc(geo.city) + '</td></tr>';
-                }
-                if (geo.country) {
-                    geoHtml += '<tr><td class="fw-bold">Country</td><td>' + esc(geo.country) + ' (' + esc(geo.country_code) + ')</td></tr>';
-                }
-                if (geo.isp) {
-                    geoHtml += '<tr><td class="fw-bold">ISP</td><td>' + esc(geo.isp) + '</td></tr>';
-                }
-                if (geo.org) {
-                    geoHtml += '<tr><td class="fw-bold">Organization</td><td>' + esc(geo.org) + '</td></tr>';
-                }
-                if (geo.as) {
-                    geoHtml += '<tr><td class="fw-bold">AS</td><td>' + esc(geo.as) + '</td></tr>';
-                }
-                geoHtml += '</table></div></div>';
-                document.getElementById('parsedFields').innerHTML += geoHtml;
-                if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
+                html += '</table><div id="slot-alerts"></div></div></div>';
+                document.getElementById('slot-parsed').innerHTML = html;
+                document.getElementById('parsedFields').style.display = '';
+                renderedAlertKeys = {};
+                renderSummaryAlert(data);
             }
 
             // Formatted WHOIS
@@ -1559,238 +1978,12 @@ if ($_showPortfolioIcon): ?>
                     dnsHtml += '<tr><td><span class="badge bg-secondary">' + esc(r.type) + '</span></td><td>' + esc(r.value) + '</td><td>' + esc(r.priority || '') + '</td></tr>';
                 });
                 dnsHtml += '</tbody></table>';
-                document.getElementById('dnsResultPane').innerHTML = dnsHtml;
-            }
-
-            // Email security (Issue #56)
-            if (data.email_security && Object.keys(data.email_security).length) {
-                document.getElementById('resultTabs').style.display = '';
-                var es = data.email_security;
-                var esHtml = '<div class="card"><div class="card-header"><strong>Email Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-
-                // SPF
-                var spfIcon = es.spf.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
-                esHtml += '<tr><td class="fw-bold">' + spfIcon + ' SPF</td><td>' + (es.spf.status || 'missing') + '</td></tr>';
-                if (es.spf.record) {
-                    esHtml += '<tr><td></td><td><code class="small">' + es.spf.record + '</code></td></tr>';
-                }
-
-                // DMARC
-                var dmarcIcon = es.dmarc.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
-                esHtml += '<tr><td class="fw-bold">' + dmarcIcon + ' DMARC</td><td>' + (es.dmarc.status || 'missing') + '</td></tr>';
-                if (es.dmarc.record) {
-                    esHtml += '<tr><td></td><td><code class="small">' + es.dmarc.record + '</code></td></tr>';
-                }
-
-                // DKIM
-                var dkimIcon = es.dkim.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-exclamation-triangle-fill text-warning"></i>';
-                esHtml += '<tr><td class="fw-bold">' + dkimIcon + ' DKIM</td><td>' + (es.dkim.status || 'unknown') + '</td></tr>';
-
-                // MTA-STS (Issue #101)
-                if (data.mta_sts) {
-                    var stsIcon = data.mta_sts.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
-                    esHtml += '<tr><td class="fw-bold">' + stsIcon + ' MTA-STS</td><td>' + (data.mta_sts.found ? 'configured' + (data.mta_sts.mode ? ' (' + esc(data.mta_sts.mode) + ')' : '') : 'not configured') + '</td></tr>';
-                }
-
-                // BIMI (Issue #102)
-                if (data.bimi) {
-                    var bimiIcon = data.bimi.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
-                    esHtml += '<tr><td class="fw-bold">' + bimiIcon + ' BIMI</td><td>' + (data.bimi.found ? 'configured' + (data.bimi.logo_url ? ' — <a href="' + esc(data.bimi.logo_url) + '" target="_blank" rel="noopener">view logo</a>' : '') : 'not configured') + '</td></tr>';
-                }
-
-                esHtml += '</table></div></div>';
-
-                // HIBP breach data (Issue #65)
-                if (data.hibp && data.hibp.length > 0) {
-                    esHtml += '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-exclamation me-1" aria-hidden="true"></i>Data Breaches</strong> <span class="badge bg-danger">' + data.hibp.length + '</span></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Breach</th><th>Date</th><th>Accounts</th><th>Compromised Data</th></tr></thead><tbody>';
-                    data.hibp.forEach(function (b) {
-                        esHtml += '<tr><td class="fw-bold">' + esc(b.title) + '</td><td>' + esc(b.date) + '</td><td>' + (b.pwn_count ? b.pwn_count.toLocaleString() : 'N/A') + '</td><td><small>' + esc(b.data_classes.join(', ')) + '</small></td></tr>';
-                    });
-                    esHtml += '</tbody></table></div></div>';
-                } else if (data.hibp !== null && data.hibp.length === 0) {
-                    esHtml += '<div class="alert alert-success mt-3 small"><i class="bi bi-shield-check me-1" aria-hidden="true"></i>No known data breaches found for this domain.</div>';
-                }
-
-                document.getElementById('emailSecurityPane').innerHTML = esHtml;
-            }
-
-            // DNSSEC (Issue #93) — show in DNS results area
-            if (data.dnssec) {
-                var dsIcon = data.dnssec.signed ? '<i class="bi bi-shield-check text-success me-1"></i>' : '<i class="bi bi-shield-x text-warning me-1"></i>';
-                var dsText = data.dnssec.signed ? 'DNSSEC is enabled' + (data.dnssec.ds_records ? ' (' + data.dnssec.ds_records + ' DS record(s))' : '') : 'DNSSEC is not enabled';
-                var dnsPane = document.getElementById('dnsResultPane');
-                dnsPane.innerHTML += '<div class="alert ' + (data.dnssec.signed ? 'alert-success' : 'alert-warning') + ' mt-2 small">' + dsIcon + '<strong>DNSSEC:</strong> ' + dsText + '</div>';
-            }
-
-            // SSL/TLS info (Issue #19)
-            if (data.ssl) {
-                document.getElementById('resultTabs').style.display = '';
-                var ssl = data.ssl;
-                var sslHtml = '<div class="card"><div class="card-header"><strong>SSL/TLS Certificate</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                var expiredClass = ssl.expired ? ' class="table-danger"' : '';
-                sslHtml += '<tr><td class="fw-bold">Subject</td><td>' + esc(ssl.subject || '') + '</td></tr>';
-                sslHtml += '<tr><td class="fw-bold">Issuer</td><td>' + esc(ssl.issuer || '') + '</td></tr>';
-                sslHtml += '<tr><td class="fw-bold">Valid From</td><td>' + esc(ssl.valid_from || '') + '</td></tr>';
-                sslHtml += '<tr><td class="fw-bold">Valid To</td><td>' + esc(ssl.valid_to || '') + '</td></tr>';
-                sslHtml += '<tr' + expiredClass + '><td class="fw-bold">Expires In</td><td>' + esc(ssl.expires_in || '') + (ssl.expired ? ' <span class="badge bg-danger">EXPIRED</span>' : '') + '</td></tr>';
-                if (ssl.san && ssl.san.length) {
-                    sslHtml += '<tr><td class="fw-bold">Alt Names</td><td>' + ssl.san.map(esc).join(', ') + '</td></tr>';
-                }
-                sslHtml += '</table></div></div>';
-
-                // DANE/TLSA (Issue #103)
-                if (data.dane_tlsa && data.dane_tlsa.found) {
-                    sslHtml += '<div class="card mt-3"><div class="card-header"><strong>DANE/TLSA Records</strong></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Usage</th><th>Selector</th><th>Matching</th><th>Data</th></tr></thead><tbody>';
-                    data.dane_tlsa.records.forEach(function (r) {
-                        sslHtml += '<tr><td>' + r.usage + '</td><td>' + r.selector + '</td><td>' + r.matching + '</td><td><code class="small">' + esc(r.data) + '</code></td></tr>';
-                    });
-                    sslHtml += '</tbody></table></div></div>';
-                }
-
-                // Certificate Transparency (Issue #94)
-                if (data.cert_transparency) {
-                    sslHtml += '<div class="card mt-3"><div class="card-header"><strong>Certificate Transparency</strong> <span class="badge bg-secondary">' + data.cert_transparency.total + ' certificates</span></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Issuer</th><th>Common Name</th><th>Not Before</th><th>Not After</th></tr></thead><tbody>';
-                    data.cert_transparency.recent.forEach(function (c) {
-                        sslHtml += '<tr><td class="small">' + esc(c.issuer) + '</td><td>' + esc(c.common_name) + '</td><td>' + esc(c.not_before) + '</td><td>' + esc(c.not_after) + '</td></tr>';
-                    });
-                    sslHtml += '</tbody></table></div></div>';
-                }
-
-                document.getElementById('sslPane').innerHTML = sslHtml;
-            }
-
-            // Shodan (Issue #97) — show in subdomains/network area
-            if (data.shodan) {
-                var shHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-hdd-network me-1"></i>Exposed Services (Shodan)</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                shHtml += '<tr><td class="fw-bold">Open Ports</td><td>' + (data.shodan.ports.length ? data.shodan.ports.join(', ') : 'None detected') + '</td></tr>';
-                if (data.shodan.os) {
-                    shHtml += '<tr><td class="fw-bold">OS</td><td>' + esc(data.shodan.os) + '</td></tr>';
-                }
-                if (data.shodan.org) {
-                    shHtml += '<tr><td class="fw-bold">Organization</td><td>' + esc(data.shodan.org) + '</td></tr>';
-                }
-                if (data.shodan.vulns && data.shodan.vulns.length) {
-                    shHtml += '<tr class="table-danger"><td class="fw-bold">Known Vulnerabilities</td><td>' + data.shodan.vulns.map(esc).join(', ') + '</td></tr>';
-                }
-                shHtml += '</table></div></div>';
-                document.getElementById('sslPane').innerHTML += shHtml;
-            }
-
-            // HTTP Security Headers (Issue #106)
-            if (data.http_headers) {
-                var hh = data.http_headers;
-                var hhHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-lock me-1"></i>HTTP Security Headers</strong> <span class="badge ' + (hh.grade <= 'B' ? 'bg-success' : (hh.grade <= 'D' ? 'bg-warning' : 'bg-danger')) + '">' + hh.grade + ' (' + hh.pass + '/' + hh.total + ')</span></div><div class="card-body"><table class="table table-sm mb-0">';
-                hh.headers.forEach(function (h) {
-                    var icon = h.present ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
-                    hhHtml += '<tr><td class="fw-bold">' + icon + ' ' + esc(h.header) + '</td><td>' + (h.present ? '<code class="small">' + esc(h.value || '') + '</code>' : '<span class="text-muted">missing</span>') + '</td></tr>';
-                });
-                hhHtml += '</table></div></div>';
-                document.getElementById('sslPane').innerHTML += hhHtml;
-            }
-
-            // TLS Audit (Issue #108)
-            if (data.tls_audit) {
-                var ta = data.tls_audit;
-                var taHtml = '<div class="card mt-3"><div class="card-header"><strong>TLS Version Support</strong>' + (ta.insecure ? ' <span class="badge bg-danger">Insecure versions enabled</span>' : '') + '</div><div class="card-body"><table class="table table-sm mb-0">';
-                if (ta.protocol) {
-                    taHtml += '<tr><td class="fw-bold">Negotiated</td><td>' + esc(ta.protocol) + '</td></tr>';
-                }
-                if (ta.cipher) {
-                    taHtml += '<tr><td class="fw-bold">Cipher</td><td><code>' + esc(ta.cipher) + '</code></td></tr>';
-                }
-                for (var ver in ta.versions) {
-                    var cls = (ver === 'TLSv1.0' || ver === 'TLSv1.1') && ta.versions[ver] ? ' class="table-danger"' : '';
-                    taHtml += '<tr' + cls + '><td class="fw-bold">' + esc(ver) + '</td><td>' + (ta.versions[ver] ? '<i class="bi bi-check-circle text-success"></i> Supported' : '<i class="bi bi-x-circle text-muted"></i> Not supported') + '</td></tr>';
-                }
-                taHtml += '</table></div></div>';
-                document.getElementById('sslPane').innerHTML += taHtml;
-            }
-
-            // CAA Records (Issue #109)
-            if (data.caa_records && data.caa_records.found) {
-                var caaHtml = '<div class="card mt-3"><div class="card-header"><strong>CAA Records</strong></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Tag</th><th>Value</th><th>Flag</th></tr></thead><tbody>';
-                data.caa_records.records.forEach(function (r) {
-                    caaHtml += '<tr><td>' + esc(r.tag) + '</td><td>' + esc(r.value) + '</td><td>' + r.flag + '</td></tr>';
-                });
-                caaHtml += '</tbody></table></div></div>';
-                document.getElementById('sslPane').innerHTML += caaHtml;
-            }
-
-            // SMTP Security (Issue #110)
-            if (data.smtp_security) {
-                var sm = data.smtp_security;
-                var smIcon = sm.starttls ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
-                var esPane = document.getElementById('emailSecurityPane');
-                esPane.innerHTML += '<div class="card mt-3"><div class="card-header"><strong>SMTP Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                esPane.innerHTML = esPane.innerHTML.slice(0, -1); // reopen
-                var smHtml = '<div class="card mt-3"><div class="card-header"><strong>SMTP Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                smHtml += '<tr><td class="fw-bold">MX Server</td><td>' + esc(sm.mx_host) + '</td></tr>';
-                if (sm.banner) {
-                    smHtml += '<tr><td class="fw-bold">Banner</td><td><code class="small">' + esc(sm.banner) + '</code></td></tr>';
-                }
-                smHtml += '<tr><td class="fw-bold">' + smIcon + ' STARTTLS</td><td>' + (sm.starttls ? 'Supported' : 'Not supported') + '</td></tr>';
-                smHtml += '</table></div></div>';
-                document.getElementById('emailSecurityPane').innerHTML += smHtml;
-            }
-
-            // Redirect Chain (Issue #107)
-            if (data.redirect_chain && data.redirect_chain.hops > 1) {
-                var rc = data.redirect_chain;
-                var rcHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-arrow-right-circle me-1"></i>Redirect Chain</strong>' + (rc.suspicious ? ' <span class="badge bg-warning">Excessive redirects</span>' : '') + (rc.http_to_https ? ' <span class="badge bg-info">HTTP→HTTPS</span>' : '') + '</div><div class="card-body"><ol class="mb-0 small">';
-                rc.chain.forEach(function (hop) {
-                    rcHtml += '<li><code>' + esc(hop.url) + '</code> <span class="badge bg-secondary">' + hop.status + '</span></li>';
-                });
-                rcHtml += '</ol></div></div>';
-                document.getElementById('parsedFields').innerHTML += rcHtml;
-                if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
-            }
-
-            // HTTP Versions (Issue #112)
-            if (data.http_versions) {
-                var hv = data.http_versions;
-                var hvHtml = '<div class="card mt-3"><div class="card-header"><strong>Protocol Support</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                if (hv.protocol) {
-                    hvHtml += '<tr><td class="fw-bold">Negotiated</td><td>' + esc(hv.protocol) + '</td></tr>';
-                }
-                hvHtml += '<tr><td class="fw-bold">HTTP/2</td><td>' + (hv.http2 ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No') + '</td></tr>';
-                hvHtml += '<tr><td class="fw-bold">HTTP/3</td><td>' + (hv.http3 ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No') + '</td></tr>';
-                hvHtml += '</table></div></div>';
-                document.getElementById('sslPane').innerHTML += hvHtml;
-            }
-
-            // IPv6 (Issue #113)
-            if (data.ipv6) {
-                var v6Icon = data.ipv6.has_aaaa ? '<i class="bi bi-check-circle text-success me-1"></i>' : '<i class="bi bi-x-circle text-warning me-1"></i>';
-                var v6Text = data.ipv6.has_aaaa ? 'IPv6 ready (' + data.ipv6.aaaa_records.map(esc).join(', ') + ')' : 'No AAAA records — IPv6 not configured';
-                document.getElementById('dnsResultPane').innerHTML += '<div class="alert ' + (data.ipv6.has_aaaa ? 'alert-success' : 'alert-warning') + ' mt-2 small">' + v6Icon + '<strong>IPv6:</strong> ' + v6Text + '</div>';
-            }
-
-            // Response Times (Issue #114)
-            if (data.response_times && data.response_times.dns_ms !== null) {
-                var rt = data.response_times;
-                var rtHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-speedometer2 me-1"></i>Response Times</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                rtHtml += '<tr><td class="fw-bold">DNS Resolution</td><td>' + rt.dns_ms + ' ms</td></tr>';
-                rtHtml += '<tr><td class="fw-bold">Time to First Byte</td><td>' + rt.ttfb_ms + ' ms</td></tr>';
-                rtHtml += '<tr><td class="fw-bold">Total</td><td>' + rt.total_ms + ' ms</td></tr>';
-                rtHtml += '</table></div></div>';
-                document.getElementById('parsedFields').innerHTML += rtHtml;
-                if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
-            }
-
-            // NS Diversity (Issue #115)
-            if (data.ns_diversity && !data.ns_diversity.diverse) {
-                document.getElementById('dnsResultPane').innerHTML += '<div class="alert alert-warning mt-2 small"><i class="bi bi-exclamation-triangle me-1"></i><strong>NS Diversity:</strong> ' + esc(data.ns_diversity.warning) + '</div>';
-            }
-
-            // Reverse IP (Issue #111)
-            if (data.reverse_ip && data.reverse_ip.count > 1) {
-                var riHtml = '<div class="card mt-3"><div class="card-header"><strong>Shared Hosting</strong> <span class="badge bg-secondary">' + data.reverse_ip.count + ' domains on same IP</span></div><div class="card-body"><div class="small">' + data.reverse_ip.domains.slice(0, 15).map(esc).join(', ') + (data.reverse_ip.count > 15 ? '...' : '') + '</div></div></div>';
-                document.getElementById('subdomainsPane').innerHTML += riHtml;
+                document.getElementById('slot-dns').innerHTML = dnsHtml;
             }
 
             // Domain Suggestions — on-demand (Issue #164)
             if (data.availability === 'registered' || data.availability === 'unknown') {
-                var sgBtnHtml = '<div class="mt-2" id="suggestContainer"><button class="btn btn-outline-primary btn-sm" id="suggestBtn"><i class="bi bi-lightbulb me-1"></i>Suggest Alternatives</button></div>';
+                var sgBtnHtml = '<div class="mt-2" id="suggestContainer"><button class="btn btn-outline-primary btn-sm" id="suggestBtn"><i class="bi bi-lightbulb me-1"></i>Check alternative TLDs</button> <a class="btn btn-link btn-sm" href="tlds" title="Browse all TLDs"><i class="bi bi-list-ul me-1"></i>All TLDs</a></div>';
                 document.getElementById('availabilityBadge').innerHTML += sgBtnHtml;
                 document.getElementById('suggestBtn').addEventListener('click', function () {
                     var btn = this;
@@ -1798,160 +1991,46 @@ if ($_showPortfolioIcon): ?>
                     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Checking alternatives...';
                     var fd = new FormData();
                     fd.append('domain', currentDomain);
+                    fd.append('csrf_token', CSRF);
                     fetch('lookup?suggest=1', { method: 'POST', body: fd })
                         .then(function (r) { return r.json(); })
                         .then(function (result) {
                             var container = document.getElementById('suggestContainer');
-                            if (result.suggestions && result.suggestions.length > 0) {
-                                var html = '<div class="card mt-2"><div class="card-header"><strong><i class="bi bi-lightbulb me-1"></i>Available Alternatives</strong></div><div class="card-body"><div class="d-flex flex-wrap gap-2">';
-                                result.suggestions.forEach(function (d) {
-                                    html += '<a href="?domain=' + encodeURIComponent(d) + '" class="btn btn-outline-success btn-sm">' + esc(d) + '</a>';
-                                });
-                                html += '</div></div></div>';
-                                container.innerHTML = html;
-                            } else {
-                                container.innerHTML = '<div class="alert alert-info mt-2 small"><i class="bi bi-info-circle me-1"></i>No available alternatives found for common TLDs.</div>';
+                            var grid = result.grid;
+                            if (!grid || !grid.results || !grid.results.length) {
+                                container.innerHTML = '<div class="alert alert-info mt-2 small"><i class="bi bi-info-circle me-1"></i>Could not check alternative TLDs right now. <a href="tlds">Browse all TLDs</a>.</div>';
+                                return;
                             }
+                            var availCount = 0;
+                            result.results = grid.results;
+                            var chips = '';
+                            grid.results.forEach(function (r) {
+                                var badgeClass, icon, title;
+                                if (r.availability === 'available') {
+                                    badgeClass = 'btn-outline-success';
+                                    icon = 'bi-check-circle-fill text-success';
+                                    title = 'Available';
+                                    availCount++;
+                                } else if (r.availability === 'registered') {
+                                    badgeClass = 'btn-outline-secondary';
+                                    icon = 'bi-x-circle-fill text-danger';
+                                    title = 'Registered';
+                                } else {
+                                    badgeClass = 'btn-outline-warning';
+                                    icon = 'bi-question-circle-fill text-warning';
+                                    title = 'Unknown';
+                                }
+                                chips += '<a href="?domain=' + encodeURIComponent(r.domain) + '" class="btn ' + badgeClass + ' btn-sm" title="' + title + (r.cached ? ' (cached)' : '') + '"><i class="bi ' + icon + ' me-1" aria-hidden="true"></i>' + esc(r.domain) + '</a>';
+                            });
+                            var header = '<strong><i class="bi bi-lightbulb me-1"></i>Alternative TLDs</strong> <span class="badge bg-success">' + availCount + ' available</span> <span class="text-muted small">of ' + grid.results.length + ' checked</span>';
+                            var html = '<div class="card mt-2"><div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">' + header + '<a class="small" href="tlds">Browse all TLDs <i class="bi bi-arrow-right"></i></a></div><div class="card-body"><div class="d-flex flex-wrap gap-2">' + chips + '</div></div></div>';
+                            container.innerHTML = html;
                         })
                         .catch(function () {
                             btn.disabled = false;
-                            btn.innerHTML = '<i class="bi bi-lightbulb me-1"></i>Suggest Alternatives';
+                            btn.innerHTML = '<i class="bi bi-lightbulb me-1"></i>Check alternative TLDs';
                         });
                 });
-            }
-
-            // Security Score (Issue #128, #175)
-            if (data.security_score && !paramHideSecScore) {
-                var ss = data.security_score;
-                var ssColor = ss.grade <= 'B' ? 'success' : (ss.grade <= 'D' ? 'warning' : 'danger');
-
-                // Store score history (Issue #138)
-                var scoreHistory = {};
-                try {
-                    scoreHistory = JSON.parse(localStorage.getItem('securityScoreHistory') || '{}');
-                } catch(e) {
-                }
-                if (!scoreHistory[currentDomain]) {
-                    scoreHistory[currentDomain] = [];
-                }
-                scoreHistory[currentDomain].push({ ts: Date.now(), grade: ss.grade, score: ss.score });
-                if (scoreHistory[currentDomain].length > 20) {
-                    scoreHistory[currentDomain] = scoreHistory[currentDomain].slice(-20);
-                }
-                localStorage.setItem('securityScoreHistory', JSON.stringify(scoreHistory));
-
-                // Build sparkline from history
-                var history = scoreHistory[currentDomain] || [];
-                var sparkline = '';
-                if (history.length > 1) {
-                    sparkline = '<div class="d-flex align-items-end gap-1 mt-1" style="height:20px;" title="Score history">';
-                    history.forEach(function (h) {
-                        var barH = Math.max(2, Math.round(h.score / 5));
-                        var barC = h.score >= 75 ? '#198754' : (h.score >= 45 ? '#ffc107' : '#dc3545');
-                        sparkline += '<div style="width:4px;height:' + barH + 'px;background:' + barC + ';border-radius:1px;"></div>';
-                    });
-                    sparkline += '</div>';
-                }
-
-                var ssHtml = '<div class="card mb-3"><div class="card-body d-flex align-items-center gap-3">' +
-                    '<div class="text-center" style="min-width:60px"><span class="display-5 fw-bold text-' + ssColor + '">' + ss.grade + '</span><br><small class="text-muted">' + ss.score + '%</small></div>' +
-                    '<div><strong>Security Score</strong><br><small class="text-muted">' + ss.passed + ' of ' + ss.total + ' checks passed</small>' +
-                    '<div class="progress mt-1" style="height:6px;width:200px"><div class="progress-bar bg-' + ssColor + '" style="width:' + ss.score + '%"></div></div>' + sparkline + '</div></div></div>';
-                document.getElementById('parsedFields').innerHTML = ssHtml + document.getElementById('parsedFields').innerHTML;
-                if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
-
-                // Security details tab (Issue #175)
-                if (ss.details && ss.details.length) {
-                    document.getElementById('resultTabs').style.display = '';
-                    var secHtml = '<div class="card"><div class="card-header d-flex align-items-center justify-content-between">' +
-                        '<strong><i class="bi bi-shield-check me-1"></i>Security Checks</strong>' +
-                        '<span class="badge bg-' + ssColor + '">' + ss.grade + ' — ' + ss.score + '%</span></div>' +
-                        '<div class="card-body"><div class="table-responsive"><table class="table table-sm mb-0">';
-                    secHtml += '<thead><tr><th>Check</th><th>Status</th><th>Details</th><th class="text-nowrap">Guide</th></tr></thead><tbody>';
-                    ss.details.forEach(function (d) {
-                        var icon, badge;
-                        if (d.status === 'pass') {
-                            icon = '<i class="bi bi-check-circle-fill text-success"></i>';
-                            badge = '<span class="badge bg-success">Pass</span>';
-                        } else if (d.status === 'warn') {
-                            icon = '<i class="bi bi-exclamation-triangle-fill text-warning"></i>';
-                            badge = '<span class="badge bg-warning text-dark">Warning</span>';
-                        } else {
-                            icon = '<i class="bi bi-x-circle-fill text-danger"></i>';
-                            badge = '<span class="badge bg-danger">Fail</span>';
-                        }
-                        secHtml += '<tr><td class="fw-bold">' + icon + ' ' + esc(d.name) + '</td><td>' + badge + '</td><td>' + esc(d.info);
-                        if (d.recommendation) {
-                            secHtml += '<br><small class="text-muted"><i class="bi bi-lightbulb me-1"></i>' + esc(d.recommendation) + '</small>';
-                        }
-                        secHtml += '</td><td>';
-                        if (d.guide && d.status !== 'pass') {
-                            secHtml += '<a href="' + esc(d.guide) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-up-right me-1"></i>Fix guide</a>';
-                        }
-                        secHtml += '</td></tr>';
-                    });
-                    secHtml += '</tbody></table></div></div></div>';
-                    document.getElementById('securityPane').innerHTML = secHtml;
-                }
-            }
-
-            // Tech Stack (Issue #124)
-            if (data.tech_stack && data.tech_stack.length > 0) {
-                var tsHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-stack me-1"></i>Technology Stack</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                data.tech_stack.forEach(function (t) {
-                    tsHtml += '<tr><td class="fw-bold">' + esc(t.category) + '</td><td>' + esc(t.name) + '</td></tr>';
-                });
-                tsHtml += '</table></div></div>';
-                document.getElementById('subdomainsPane').innerHTML += tsHtml;
-            }
-
-            // Robots.txt (Issue #125)
-            if (data.robots_txt) {
-                var rb = data.robots_txt;
-                var rbHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-robot me-1"></i>Robots.txt & Sitemap</strong></div><div class="card-body"><table class="table table-sm mb-0">';
-                rbHtml += '<tr><td class="fw-bold">robots.txt</td><td>' + (rb.robots_found ? '<i class="bi bi-check-circle text-success"></i> Found' : '<i class="bi bi-x-circle text-muted"></i> Not found') + '</td></tr>';
-                rbHtml += '<tr><td class="fw-bold">sitemap.xml</td><td>' + (rb.sitemap_found ? '<i class="bi bi-check-circle text-success"></i> Found' : '<i class="bi bi-x-circle text-muted"></i> Not found') + '</td></tr>';
-                if (rb.disallowed.length) {
-                    rbHtml += '<tr><td class="fw-bold">Disallowed paths</td><td><code class="small">' + rb.disallowed.slice(0, 10).map(esc).join('</code>, <code class="small">') + '</code>' + (rb.disallowed.length > 10 ? ' ...' : '') + '</td></tr>';
-                }
-                if (rb.crawl_delay) {
-                    rbHtml += '<tr><td class="fw-bold">Crawl delay</td><td>' + rb.crawl_delay + 's</td></tr>';
-                }
-                rbHtml += '</table></div></div>';
-                document.getElementById('subdomainsPane').innerHTML += rbHtml;
-            }
-
-            // DNS Propagation (Issue #126)
-            if (data.dns_propagation) {
-                document.getElementById('dnsResultPane').innerHTML += renderDnsPropagation(data.dns_propagation);
-                bindDnsPropControls();
-                if (dnsPropEnabled) startDnsPropAutoRefresh();
-            }
-
-            // Multi-DNSBL (Issue #133)
-            if (data.multi_dnsbl) {
-                var db = data.multi_dnsbl;
-                var dbHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-exclamation me-1"></i>Blocklist Check</strong> <span class="badge ' + (db.listed ? 'bg-danger' : 'bg-success') + '">' + (db.listed ? db.lists.length + ' listed' : 'Clean') + '</span> <small class="text-muted">(' + db.total_checked + ' lists checked)</small></div>';
-                if (db.listed) {
-                    dbHtml += '<div class="card-body"><table class="table table-sm mb-0 table-danger">';
-                    db.lists.forEach(function (l) {
-                        dbHtml += '<tr><td>' + esc(l.label) + '</td><td><code class="small">' + esc(l.zone) + '</code></td></tr>';
-                    });
-                    dbHtml += '</table></div>';
-                }
-                dbHtml += '</div>';
-                document.getElementById('emailSecurityPane').innerHTML += dbHtml;
-            }
-
-            // Subdomains (Issue #46)
-            if (data.subdomains && data.subdomains.length) {
-                document.getElementById('resultTabs').style.display = '';
-                var subHtml = '<div class="card"><div class="card-header"><strong>Discovered Subdomains</strong> <span class="badge bg-secondary">' + data.subdomains.length + ' found</span></div><div class="card-body"><table class="table table-striped table-sm mb-0"><thead><tr><th>Subdomain</th><th>IP Address</th></tr></thead><tbody>';
-                data.subdomains.forEach(function (s) {
-                    subHtml += '<tr><td>' + esc(s.subdomain) + '</td><td><code>' + esc(s.ip) + '</code></td></tr>';
-                });
-                subHtml += '</tbody></table></div></div>';
-                document.getElementById('subdomainsPane').innerHTML = subHtml;
             }
 
             // WHOIS history timeline (Issue #47)
@@ -1971,7 +2050,7 @@ if ($_showPortfolioIcon): ?>
                             var sv = Array.isArray(snap.parsed[k]) ? snap.parsed[k].join(', ') : snap.parsed[k];
                             var pv = prev.parsed[k] ? (Array.isArray(prev.parsed[k]) ? prev.parsed[k].join(', ') : prev.parsed[k]) : '';
                             if (sv !== pv) {
-                                changes.push('<strong>' + k + ':</strong> ' + esc(pv || '(none)') + ' → ' + esc(sv));
+                                changes.push('<strong>' + esc(k) + ':</strong> ' + esc(pv || '(none)') + ' → ' + esc(sv));
                             }
                         }
                         if (changes.length) {
@@ -1989,7 +2068,7 @@ if ($_showPortfolioIcon): ?>
                     tlHtml += '</div>';
                 }
                 tlHtml += '</div></div></div>';
-                document.getElementById('parsedFields').innerHTML += tlHtml;
+                document.getElementById('slot-timeline').innerHTML = tlHtml;
             }
 
             // Wayback Machine link (Issue #54)
@@ -2019,6 +2098,740 @@ if ($_showPortfolioIcon): ?>
                 var firstTab = document.querySelector('#resultTabs .nav-link[data-tab="' + paramOnlyTabs[0] + '"]');
                 if (firstTab) firstTab.click();
             }
+
+            // Issue #218: reflect the current watch-list state on the button
+            // just rendered above — otherwise a domain that's already on the
+            // watch list shows the "not watched" icon until manually toggled.
+            updateWatchButtons();
+
+            return true;
+        }
+
+        // ── Per-KEY renderers (Issue #196 Step 5) ──
+        // Each renderer preserves the legacy block's exact markup/esc()
+        // usage/logic, verbatim, writing into its own pre-stamped slot.
+        // A missing key leaves its slot empty, exactly as today.
+
+        // Reputation/email/core summary alerts, appended into the summary
+        // card's #slot-alerts div (safe_browsing, virustotal,
+        // registrar_reputation, domain_age_risk, whois_privacy,
+        // hosting_risk, phishtank, urlhaus, spamhaus, abuseipdb). Issue #196
+        // Step 6: these keys arrive at different times now —
+        // registrar_reputation/domain_age_risk/whois_privacy travel with
+        // core, spamhaus with the email module, the rest with the
+        // reputation module — so renderSummaryAlert() is called once per
+        // arrival (from renderCore for the core response, and from
+        // renderModule('email'|'reputation', ...) for their module
+        // responses) and renders ONLY the keys present in the just-arrived
+        // `data` that haven't already been shown for this lookup
+        // (renderedAlertKeys, reset per lookup in renderCore). Net effect:
+        // the same alert set, markup and left-to-right order the old
+        // single-shot render produced — just filled in progressively
+        // instead of all at once, with no duplicates.
+        var renderedAlertKeys = {};
+        var ALERT_KEY_ORDER = [
+            'safe_browsing', 'virustotal', 'registrar_reputation', 'domain_age_risk',
+            'whois_privacy', 'hosting_risk', 'phishtank', 'urlhaus', 'spamhaus', 'abuseipdb'
+        ];
+        function alertHtmlForKey(key, data) {
+            switch (key) {
+                case 'safe_browsing':
+                    // Safe Browsing warning (Issue #52)
+                    if (data.safe_browsing && !data.safe_browsing.safe) {
+                        return '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-shield-exclamation me-1" aria-hidden="true"></i><strong>Security Warning:</strong> This domain is flagged by Google Safe Browsing — ' + esc(data.safe_browsing.threats.join(', ')) + '</div>';
+                    }
+                    return '';
+                case 'virustotal':
+                    // VirusTotal reputation (Issue #53)
+                    if (data.virustotal) {
+                        var vt = data.virustotal;
+                        var vtClass = vt.malicious > 0 ? 'alert-danger' : (vt.suspicious > 0 ? 'alert-warning' : 'alert-info');
+                        var vtIcon = vt.malicious > 0 ? 'bi-shield-x' : (vt.suspicious > 0 ? 'bi-shield-exclamation' : 'bi-shield-check');
+                        return '<div class="alert ' + vtClass + ' mt-2 mb-0 small"><i class="bi ' + vtIcon + ' me-1" aria-hidden="true"></i><strong>VirusTotal:</strong> ' + vt.malicious + ' malicious, ' + vt.suspicious + ' suspicious, ' + vt.harmless + ' clean detections</div>';
+                    }
+                    return '';
+                case 'registrar_reputation':
+                    // Registrar reputation flag (Issue #51)
+                    if (data.registrar_reputation) {
+                        var repClass = data.registrar_reputation.rating === 'warning' ? 'alert-danger' : 'alert-warning';
+                        var repIcon = data.registrar_reputation.rating === 'warning' ? 'bi-exclamation-triangle-fill' : 'bi-exclamation-circle-fill';
+                        return '<div class="alert ' + repClass + ' mt-2 mb-0 small"><i class="bi ' + repIcon + ' me-1" aria-hidden="true"></i><strong>Registrar Notice:</strong> ' + esc(data.registrar_reputation.reason) + '</div>';
+                    }
+                    return '';
+                case 'domain_age_risk':
+                    // Domain age risk (Issue #95)
+                    if (data.domain_age_risk) {
+                        var dar = data.domain_age_risk;
+                        var darClass = dar.risk === 'high' ? 'alert-danger' : (dar.risk === 'medium' ? 'alert-warning' : 'alert-info');
+                        var darIcon = dar.risk === 'high' ? 'bi-exclamation-triangle-fill' : (dar.risk === 'medium' ? 'bi-exclamation-circle' : 'bi-info-circle');
+                        if (dar.risk !== 'low') {
+                            return '<div class="alert ' + darClass + ' mt-2 mb-0 small"><i class="bi ' + darIcon + ' me-1" aria-hidden="true"></i><strong>Domain Age:</strong> ' + esc(dar.reason) + ' (' + dar.days_old + ' days)</div>';
+                        }
+                    }
+                    return '';
+                case 'whois_privacy':
+                    // WHOIS privacy (Issue #104)
+                    if (data.whois_privacy && data.whois_privacy.privacy_enabled) {
+                        return '<div class="alert alert-info mt-2 mb-0 small"><i class="bi bi-shield-lock me-1" aria-hidden="true"></i><strong>WHOIS Privacy:</strong> Registrant data is protected (' + esc(data.whois_privacy.indicators.slice(0, 3).join(', ')) + ')</div>';
+                    }
+                    return '';
+                case 'hosting_risk':
+                    // Hosting risk (Issue #105)
+                    if (data.hosting_risk && data.hosting_risk.risk !== 'low') {
+                        var hrClass = data.hosting_risk.risk === 'high' ? 'alert-danger' : 'alert-warning';
+                        return '<div class="alert ' + hrClass + ' mt-2 mb-0 small"><i class="bi bi-geo-alt me-1" aria-hidden="true"></i><strong>Hosting:</strong> ' + esc(data.hosting_risk.reason) + ' (' + esc(data.hosting_risk.country) + ')</div>';
+                    }
+                    return '';
+                case 'phishtank':
+                    // PhishTank (Issue #98)
+                    if (data.phishtank && data.phishtank.is_phish) {
+                        return '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-bug me-1" aria-hidden="true"></i><strong>PhishTank:</strong> This domain is flagged as a known phishing site</div>';
+                    }
+                    return '';
+                case 'urlhaus':
+                    // URLhaus (Issue #99)
+                    if (data.urlhaus && data.urlhaus.urls_total > 0) {
+                        return '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-radioactive me-1" aria-hidden="true"></i><strong>URLhaus:</strong> ' + data.urlhaus.urls_total + ' malware URL(s) associated with this domain</div>';
+                    }
+                    return '';
+                case 'spamhaus':
+                    // Spamhaus (Issue #100)
+                    if (data.spamhaus && data.spamhaus.listed) {
+                        return '<div class="alert alert-danger mt-2 mb-0 small"><i class="bi bi-envelope-x me-1" aria-hidden="true"></i><strong>Spamhaus:</strong> IP is listed on ' + data.spamhaus.lists.length + ' blocklist(s): ' + esc(data.spamhaus.lists.map(function(l){ return l.label; }).join(', ')) + '</div>';
+                    }
+                    return '';
+                case 'abuseipdb':
+                    // AbuseIPDB (Issue #96)
+                    if (data.abuseipdb && data.abuseipdb.abuse_score > 0) {
+                        var abuseClass = data.abuseipdb.abuse_score > 50 ? 'alert-danger' : 'alert-warning';
+                        return '<div class="alert ' + abuseClass + ' mt-2 mb-0 small"><i class="bi bi-flag me-1" aria-hidden="true"></i><strong>AbuseIPDB:</strong> Abuse confidence ' + data.abuseipdb.abuse_score + '%, ' + data.abuseipdb.total_reports + ' report(s)' + (data.abuseipdb.is_tor ? ' — Tor exit node' : '') + '</div>';
+                    }
+                    return '';
+            }
+            return '';
+        }
+        function renderSummaryAlert(data) {
+            var slot = document.getElementById('slot-alerts');
+            if (!slot) return;
+            ALERT_KEY_ORDER.forEach(function (key) {
+                if (renderedAlertKeys[key]) return;
+                if (!Object.prototype.hasOwnProperty.call(data, key)) return;
+                renderedAlertKeys[key] = true;
+                var alertHtml = alertHtmlForKey(key, data);
+                if (alertHtml) slot.insertAdjacentHTML('beforeend', alertHtml);
+            });
+        }
+
+        // IP geolocation (Issue #18)
+        function renderGeolocation(data) {
+            if (!data.geolocation) return;
+            var geo = data.geolocation;
+            var geoHtml = '<div class="card mt-3"><div class="card-header"><strong>Server Location</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            if (geo.city) {
+                geoHtml += '<tr><td class="fw-bold">City</td><td>' + esc(geo.city) + '</td></tr>';
+            }
+            if (geo.country) {
+                geoHtml += '<tr><td class="fw-bold">Country</td><td>' + esc(geo.country) + ' (' + esc(geo.country_code) + ')</td></tr>';
+            }
+            if (geo.isp) {
+                geoHtml += '<tr><td class="fw-bold">ISP</td><td>' + esc(geo.isp) + '</td></tr>';
+            }
+            if (geo.org) {
+                geoHtml += '<tr><td class="fw-bold">Organization</td><td>' + esc(geo.org) + '</td></tr>';
+            }
+            if (geo.as) {
+                geoHtml += '<tr><td class="fw-bold">AS</td><td>' + esc(geo.as) + '</td></tr>';
+            }
+            geoHtml += '</table></div></div>';
+            document.getElementById('slot-geolocation').innerHTML = geoHtml;
+            if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
+        }
+
+        // Email security (Issue #56) — email_security + mta_sts + bimi + hibp
+        function renderEmailSecurity(data) {
+            if (!(data.email_security && Object.keys(data.email_security).length)) return;
+            document.getElementById('resultTabs').style.display = '';
+            var es = data.email_security;
+            var esHtml = '<div class="card"><div class="card-header"><strong>Email Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+
+            // SPF
+            var spfIcon = es.spf.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+            esHtml += '<tr><td class="fw-bold">' + spfIcon + ' SPF</td><td>' + (es.spf.status || 'missing') + '</td></tr>';
+            if (es.spf.record) {
+                esHtml += '<tr><td></td><td><code class="small">' + esc(es.spf.record) + '</code></td></tr>';
+            }
+
+            // DMARC
+            var dmarcIcon = es.dmarc.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+            esHtml += '<tr><td class="fw-bold">' + dmarcIcon + ' DMARC</td><td>' + (es.dmarc.status || 'missing') + '</td></tr>';
+            if (es.dmarc.record) {
+                esHtml += '<tr><td></td><td><code class="small">' + esc(es.dmarc.record) + '</code></td></tr>';
+            }
+
+            // DKIM
+            var dkimIcon = es.dkim.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-exclamation-triangle-fill text-warning"></i>';
+            esHtml += '<tr><td class="fw-bold">' + dkimIcon + ' DKIM</td><td>' + (es.dkim.status || 'unknown') + '</td></tr>';
+
+            // MTA-STS (Issue #101)
+            if (data.mta_sts) {
+                var stsIcon = data.mta_sts.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+                esHtml += '<tr><td class="fw-bold">' + stsIcon + ' MTA-STS</td><td>' + (data.mta_sts.found ? 'configured' + (data.mta_sts.mode ? ' (' + esc(data.mta_sts.mode) + ')' : '') : 'not configured') + '</td></tr>';
+            }
+
+            // BIMI (Issue #102)
+            if (data.bimi) {
+                var bimiIcon = data.bimi.found ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+                esHtml += '<tr><td class="fw-bold">' + bimiIcon + ' BIMI</td><td>' + (data.bimi.found ? 'configured' + (data.bimi.logo_url ? ' — <a href="' + esc(data.bimi.logo_url) + '" target="_blank" rel="noopener">view logo</a>' : '') : 'not configured') + '</td></tr>';
+            }
+
+            esHtml += '</table></div></div>';
+
+            // HIBP breach data (Issue #65)
+            if (data.hibp && data.hibp.length > 0) {
+                esHtml += '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-exclamation me-1" aria-hidden="true"></i>Data Breaches</strong> <span class="badge bg-danger">' + data.hibp.length + '</span></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Breach</th><th>Date</th><th>Accounts</th><th>Compromised Data</th></tr></thead><tbody>';
+                data.hibp.forEach(function (b) {
+                    esHtml += '<tr><td class="fw-bold">' + esc(b.title) + '</td><td>' + esc(b.date) + '</td><td>' + (b.pwn_count ? b.pwn_count.toLocaleString() : 'N/A') + '</td><td><small>' + esc(b.data_classes.join(', ')) + '</small></td></tr>';
+                });
+                esHtml += '</tbody></table></div></div>';
+            } else if (data.hibp !== null && data.hibp.length === 0) {
+                esHtml += '<div class="alert alert-success mt-3 small"><i class="bi bi-shield-check me-1" aria-hidden="true"></i>No known data breaches found for this domain.</div>';
+            }
+
+            document.getElementById('slot-email_security').innerHTML = esHtml;
+        }
+
+        // DNSSEC (Issue #93)
+        function renderDnssec(data) {
+            if (!data.dnssec) return;
+            var dsIcon = data.dnssec.signed ? '<i class="bi bi-shield-check text-success me-1"></i>' : '<i class="bi bi-shield-x text-warning me-1"></i>';
+            var dsText = data.dnssec.signed ? 'DNSSEC is enabled' + (data.dnssec.ds_records ? ' (' + data.dnssec.ds_records + ' DS record(s))' : '') : 'DNSSEC is not enabled';
+            document.getElementById('slot-dnssec').innerHTML = '<div class="alert ' + (data.dnssec.signed ? 'alert-success' : 'alert-warning') + ' mt-2 small">' + dsIcon + '<strong>DNSSEC:</strong> ' + dsText + '</div>';
+        }
+
+        // SSL/TLS info (Issue #19) — ssl + dane_tlsa + cert_transparency
+        function renderSsl(data) {
+            if (!data.ssl) return;
+            document.getElementById('resultTabs').style.display = '';
+            var ssl = data.ssl;
+            var sslHtml = '<div class="card"><div class="card-header"><strong>SSL/TLS Certificate</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            var expiredClass = ssl.expired ? ' class="table-danger"' : '';
+            sslHtml += '<tr><td class="fw-bold">Subject</td><td>' + esc(ssl.subject || '') + '</td></tr>';
+            sslHtml += '<tr><td class="fw-bold">Issuer</td><td>' + esc(ssl.issuer || '') + '</td></tr>';
+            // Issue #246: chain trust + hostname-match badges. Guarded with typeof/`in`
+            // checks so older cached responses (no ssl.trusted/hostname_match keys yet)
+            // still render the rest of the card without showing a broken/empty row.
+            if (typeof ssl.trusted !== 'undefined') {
+                var trustBadge = ssl.trusted
+                    ? '<span class="badge bg-success"><i class="bi bi-shield-check me-1"></i>Trusted</span>'
+                    : '<span class="badge bg-danger"><i class="bi bi-shield-x me-1"></i>Not trusted' + (ssl.trust_error ? ' (' + esc(ssl.trust_error) + ')' : '') + '</span>';
+                sslHtml += '<tr' + (ssl.trusted ? '' : ' class="table-danger"') + '><td class="fw-bold">Chain Trust</td><td>' + trustBadge + '</td></tr>';
+            }
+            if (typeof ssl.hostname_match === 'boolean') {
+                var hostBadge = ssl.hostname_match
+                    ? '<span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Hostname match</span>'
+                    : '<span class="badge bg-danger"><i class="bi bi-x-circle-fill me-1"></i>Hostname mismatch</span>';
+                sslHtml += '<tr' + (ssl.hostname_match ? '' : ' class="table-danger"') + '><td class="fw-bold">Hostname</td><td>' + hostBadge + '</td></tr>';
+            }
+            sslHtml += '<tr><td class="fw-bold">Valid From</td><td>' + esc(ssl.valid_from || '') + '</td></tr>';
+            sslHtml += '<tr><td class="fw-bold">Valid To</td><td>' + esc(ssl.valid_to || '') + '</td></tr>';
+            var expiryBadge = ssl.expired
+                ? ' <span class="badge bg-danger">EXPIRED</span>'
+                : (ssl.expiry_severity === 'warn' ? ' <span class="badge bg-warning text-dark">Expiring soon</span>' : '');
+            sslHtml += '<tr' + expiredClass + '><td class="fw-bold">Expires In</td><td>' + esc(ssl.expires_in || '') + expiryBadge + '</td></tr>';
+            // Issue #246: key type/size + signature algorithm, with a weak-key/SHA-1 chip.
+            if (ssl.key_type) {
+                var keyLine = esc(ssl.key_type) + (ssl.key_bits ? ' ' + esc(String(ssl.key_bits)) + '-bit' : '') + (ssl.sig_alg ? ' / ' + esc(ssl.sig_alg) : '');
+                // esc() only escapes &/</> (safe for element content); it does not escape
+                // quotes, which matters here because this value lands in an attribute
+                // (title="..."). weak_reasons is currently built server-side from fixed
+                // strings + an integer (classifySslKey()), so there's no live injection
+                // vector today — but escape quotes too, defensively, so this stays safe
+                // if that ever changes.
+                var weakTitle = esc((ssl.weak_reasons || []).join(', ')).replace(/"/g, '&quot;');
+                var weakChip = ssl.weak_key
+                    ? ' <span class="badge bg-warning text-dark" title="' + weakTitle + '">Weak</span>'
+                    : '';
+                sslHtml += '<tr><td class="fw-bold">Key &amp; Signature</td><td>' + keyLine + weakChip + '</td></tr>';
+            }
+            if (ssl.san && ssl.san.length) {
+                sslHtml += '<tr><td class="fw-bold">Alt Names</td><td>' + ssl.san.map(esc).join(', ') + '</td></tr>';
+            }
+            sslHtml += '</table></div></div>';
+
+            // DANE/TLSA (Issue #103)
+            if (data.dane_tlsa && data.dane_tlsa.found) {
+                sslHtml += '<div class="card mt-3"><div class="card-header"><strong>DANE/TLSA Records</strong></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Usage</th><th>Selector</th><th>Matching</th><th>Data</th></tr></thead><tbody>';
+                data.dane_tlsa.records.forEach(function (r) {
+                    sslHtml += '<tr><td>' + r.usage + '</td><td>' + r.selector + '</td><td>' + r.matching + '</td><td><code class="small">' + esc(r.data) + '</code></td></tr>';
+                });
+                sslHtml += '</tbody></table></div></div>';
+            }
+
+            // Certificate Transparency (Issue #94)
+            if (data.cert_transparency) {
+                sslHtml += '<div class="card mt-3"><div class="card-header"><strong>Certificate Transparency</strong> <span class="badge bg-secondary">' + data.cert_transparency.total + ' certificates</span></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Issuer</th><th>Common Name</th><th>Not Before</th><th>Not After</th></tr></thead><tbody>';
+                data.cert_transparency.recent.forEach(function (c) {
+                    sslHtml += '<tr><td class="small">' + esc(c.issuer) + '</td><td>' + esc(c.common_name) + '</td><td>' + esc(c.not_before) + '</td><td>' + esc(c.not_after) + '</td></tr>';
+                });
+                sslHtml += '</tbody></table></div></div>';
+            }
+
+            document.getElementById('slot-ssl').innerHTML = sslHtml;
+        }
+
+        // Shodan (Issue #97)
+        function renderShodan(data) {
+            if (!data.shodan) return;
+            var shHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-hdd-network me-1"></i>Exposed Services (Shodan)</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            shHtml += '<tr><td class="fw-bold">Open Ports</td><td>' + (data.shodan.ports.length ? data.shodan.ports.join(', ') : 'None detected') + '</td></tr>';
+            if (data.shodan.os) {
+                shHtml += '<tr><td class="fw-bold">OS</td><td>' + esc(data.shodan.os) + '</td></tr>';
+            }
+            if (data.shodan.org) {
+                shHtml += '<tr><td class="fw-bold">Organization</td><td>' + esc(data.shodan.org) + '</td></tr>';
+            }
+            if (data.shodan.vulns && data.shodan.vulns.length) {
+                shHtml += '<tr class="table-danger"><td class="fw-bold">Known Vulnerabilities</td><td>' + data.shodan.vulns.map(esc).join(', ') + '</td></tr>';
+            }
+            shHtml += '</table></div></div>';
+            document.getElementById('slot-shodan').innerHTML = shHtml;
+        }
+
+        // HTTP Security Headers (Issue #106)
+        function renderHttpHeaders(data) {
+            if (!data.http_headers) return;
+            var hh = data.http_headers;
+            var hhHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-lock me-1"></i>HTTP Security Headers</strong> <span class="badge ' + (hh.grade <= 'B' ? 'bg-success' : (hh.grade <= 'D' ? 'bg-warning' : 'bg-danger')) + '">' + hh.grade + ' (' + hh.pass + '/' + hh.total + ')</span></div><div class="card-body"><table class="table table-sm mb-0">';
+            hh.headers.forEach(function (h) {
+                var icon = h.present ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+                hhHtml += '<tr><td class="fw-bold">' + icon + ' ' + esc(h.header) + '</td><td>' + (h.present ? '<code class="small">' + esc(h.value || '') + '</code>' : '<span class="text-muted">missing</span>') + '</td></tr>';
+            });
+            hhHtml += '</table></div></div>';
+            document.getElementById('slot-http_headers').innerHTML = hhHtml;
+        }
+
+        // TLS Audit (Issue #108)
+        function renderTlsAudit(data) {
+            if (!data.tls_audit) return;
+            var ta = data.tls_audit;
+            var taHtml = '<div class="card mt-3"><div class="card-header"><strong>TLS Version Support</strong>' + (ta.insecure ? ' <span class="badge bg-danger">Insecure versions enabled</span>' : '') + '</div><div class="card-body"><table class="table table-sm mb-0">';
+            if (ta.protocol) {
+                taHtml += '<tr><td class="fw-bold">Negotiated</td><td>' + esc(ta.protocol) + '</td></tr>';
+            }
+            if (ta.cipher) {
+                taHtml += '<tr><td class="fw-bold">Cipher</td><td><code>' + esc(ta.cipher) + '</code></td></tr>';
+            }
+            for (var ver in ta.versions) {
+                var cls = (ver === 'TLSv1.0' || ver === 'TLSv1.1') && ta.versions[ver] ? ' class="table-danger"' : '';
+                taHtml += '<tr' + cls + '><td class="fw-bold">' + esc(ver) + '</td><td>' + (ta.versions[ver] ? '<i class="bi bi-check-circle text-success"></i> Supported' : '<i class="bi bi-x-circle text-muted"></i> Not supported') + '</td></tr>';
+            }
+            taHtml += '</table></div></div>';
+            document.getElementById('slot-tls_audit').innerHTML = taHtml;
+        }
+
+        // CAA Records (Issue #109)
+        function renderCaa(data) {
+            if (!(data.caa_records && data.caa_records.found)) return;
+            var caaHtml = '<div class="card mt-3"><div class="card-header"><strong>CAA Records</strong></div><div class="card-body"><table class="table table-sm mb-0"><thead><tr><th>Tag</th><th>Value</th><th>Flag</th></tr></thead><tbody>';
+            data.caa_records.records.forEach(function (r) {
+                caaHtml += '<tr><td>' + esc(r.tag) + '</td><td>' + esc(r.value) + '</td><td>' + r.flag + '</td></tr>';
+            });
+            caaHtml += '</tbody></table></div></div>';
+            document.getElementById('slot-caa').innerHTML = caaHtml;
+        }
+
+        // SMTP Security (Issue #110)
+        // NOTE: the intermediate "esPane.innerHTML += ...; esPane.innerHTML =
+        // esPane.innerHTML.slice(0, -1); // reopen" pair is legacy code kept
+        // verbatim from the monolithic displayResults(). Traced through: it
+        // appends an unclosed HTML fragment, which the browser auto-closes on
+        // parse, then removes the resulting serialization's trailing '>' and
+        // reassigns — the HTML parser auto-closes the still-open element at
+        // EOF regardless, so the net DOM effect is an inert no-op EXCEPT that
+        // it leaves a near-empty duplicate "SMTP Security" card (header +
+        // empty table) ahead of the real card that's appended right after.
+        // That is a pre-existing rendering quirk in production today; Step 5
+        // preserves it unchanged (zero behaviour change), not introduced here.
+        function renderSmtp(data) {
+            if (!data.smtp_security) return;
+            var sm = data.smtp_security;
+            var smIcon = sm.starttls ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>';
+            var esPane = document.getElementById('slot-smtp');
+            esPane.innerHTML += '<div class="card mt-3"><div class="card-header"><strong>SMTP Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            esPane.innerHTML = esPane.innerHTML.slice(0, -1); // reopen
+            var smHtml = '<div class="card mt-3"><div class="card-header"><strong>SMTP Security</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            smHtml += '<tr><td class="fw-bold">MX Server</td><td>' + esc(sm.mx_host) + '</td></tr>';
+            if (sm.banner) {
+                smHtml += '<tr><td class="fw-bold">Banner</td><td><code class="small">' + esc(sm.banner) + '</code></td></tr>';
+            }
+            smHtml += '<tr><td class="fw-bold">' + smIcon + ' STARTTLS</td><td>' + (sm.starttls ? 'Supported' : 'Not supported') + '</td></tr>';
+            smHtml += '</table></div></div>';
+            document.getElementById('slot-smtp').innerHTML += smHtml;
+        }
+
+        // Redirect Chain (Issue #107)
+        function renderRedirectChain(data) {
+            if (!(data.redirect_chain && data.redirect_chain.hops > 1)) return;
+            var rc = data.redirect_chain;
+            var rcHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-arrow-right-circle me-1"></i>Redirect Chain</strong>' + (rc.suspicious ? ' <span class="badge bg-warning">Excessive redirects</span>' : '') + (rc.http_to_https ? ' <span class="badge bg-info">HTTP→HTTPS</span>' : '') + '</div><div class="card-body"><ol class="mb-0 small">';
+            rc.chain.forEach(function (hop) {
+                // Issue #197: a hop can be marked "blocked" when its Location header
+                // pointed at a private/internal address — we stop the chain rather
+                // than connect to it, so show that distinctly instead of "null".
+                var hopBadge = hop.blocked
+                    ? '<span class="badge bg-danger">blocked (internal address)</span>'
+                    : '<span class="badge bg-secondary">' + esc(String(hop.status)) + '</span>';
+                rcHtml += '<li><code>' + esc(hop.url) + '</code> ' + hopBadge + '</li>';
+            });
+            rcHtml += '</ol></div></div>';
+            document.getElementById('slot-redirect_chain').innerHTML = rcHtml;
+            if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
+        }
+
+        // HTTP Versions (Issue #112)
+        function renderHttpVersions(data) {
+            if (!data.http_versions) return;
+            var hv = data.http_versions;
+            var hvHtml = '<div class="card mt-3"><div class="card-header"><strong>Protocol Support</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            if (hv.protocol) {
+                hvHtml += '<tr><td class="fw-bold">Negotiated</td><td>' + esc(hv.protocol) + '</td></tr>';
+            }
+            hvHtml += '<tr><td class="fw-bold">HTTP/2</td><td>' + (hv.http2 ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No') + '</td></tr>';
+            hvHtml += '<tr><td class="fw-bold">HTTP/3</td><td>' + (hv.http3 ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No') + '</td></tr>';
+            hvHtml += '</table></div></div>';
+            document.getElementById('slot-http_versions').innerHTML = hvHtml;
+        }
+
+        // IPv6 (Issue #113)
+        function renderIpv6(data) {
+            if (!data.ipv6) return;
+            var v6Icon = data.ipv6.has_aaaa ? '<i class="bi bi-check-circle text-success me-1"></i>' : '<i class="bi bi-x-circle text-warning me-1"></i>';
+            var v6Text = data.ipv6.has_aaaa ? 'IPv6 ready (' + data.ipv6.aaaa_records.map(esc).join(', ') + ')' : 'No AAAA records — IPv6 not configured';
+            document.getElementById('slot-ipv6').innerHTML = '<div class="alert ' + (data.ipv6.has_aaaa ? 'alert-success' : 'alert-warning') + ' mt-2 small">' + v6Icon + '<strong>IPv6:</strong> ' + v6Text + '</div>';
+        }
+
+        // Response Times (Issue #114)
+        function renderResponseTimes(data) {
+            if (!(data.response_times && data.response_times.dns_ms !== null)) return;
+            var rt = data.response_times;
+            var rtHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-speedometer2 me-1"></i>Response Times</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            rtHtml += '<tr><td class="fw-bold">DNS Resolution</td><td>' + rt.dns_ms + ' ms</td></tr>';
+            rtHtml += '<tr><td class="fw-bold">Time to First Byte</td><td>' + rt.ttfb_ms + ' ms</td></tr>';
+            rtHtml += '<tr><td class="fw-bold">Total</td><td>' + rt.total_ms + ' ms</td></tr>';
+            rtHtml += '</table></div></div>';
+            document.getElementById('slot-response_times').innerHTML = rtHtml;
+            if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
+        }
+
+        // NS Diversity (Issue #115)
+        function renderNsDiversity(data) {
+            if (!(data.ns_diversity && !data.ns_diversity.diverse)) return;
+            document.getElementById('slot-ns_diversity').innerHTML = '<div class="alert alert-warning mt-2 small"><i class="bi bi-exclamation-triangle me-1"></i><strong>NS Diversity:</strong> ' + esc(data.ns_diversity.warning) + '</div>';
+        }
+
+        // Reverse IP (Issue #111)
+        function renderReverseIp(data) {
+            if (!(data.reverse_ip && data.reverse_ip.count > 1)) return;
+            var riHtml = '<div class="card mt-3"><div class="card-header"><strong>Shared Hosting</strong> <span class="badge bg-secondary">' + data.reverse_ip.count + ' domains on same IP</span></div><div class="card-body"><div class="small">' + data.reverse_ip.domains.slice(0, 15).map(esc).join(', ') + (data.reverse_ip.count > 15 ? '...' : '') + '</div></div></div>';
+            document.getElementById('slot-reverse_ip').innerHTML = riHtml;
+        }
+
+        // Security Score (Issue #128, #175)
+        function renderSecurityScore(data) {
+            if (!(data.security_score && !paramHideSecScore)) return;
+            var ss = data.security_score;
+            var ssColor = ss.grade <= 'B' ? 'success' : (ss.grade <= 'D' ? 'warning' : 'danger');
+
+            // Store score history (Issue #138)
+            var scoreHistory = {};
+            try {
+                scoreHistory = JSON.parse(localStorage.getItem('securityScoreHistory') || '{}');
+            } catch(e) {
+            }
+            if (!scoreHistory[currentDomain]) {
+                scoreHistory[currentDomain] = [];
+            }
+            scoreHistory[currentDomain].push({ ts: Date.now(), grade: ss.grade, score: ss.score });
+            if (scoreHistory[currentDomain].length > 20) {
+                scoreHistory[currentDomain] = scoreHistory[currentDomain].slice(-20);
+            }
+            localStorage.setItem('securityScoreHistory', JSON.stringify(scoreHistory));
+
+            // Build sparkline from history
+            var history = scoreHistory[currentDomain] || [];
+            var sparkline = '';
+            if (history.length > 1) {
+                sparkline = '<div class="d-flex align-items-end gap-1 mt-1" style="height:20px;" title="Score history">';
+                history.forEach(function (h) {
+                    var barH = Math.max(2, Math.round(h.score / 5));
+                    var barC = h.score >= 75 ? '#198754' : (h.score >= 45 ? '#ffc107' : '#dc3545');
+                    sparkline += '<div style="width:4px;height:' + barH + 'px;background:' + barC + ';border-radius:1px;"></div>';
+                });
+                sparkline += '</div>';
+            }
+
+            var ssHtml = '<div class="card mb-3"><div class="card-body d-flex align-items-center gap-3">' +
+                '<div class="text-center" style="min-width:60px"><span class="display-5 fw-bold text-' + ssColor + '">' + ss.grade + '</span><br><small class="text-muted">' + ss.score + '%</small></div>' +
+                '<div><strong>Security Score</strong><br><small class="text-muted">' + ss.passed + ' of ' + ss.total + ' checks passed</small>' +
+                '<div class="progress mt-1" style="height:6px;width:200px"><div class="progress-bar bg-' + ssColor + '" style="width:' + ss.score + '%"></div></div>' + sparkline + '</div></div></div>';
+            document.getElementById('slot-security_score').innerHTML = ssHtml;
+            if (!paramHideSummary) document.getElementById('parsedFields').style.display = '';
+
+            // Security details tab (Issue #175)
+            if (ss.details && ss.details.length) {
+                document.getElementById('resultTabs').style.display = '';
+                var secHtml = '<div class="card"><div class="card-header d-flex align-items-center justify-content-between">' +
+                    '<strong><i class="bi bi-shield-check me-1"></i>Security Checks</strong>' +
+                    '<span class="badge bg-' + ssColor + '">' + ss.grade + ' — ' + ss.score + '%</span></div>' +
+                    '<div class="card-body"><div class="table-responsive"><table class="table table-sm mb-0">';
+                secHtml += '<thead><tr><th>Check</th><th>Status</th><th>Details</th><th class="text-nowrap">Guide</th></tr></thead><tbody>';
+                ss.details.forEach(function (d) {
+                    var icon, badge;
+                    if (d.status === 'pass') {
+                        icon = '<i class="bi bi-check-circle-fill text-success"></i>';
+                        badge = '<span class="badge bg-success">Pass</span>';
+                    } else if (d.status === 'warn') {
+                        icon = '<i class="bi bi-exclamation-triangle-fill text-warning"></i>';
+                        badge = '<span class="badge bg-warning text-dark">Warning</span>';
+                    } else {
+                        icon = '<i class="bi bi-x-circle-fill text-danger"></i>';
+                        badge = '<span class="badge bg-danger">Fail</span>';
+                    }
+                    secHtml += '<tr><td class="fw-bold">' + icon + ' ' + esc(d.name) + '</td><td>' + badge + '</td><td>' + esc(d.info);
+                    if (d.recommendation) {
+                        secHtml += '<br><small class="text-muted"><i class="bi bi-lightbulb me-1"></i>' + esc(d.recommendation) + '</small>';
+                    }
+                    secHtml += '</td><td>';
+                    if (d.guide && d.status !== 'pass') {
+                        secHtml += '<a href="' + esc(d.guide) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-up-right me-1"></i>Fix guide</a>';
+                    }
+                    secHtml += '</td></tr>';
+                });
+                secHtml += '</tbody></table></div></div></div>';
+                document.getElementById('slot-security_details').innerHTML = secHtml;
+            }
+        }
+
+        // Tech Stack (Issue #124)
+        function renderTechStack(data) {
+            if (!(data.tech_stack && data.tech_stack.length > 0)) return;
+            var tsHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-stack me-1"></i>Technology Stack</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            data.tech_stack.forEach(function (t) {
+                tsHtml += '<tr><td class="fw-bold">' + esc(t.category) + '</td><td>' + esc(t.name) + '</td></tr>';
+            });
+            tsHtml += '</table></div></div>';
+            document.getElementById('slot-tech_stack').innerHTML = tsHtml;
+        }
+
+        // Robots.txt (Issue #125)
+        function renderRobots(data) {
+            if (!data.robots_txt) return;
+            var rb = data.robots_txt;
+            var rbHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-robot me-1"></i>Robots.txt & Sitemap</strong></div><div class="card-body"><table class="table table-sm mb-0">';
+            rbHtml += '<tr><td class="fw-bold">robots.txt</td><td>' + (rb.robots_found ? '<i class="bi bi-check-circle text-success"></i> Found' : '<i class="bi bi-x-circle text-muted"></i> Not found') + '</td></tr>';
+            rbHtml += '<tr><td class="fw-bold">sitemap.xml</td><td>' + (rb.sitemap_found ? '<i class="bi bi-check-circle text-success"></i> Found' : '<i class="bi bi-x-circle text-muted"></i> Not found') + '</td></tr>';
+            if (rb.disallowed.length) {
+                rbHtml += '<tr><td class="fw-bold">Disallowed paths</td><td><code class="small">' + rb.disallowed.slice(0, 10).map(esc).join('</code>, <code class="small">') + '</code>' + (rb.disallowed.length > 10 ? ' ...' : '') + '</td></tr>';
+            }
+            if (rb.crawl_delay) {
+                rbHtml += '<tr><td class="fw-bold">Crawl delay</td><td>' + rb.crawl_delay + 's</td></tr>';
+            }
+            rbHtml += '</table></div></div>';
+            document.getElementById('slot-robots_txt').innerHTML = rbHtml;
+        }
+
+        // DNS Propagation (Issue #126) — reuses the existing string-returning
+        // renderDnsPropagation()/bindDnsPropControls() helpers unchanged;
+        // this just wires the per-key slot for the module dispatch seam.
+        function renderDnsPropagationPane(data) {
+            if (!data.dns_propagation) return;
+            document.getElementById('slot-dns_propagation').innerHTML = renderDnsPropagation(data.dns_propagation);
+            bindDnsPropControls();
+            if (dnsPropEnabled) startDnsPropAutoRefresh();
+        }
+
+        // Multi-DNSBL (Issue #133)
+        function renderMultiDnsbl(data) {
+            if (!data.multi_dnsbl) return;
+            var db = data.multi_dnsbl;
+            var dbHtml = '<div class="card mt-3"><div class="card-header"><strong><i class="bi bi-shield-exclamation me-1"></i>Blocklist Check</strong> <span class="badge ' + (db.listed ? 'bg-danger' : 'bg-success') + '">' + (db.listed ? db.lists.length + ' listed' : 'Clean') + '</span> <small class="text-muted">(' + db.total_checked + ' lists checked)</small></div>';
+            if (db.listed) {
+                dbHtml += '<div class="card-body"><table class="table table-sm mb-0 table-danger">';
+                db.lists.forEach(function (l) {
+                    dbHtml += '<tr><td>' + esc(l.label) + '</td><td><code class="small">' + esc(l.zone) + '</code></td></tr>';
+                });
+                dbHtml += '</table></div>';
+            }
+            dbHtml += '</div>';
+            document.getElementById('slot-multi_dnsbl').innerHTML = dbHtml;
+        }
+
+        // Subdomains (Issue #46) — writes into its OWN slot (slot-subdomains),
+        // NOT the whole subdomainsPane. The 'web' module (tech_stack/robots_txt)
+        // renders into sibling slots in the same pane and #196 Step 6 fires
+        // 'web' + 'subdomains' CONCURRENTLY, so overwriting the pane would race
+        // and wipe web's cards. (Fixes the pre-existing pane-overwrite quirk
+        // that Step 5 preserved verbatim.)
+        function renderSubdomains(data) {
+            if (!(data.subdomains && data.subdomains.length)) return;
+            document.getElementById('resultTabs').style.display = '';
+            var subHtml = '<div class="card"><div class="card-header"><strong>Discovered Subdomains</strong> <span class="badge bg-secondary">' + data.subdomains.length + ' found</span></div><div class="card-body"><table class="table table-striped table-sm mb-0"><thead><tr><th>Subdomain</th><th>IP Address</th></tr></thead><tbody>';
+            data.subdomains.forEach(function (s) {
+                subHtml += '<tr><td>' + esc(s.subdomain) + '</td><td><code>' + esc(s.ip) + '</code></td></tr>';
+            });
+            subHtml += '</tbody></table></div></div>';
+            document.getElementById('slot-subdomains').innerHTML = subHtml;
+        }
+
+        // ── renderModule: the seam triggerLookup()'s progressive flow calls
+        // once per async module response (core → renderCore(); each of
+        // dns/web/email/reputation/subdomains/score → renderModule() as its
+        // own fetch resolves — see startModuleFetches()/retryModule()).
+        // Each renderer picks its own key(s) back out of res.data. ──
+        function renderModule(name, res) {
+            Object.assign(lastLookupData, res.data);
+            var data = res.data;
+            // Clear this module's owned slots before dispatching its per-key
+            // renderers (each of which is a no-op — "if (!data.xxx) return;"
+            // — when its key is missing/null, e.g. gated by DNT or simply
+            // not applicable). Without this, a slot renderModuleSkeleton()
+            // filled with a loading placeholder would stay stuck showing
+            // that placeholder forever once the real (empty) response
+            // lands, instead of reverting to empty exactly as it would if
+            // the key had never been requested at all (matches the "a
+            // missing key leaves its slot empty" per-key renderer contract).
+            (MODULE_SLOTS[name] || []).forEach(function (id) {
+                var el = document.getElementById(id);
+                if (el) el.innerHTML = '';
+            });
+            switch (name) {
+                case 'dns':
+                    renderDnssec(data);
+                    renderIpv6(data);
+                    renderNsDiversity(data);
+                    renderDnsPropagationPane(data);
+                    break;
+                case 'web':
+                    renderSsl(data);
+                    renderHttpHeaders(data);
+                    renderTlsAudit(data);
+                    renderCaa(data);
+                    renderHttpVersions(data);
+                    renderRedirectChain(data);
+                    renderResponseTimes(data);
+                    renderTechStack(data);
+                    renderRobots(data);
+                    break;
+                case 'email':
+                    renderEmailSecurity(data);
+                    renderSmtp(data);
+                    renderMultiDnsbl(data);
+                    renderSummaryAlert(data); // spamhaus
+                    break;
+                case 'reputation':
+                    renderGeolocation(data);
+                    renderShodan(data);
+                    renderSummaryAlert(data); // safe_browsing, virustotal, phishtank, urlhaus, abuseipdb, hosting_risk
+                    break;
+                case 'subdomains':
+                    // reverse_ip before subdomains — matches legacy execution
+                    // order so the subdomains overwrite (see renderSubdomains
+                    // note above) wipes reverse_ip's already-rendered slot
+                    // exactly as it does today.
+                    renderReverseIp(data);
+                    renderSubdomains(data);
+                    break;
+                case 'score':
+                    renderSecurityScore(data);
+                    break;
+            }
+        }
+
+        // ── Module dispatch metadata (Issue #196 Step 6) ──
+
+        // Which pre-stamped slot(s) each module owns — used to place loading
+        // skeletons and, on failure, a single Retry prompt. Order matters:
+        // renderModuleFailed() puts its alert in the FIRST slot only.
+        var MODULE_SLOTS = {
+            dns: ['slot-dnssec', 'slot-ipv6', 'slot-ns_diversity', 'slot-dns_propagation'],
+            web: ['slot-ssl', 'slot-http_headers', 'slot-tls_audit', 'slot-caa', 'slot-http_versions',
+                'slot-redirect_chain', 'slot-response_times', 'slot-tech_stack', 'slot-robots_txt'],
+            email: ['slot-email_security', 'slot-smtp', 'slot-multi_dnsbl'],
+            reputation: ['slot-geolocation', 'slot-shodan'],
+            subdomains: ['slot-reverse_ip', 'slot-subdomains'],
+            score: ['slot-security_score', 'slot-security_details']
+        };
+
+        // Which nav-link tab(s) each module's content lands in — purely
+        // cosmetic (a small spinner while in flight; a dot if it failed).
+        var MODULE_TABS = {
+            dns: ['rtab-dns'],
+            web: ['rtab-ssl', 'rtab-subdomains'],
+            email: ['rtab-email'],
+            reputation: ['rtab-ssl'],
+            subdomains: ['rtab-subdomains'],
+            score: ['rtab-security']
+        };
+
+        var tabPendingCount = {};
+        function setTabSpinner(name, loading, failed) {
+            (MODULE_TABS[name] || []).forEach(function (tabId) {
+                var tab = document.getElementById(tabId);
+                if (!tab) return;
+                tabPendingCount[tabId] = Math.max(0, (tabPendingCount[tabId] || 0) + (loading ? 1 : -1));
+                var oldSpinner = tab.querySelector('.tab-mod-spinner');
+                if (oldSpinner) oldSpinner.remove();
+                var oldDot = tab.querySelector('.tab-mod-faildot');
+                if (oldDot) oldDot.remove();
+                if (tabPendingCount[tabId] > 0) {
+                    tab.insertAdjacentHTML('beforeend', ' <span class="spinner-border spinner-border-sm tab-mod-spinner" aria-hidden="true"></span>');
+                } else if (failed) {
+                    tab.insertAdjacentHTML('beforeend', ' <span class="tab-mod-faildot text-danger" title="Some data failed to load">●</span>');
+                }
+            });
+        }
+
+        // Bootstrap 5.3 placeholder-glow loading card(s), one per slot the
+        // module owns. `dnt` is accepted for symmetry with the module fetch
+        // call but not branched on here: the per-key renderers already
+        // no-op correctly once a DNT-gated check comes back null in the real
+        // response, so there's nothing to special-case before it arrives.
+        function renderModuleSkeleton(name, dnt) {
+            document.getElementById('resultTabs').style.display = '';
+            var placeholder = '<div class="card mt-2 placeholder-glow" aria-hidden="true"><div class="card-body">' +
+                '<span class="placeholder col-5"></span> <span class="placeholder col-3"></span><br>' +
+                '<span class="placeholder col-7 mt-1"></span></div></div>';
+            (MODULE_SLOTS[name] || []).forEach(function (id) {
+                var el = document.getElementById(id);
+                if (el) el.innerHTML = placeholder;
+            });
+        }
+
+        // Replaces a module's skeleton(s) with a single warning + Retry link
+        // (only in the module's first owned slot, to avoid duplicate links);
+        // its other slots are just cleared.
+        function renderModuleFailed(name) {
+            var slots = MODULE_SLOTS[name] || [];
+            slots.forEach(function (id, idx) {
+                var el = document.getElementById(id);
+                if (!el) return;
+                el.innerHTML = idx === 0
+                    ? '<div class="alert alert-warning small mt-2 mb-0 d-flex align-items-center justify-content-between gap-2">' +
+                      '<span><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>Could not load this section.</span>' +
+                      '<a href="#" class="alert-link" data-retry-module="' + esc(name) + '">Retry</a></div>'
+                    : '';
+            });
+        }
+
+        // Reputation is skipped entirely under DNT (see startModuleFetches)
+        // — show a muted note in its two slots instead of a skeleton.
+        function renderReputationSkippedDnt() {
+            document.getElementById('resultTabs').style.display = '';
+            var note = '<div class="alert alert-secondary small mt-2 mb-0"><i class="bi bi-eye-slash me-1" aria-hidden="true"></i>Skipped — Do Not Track is enabled.</div>';
+            ['slot-geolocation', 'slot-shodan'].forEach(function (id) {
+                var el = document.getElementById(id);
+                if (el) el.innerHTML = note;
+            });
         }
 
         // ── Result tabs ──
@@ -2117,14 +2930,12 @@ if ($_showPortfolioIcon): ?>
             btn.disabled = true;
             btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Fetching fresh...';
 
-            var fd = new FormData();
-            fd.append('domain', currentDomain);
-            fd.append('csrf_token', CSRF);
-
-            fetch('lookup?nocache=' + Date.now() + '&source=whois', { method: 'POST', body: fd })
-                .then(function (r) {
-                    return r.json();
-                })
+            // Issue #196 Step 6: this only ever reads data.whois/data.error —
+            // both core fields — so route it through modules=core&source=whois
+            // instead of the full response. No lookup_token: a refresh is a
+            // new WHOIS fetch in its own right and should count against the
+            // rate limit exactly like the original lookup did.
+            postLookup('lookup?modules=core&nocache=' + Date.now() + '&source=whois', currentDomain)
                 .then(function (data) {
                     btn.disabled = false;
                     btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Refresh &amp; Diff';
@@ -2244,10 +3055,21 @@ if ($_showPortfolioIcon): ?>
             document.getElementById('parsedFields').innerHTML = '';
             document.getElementById('actionButtons').style.cssText = 'display:none !important';
             document.getElementById('emptyState').style.display = 'none';
-            // Reset active tab to WHOIS (Issue #178)
+            // Reset active tab to WHOIS (Issue #178), and — Issue #196 Step 6 —
+            // clear any in-flight/failed module tab spinners left over from a
+            // previous (possibly still-settling) lookup. The pane innerHTML
+            // resets above already discard every skeleton/failure slot; nav
+            // tabs are static markup, never regenerated, so their spinner/dot
+            // decorations need clearing explicitly here.
+            tabPendingCount = {};
+            renderedAlertKeys = {};
             document.querySelectorAll('#resultTabs .nav-link').forEach(function (t) {
                 t.classList.remove('active');
                 t.setAttribute('aria-selected', 'false');
+                var spinner = t.querySelector('.tab-mod-spinner');
+                if (spinner) spinner.remove();
+                var dot = t.querySelector('.tab-mod-faildot');
+                if (dot) dot.remove();
             });
             var whoisTab = document.getElementById('rtab-whois');
             if (whoisTab) {

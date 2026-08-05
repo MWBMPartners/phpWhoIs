@@ -9,6 +9,7 @@
 
 // ─── Session (needed for access control) ───
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'session_config.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'asset_version.php';
 
 // ─── Security headers (mirrors index.php / tlds.php) ───
 header("X-Content-Type-Options: nosniff");
@@ -55,8 +56,8 @@ $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
     <link rel="icon" type="image/svg+xml" href="assets/images/favicon.svg">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="assets/vendor/swagger-ui/swagger-ui.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'swagger-ui' . DIRECTORY_SEPARATOR . 'swagger-ui.css'); ?>">
-    <link rel="stylesheet" href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'style.css'); ?>">
+    <link rel="stylesheet" href="assets/vendor/swagger-ui/swagger-ui.css?v=<?php echo assetVersion(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'swagger-ui' . DIRECTORY_SEPARATOR . 'swagger-ui.css'); ?>">
+    <link rel="stylesheet" href="assets/css/style.css?v=<?php echo assetVersion(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'style.css'); ?>">
     <style>
         /* Swagger UI overrides to match site theme */
         .swagger-ui .topbar { display: none !important; }
@@ -160,7 +161,7 @@ $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
     <?php require __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'footer.php'; ?>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="assets/vendor/swagger-ui/swagger-ui-bundle.js?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'swagger-ui' . DIRECTORY_SEPARATOR . 'swagger-ui-bundle.js'); ?>"></script>
+    <script src="assets/vendor/swagger-ui/swagger-ui-bundle.js?v=<?php echo assetVersion(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'swagger-ui' . DIRECTORY_SEPARATOR . 'swagger-ui-bundle.js'); ?>"></script>
     <script>
         // ── Theme (synced with main site via localStorage) ──
         var themeIcon = document.getElementById('themeIcon');

@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - beta
+      - alpha
 
 permissions:
   contents: write
@@ -21,11 +22,9 @@ jobs:
       - name: Determine target directory
         id: target
         run: |
-          if [[ "${{ github.ref_name }}" == "main" ]]; then
-            echo "dir=web/public_html" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref_name }}" == "beta" ]]; then
-            echo "dir=web/public_html_beta" >> $GITHUB_OUTPUT
-          fi
+          # Single source directory for all branches (main/beta/alpha) — the
+          # two-folder public_html vs public_html_beta split was consolidated.
+          echo "dir=web/public_html" >> $GITHUB_OUTPUT
 
       - name: Check for relevant changes
         id: check
@@ -117,6 +116,8 @@ jobs:
             echo "path=${{ secrets.SFTP_LIVE_PATH }}" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref_name }}" == "beta" ]]; then
             echo "path=${{ secrets.SFTP_BETA_PATH }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "alpha" ]]; then
+            echo "path=${{ secrets.SFTP_DEV_PATH }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Check SFTP auth method

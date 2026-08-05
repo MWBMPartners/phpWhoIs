@@ -9,24 +9,28 @@ All Claude memory, context, and configuration should be stored in this `.claude/
 - **Name:** WHOIS Lookup (mwWhoIs)
 - **Owner:** MWBM Partners Ltd (t/a MWservices)
 - **Type:** PHP web application — domain WHOIS/RDAP lookup tool
-- **Branch strategy:** `alpha` → `beta` → `release-candidate` → `main` (production)
+- **Branch strategy:** promotion chain `alpha` → `beta` → `main` (production); a `release-candidate` gate is planned (CI triggers exist in test.yml) but the branch is not yet created. All branches deploy from `web/public_html/` to different server folders via SFTP secrets.
 - **Deployment:** Automated via GitHub Actions (SFTP), triggered on push
 - **Versioning:** Semantic versioning, auto-incremented by CI from commit message prefixes
 
 ## Directory Structure
 
 ```text
-web/public_html_beta/          # Beta (active dev)
-├── index.php                  # Frontend UI (single-page app)
-├── lookup.php                 # Backend API (POST endpoint)
-├── admin.php, health.php, docs.php, monitor.php, privacy.php, terms.php
-├── manifest.json, sw.js       # PWA support
-├── assets/css/, assets/images/, assets/api/  # Static assets
-├── includes/                  # PHP libraries (config, functions, session, version)
-└── lang/                      # i18n JSON files
-web/public_html/               # Production (synced from beta)
-tests/                         # PHPUnit tests
-.github/workflows/             # CI/CD (deploy, version-bump, changelog, test)
+web/
+├── public_html/                # Single source — all branches deploy from here
+│   ├── index.php               # Frontend UI (single-page app)
+│   ├── lookup.php              # Backend API (POST endpoint)
+│   ├── admin.php, health.php, docs.php, monitor.php, privacy.php, terms.php
+│   ├── manifest.json, sw.js    # PWA support
+│   ├── assets/css/, assets/images/, assets/api/  # Static assets
+│   ├── includes/               # PHP libraries (config, functions, session, version)
+│   └── lang/                   # i18n JSON files
+└── .auth/                      # Gitignored API keys (above web root on server)
+    ├── keys.php                # API credentials (not tracked)
+    ├── keys.example.php        # Template
+    └── .htaccess               # Deny-all protection
+tests/                          # PHPUnit tests
+.github/workflows/              # CI/CD (deploy, version-bump, changelog, test)
 ```
 
 ## Key Technical Details

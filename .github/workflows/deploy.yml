@@ -1,3 +1,47 @@
+# =============================================================================
+# mwWhoIs (DomainCheckr) — Deploy via SFTP
+#
+# Copyright © 2026 MWBM Partners Ltd. All rights reserved.
+#
+# PURPOSE:
+# Deploys the mwWhoIs (DomainCheckr) web app via SFTP, modelled on the
+# iHymns / WebMS-Intra single-source deployment pipeline.
+#
+# SINGLE SOURCE DIRECTORY:
+# All branches deploy from web/public_html/ — the branch determines which
+# SFTP remote path the files are uploaded to:
+#   main   → web/public_html/ → SFTP_LIVE_PATH  (production)
+#   beta   → web/public_html/ → SFTP_BETA_PATH  (beta)
+#   alpha  → web/public_html/ → SFTP_DEV_PATH   (alpha/dev)
+#
+# web/.auth/ (gitignored secret API keys — see includes/config.php) is
+# deployed alongside public_html/ as a sibling directory on the server,
+# without ever clobbering the operator's real keys.php (see the ".auth
+# via SFTP" steps below).
+#
+# There is no database and no shared/private web root for this app, so
+# unlike iHymns there is nothing else to sync (no .sql/, no data_share/,
+# no private_html/, no OPcache-bust, no secret-encryption master key).
+#
+# FLOW:
+#   1. Detect deployable changes (last 5 commits, or [deploy all])
+#   2. Inject build metadata and channel into deploy source
+#   3. Minify JS/CSS/HTML/XML before upload
+#   4. Upload web/public_html/ via lftp (SSH key or password auth)
+#   5. Upload web/.auth/ alongside public_html/ (keys.php preserved)
+#
+# SECRETS REQUIRED:
+#   SFTP_HOST, SFTP_PORT, SFTP_USER, SFTP_KEY (or SFTP_PASSWORD)
+#   SFTP_LIVE_PATH, SFTP_BETA_PATH, SFTP_DEV_PATH
+#
+# VARIABLES:
+#   vars.SFTP_ENABLED — set to 'true' to enable deployment (kill switch)
+#
+# SPECIAL COMMIT FLAGS:
+#   [deploy all]  — force full deploy regardless of change detection
+#   [skip ci]     — skip this workflow entirely
+# =============================================================================
+
 name: Deploy via SFTP
 
 on:
@@ -5,86 +49,101 @@ on:
     branches:
       - main
       - beta
+      - alpha
+    paths:
+      - 'web/**'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  # Sync beta files to production directory on main branch pushes
-  sync-beta-to-production:
-    runs-on: ubuntu-latest
-    if: github.ref_name == 'main' && !contains(github.event.head_commit.message, '[skip sync]')
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Sync public_html_beta → public_html
-        id: sync
-        run: |
-          rsync -a --delete \
-            --exclude='.DS_Store' \
-            --exclude='.gitkeep' \
-            --exclude='CHANGELOG.md' \
-            --exclude='README.md' \
-            --exclude='DEV_NOTES.md' \
-            web/public_html_beta/ web/public_html/
-
-          if git diff --quiet web/public_html/; then
-            echo "synced=false" >> $GITHUB_OUTPUT
-            echo "Production files already in sync"
-          else
-            echo "synced=true" >> $GITHUB_OUTPUT
-            echo "Files synced — changes detected:"
-            git diff --stat web/public_html/
-          fi
-
-      - name: Commit synced files
-        if: steps.sync.outputs.synced == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add web/public_html/
-          git commit -m "build: auto-sync public_html from public_html_beta [skip sync]"
-          git push origin main
-
+  # ===========================================================================
+  # DEPLOY — Upload web/public_html/ to the appropriate SFTP destination
+  # All branches deploy from the same source directory; the branch determines
+  # which remote path the files are uploaded to.
+  # ===========================================================================
   deploy:
     runs-on: ubuntu-latest
-    needs: [sync-beta-to-production]
-    if: always() && vars.SFTP_ENABLED == 'true'
+    # Hard cap so a stalled SFTP mirror cannot hang for the full 6h Actions
+    # ceiling.
+    timeout-minutes: 20
+    if: vars.SFTP_ENABLED == 'true'
+
+    # Shared lftp exclude flags — available to all steps via $LFTP_EXCLUDES.
+    # IMPORTANT: patterns with wildcards MUST be single-quoted here in YAML
+    # so they are passed as literal strings to the shell env, and then
+    # referenced inside double-quoted heredocs/commands where bash won't
+    # glob-expand them (variable expansion within double quotes is safe).
+    env:
+      LFTP_EXCLUDES: >-
+        --exclude ^\.DS_Store$
+        --exclude ^Thumbs\.db$
+        --exclude ^\.git/
+        --exclude ^\.github/
+        --exclude ^\.gitkeep$
+        --exclude ^\.gitignore$
+        --exclude ^\.gitattributes$
+        --exclude ^README\.md$
+        --exclude ^CHANGELOG\.md$
+        --exclude ^DEV_NOTES\.md$
+        --exclude ^CLAUDE\.md$
+        --exclude ^\.htpasswd
+        --exclude ^\.vscode/
+        --exclude ^\.idea/
+        --exclude ^\.editorconfig$
+        --exclude \.swp$
+        --exclude \.swo$
+        --exclude ~$
+        --exclude ^tlds\.txt$
+        --exclude ^second_level_suffixes\.txt$
+        --exclude ^tld_metadata\.json$
+        --exclude ^logs/
 
     steps:
-      - name: Checkout code (latest, including any sync commits)
+      # -- Checkout code --
+      - name: Checkout code
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: ${{ github.ref_name }}
 
-      - name: Pull latest (in case sync job pushed new commits)
-        if: github.ref_name == 'main'
-        run: git pull origin main
+      # -- lftp connection timeouts (global ~/.lftprc, inherited by every lftp
+      #    call below) so a stalled SFTP op retries/fails fast instead of hanging. --
+      - name: Configure lftp timeouts
+        run: |
+          {
+            echo "set net:timeout 20"
+            echo "set net:max-retries 3"
+            echo "set net:reconnect-interval-base 5"
+            echo "set net:reconnect-interval-multiplier 1"
+            echo "set mirror:no-empty-dirs yes"
+          } >> "$HOME/.lftprc"
 
+      # -- Determine which directory to deploy based on branch --
       - name: Determine deployment target
         id: target
         run: |
+          # All branches deploy from the same source directory
+          echo "source_dir=web/public_html/" >> $GITHUB_OUTPUT
           if [[ "${{ github.ref_name }}" == "main" ]]; then
             echo "remote_path=${{ secrets.SFTP_LIVE_PATH }}" >> $GITHUB_OUTPUT
-            echo "source_dir=web/public_html/" >> $GITHUB_OUTPUT
             echo "channel=live" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref_name }}" == "beta" ]]; then
             echo "remote_path=${{ secrets.SFTP_BETA_PATH }}" >> $GITHUB_OUTPUT
-            echo "source_dir=web/public_html_beta/" >> $GITHUB_OUTPUT
             echo "channel=beta" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "alpha" ]]; then
+            echo "remote_path=${{ secrets.SFTP_DEV_PATH }}" >> $GITHUB_OUTPUT
+            echo "channel=alpha" >> $GITHUB_OUTPUT
           fi
 
+      # -- Check if deployable files changed in the last 5 commits --
       - name: Get changed files
         id: changes
         run: |
           SOURCE_DIR="${{ steps.target.outputs.source_dir }}"
-          EXCLUDES="CHANGELOG.md|README.md|DEV_NOTES.md|\.DS_Store|\.gitkeep|\.gitignore"
+          EXCLUDES="README\.md|CHANGELOG\.md|DEV_NOTES\.md|\.DS_Store|\.gitkeep|\.gitignore|\.gitattributes"
           COMMIT_MSG=$(git log -1 --pretty=format:"%s")
 
           # Force full deploy if commit message contains [deploy all]
@@ -92,34 +151,60 @@ jobs:
             echo "Full deploy requested via [deploy all]"
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "full_deploy=true" >> $GITHUB_OUTPUT
+            # Drop --only-newer so lftp mirror compares size+content
+            # rather than mtime — mtime alone is unreliable in CI
+            # because actions/checkout sets every file's mtime to the
+            # checkout time, which can be EARLIER than the remote's
+            # prior-deploy mtime if the previous deploy ran later than
+            # this one's checkout step.
+            echo "mirror_newer_flag=" >> $GITHUB_OUTPUT
           else
-            # Check last 5 commits for changes
-            CHANGED=$(git diff --name-only HEAD~5 HEAD -- "$SOURCE_DIR" 2>/dev/null \
+            # Check last 5 commits for changes in the source directory OR
+            # the sibling secrets directory we also deploy (web/.auth/).
+            CHANGED=$(git diff --name-only HEAD~5 HEAD -- "$SOURCE_DIR" "web/.auth/" 2>/dev/null \
               | grep -vE "$EXCLUDES" | sort -u || true)
 
             if [[ -z "$CHANGED" ]]; then
               echo "has_changes=false" >> $GITHUB_OUTPUT
               echo "full_deploy=false" >> $GITHUB_OUTPUT
+              echo "mirror_newer_flag=" >> $GITHUB_OUTPUT
               echo "No deployable files changed in $SOURCE_DIR"
             else
               echo "has_changes=true" >> $GITHUB_OUTPUT
               echo "full_deploy=false" >> $GITHUB_OUTPUT
+              # NEVER --only-newer: actions/checkout stamps every file with the
+              # checkout mtime, so --only-newer wrongly SKIPS a file whose remote
+              # copy carries a later (prior-deploy) mtime. Empty flag => lftp
+              # mirror compares size+content and uploads anything new OR
+              # changed. Slower, but correct.
+              echo "mirror_newer_flag=" >> $GITHUB_OUTPUT
               echo "Changed files:"
               echo "$CHANGED"
             fi
           fi
+
+      # -- Inject .env-channel file for server-side environment detection --
+      # Since all branches deploy from the same source directory, the PHP code
+      # uses this file as a fallback to detect the deployment channel (see
+      # includes/infoAppVer.php's Development Status detection).
+      - name: Inject .env-channel
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          echo "${{ steps.target.outputs.channel }}" > web/public_html/.env-channel
+          echo "Injected .env-channel: ${{ steps.target.outputs.channel }}"
 
       - name: Install minification tools
         if: steps.changes.outputs.has_changes == 'true'
         run: |
           npm install -g terser clean-css-cli html-minifier-terser
 
+      # -- Minify JS, CSS, HTML, XML before upload --
       - name: Minify files before upload
         if: steps.changes.outputs.has_changes == 'true'
         run: |
           SOURCE_DIR="${{ steps.target.outputs.source_dir }}"
 
-          # Minify JS files (if any exist)
+          # Minify JavaScript files
           find "$SOURCE_DIR" -name "*.js" -type f 2>/dev/null | while read -r file; do
             echo "Minifying JS: $file"
             terser "$file" --compress --mangle --output "$file" || echo "  Warning: failed to minify $file"
@@ -131,7 +216,7 @@ jobs:
             cleancss -o "$file" "$file" || echo "  Warning: failed to minify $file"
           done
 
-          # Minify HTML/HTM files
+          # Minify HTML files
           find "$SOURCE_DIR" \( -name "*.html" -o -name "*.htm" \) -type f 2>/dev/null | while read -r file; do
             echo "Minifying HTML: $file"
             html-minifier-terser --collapse-whitespace --remove-comments --minify-css true --minify-js true -o "$file" "$file" || echo "  Warning: failed to minify $file"
@@ -143,6 +228,7 @@ jobs:
             sed -i 's/>[[:space:]]*</></g' "$file" || echo "  Warning: failed to minify $file"
           done
 
+      # -- For production: clear the Development Status to NULL --
       - name: Set production dev status to NULL
         if: steps.changes.outputs.has_changes == 'true' && github.ref_name == 'main'
         run: |
@@ -152,6 +238,7 @@ jobs:
             echo "Set Development Status to NULL in $VERFILE"
           fi
 
+      # -- Inject git commit info into infoAppVer.php --
       - name: Inject build info into infoAppVer.php
         if: steps.changes.outputs.has_changes == 'true'
         run: |
@@ -169,6 +256,7 @@ jobs:
             echo "Injected build info into infoAppVer.php - ${SHORT_SHA} @ ${COMMIT_DATE}"
           fi
 
+      # -- Sync manifest.json name/description from infoAppVer.php --
       - name: Sync manifest.json from infoAppVer.php
         if: steps.changes.outputs.has_changes == 'true'
         run: |
@@ -189,10 +277,31 @@ jobs:
             fi
           fi
 
+      # -- Install lftp for SFTP mirroring --
       - name: Install lftp
         if: steps.changes.outputs.has_changes == 'true'
         run: sudo apt-get install -y lftp
 
+      # -- Resolve SFTP port (default to 22 if empty, blank, or non-numeric) --
+      - name: Resolve SFTP port
+        if: steps.changes.outputs.has_changes == 'true'
+        id: port
+        env:
+          RAW_PORT: ${{ secrets.SFTP_PORT }}
+        run: |
+          # Strip whitespace from the raw port value
+          TRIMMED_PORT=$(echo "$RAW_PORT" | tr -d '[:space:]')
+
+          # Check if the trimmed value is a valid numeric port (1-65535)
+          if [[ "$TRIMMED_PORT" =~ ^[0-9]+$ ]] && [[ "$TRIMMED_PORT" -ge 1 ]] && [[ "$TRIMMED_PORT" -le 65535 ]]; then
+            echo "port=$TRIMMED_PORT" >> $GITHUB_OUTPUT
+            echo "Using SFTP port: $TRIMMED_PORT"
+          else
+            echo "port=22" >> $GITHUB_OUTPUT
+            echo "SFTP_PORT is empty, blank, or non-numeric — defaulting to port 22"
+          fi
+
+      # -- Determine auth method (SSH key preferred, password fallback) --
       - name: Check auth method
         if: steps.changes.outputs.has_changes == 'true'
         id: auth
@@ -203,12 +312,13 @@ jobs:
             echo "method=password" >> $GITHUB_OUTPUT
           fi
 
+      # -- Deploy via SFTP using SSH key authentication --
       - name: Deploy via SFTP (SSH key)
         if: steps.changes.outputs.has_changes == 'true' && steps.auth.outputs.method == 'key'
         env:
           SFTP_USER: ${{ secrets.SFTP_USER }}
           SFTP_HOST: ${{ secrets.SFTP_HOST }}
-          SFTP_PORT: ${{ secrets.SFTP_PORT }}
+          SFTP_PORT: ${{ steps.port.outputs.port }}
           SFTP_KEY: ${{ secrets.SFTP_KEY }}
           SOURCE_DIR: ${{ steps.target.outputs.source_dir }}
           REMOTE_PATH: ${{ steps.target.outputs.remote_path }}
@@ -217,35 +327,100 @@ jobs:
           echo "$SFTP_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           cat > /tmp/lftp_script.txt <<LFTP_EOF
-          set sftp:connect-program "ssh -o StrictHostKeyChecking=no -i $HOME/.ssh/deploy_key"
+          set sftp:connect-program "ssh -o StrictHostKeyChecking=no -i $HOME/.ssh/deploy_key -p ${SFTP_PORT}"
           open sftp://${SFTP_USER}@${SFTP_HOST}:${SFTP_PORT}
-          mirror --reverse --delete --verbose --only-newer --no-empty-dirs --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md --exclude tlds.txt --exclude second_level_suffixes.txt --exclude tld_metadata.json --exclude logs/ ${SOURCE_DIR} ${REMOTE_PATH}
+          mirror --reverse --delete --verbose ${{ steps.changes.outputs.mirror_newer_flag }} --no-empty-dirs $LFTP_EXCLUDES ${SOURCE_DIR} ${REMOTE_PATH}
           bye
           LFTP_EOF
           lftp -f /tmp/lftp_script.txt
 
+      # -- Deploy via SFTP using password authentication (fallback) --
       - name: Deploy via SFTP (password)
         if: steps.changes.outputs.has_changes == 'true' && steps.auth.outputs.method == 'password'
         env:
           SFTP_USER: ${{ secrets.SFTP_USER }}
           SFTP_PASS: ${{ secrets.SFTP_PASSWORD }}
           SFTP_HOST: ${{ secrets.SFTP_HOST }}
-          SFTP_PORT: ${{ secrets.SFTP_PORT }}
+          SFTP_PORT: ${{ steps.port.outputs.port }}
           SOURCE_DIR: ${{ steps.target.outputs.source_dir }}
           REMOTE_PATH: ${{ steps.target.outputs.remote_path }}
         run: |
-          lftp -u "${SFTP_USER},${SFTP_PASS}" -e "set sftp:auto-confirm yes; set ssl:verify-certificate no; mirror --reverse --delete --verbose --only-newer --no-empty-dirs --exclude .DS_Store --exclude .gitkeep --exclude .gitignore --exclude README.md --exclude CHANGELOG.md --exclude DEV_NOTES.md --exclude tlds.txt --exclude second_level_suffixes.txt --exclude tld_metadata.json --exclude logs/ ${SOURCE_DIR} ${REMOTE_PATH}; bye" "sftp://${SFTP_HOST}:${SFTP_PORT}"
+          lftp -u "${SFTP_USER},${SFTP_PASS}" \
+            -e "set sftp:auto-confirm yes; set ssl:verify-certificate no; \
+            mirror --reverse --delete --verbose ${{ steps.changes.outputs.mirror_newer_flag }} --no-empty-dirs \
+            $LFTP_EXCLUDES \
+            ${SOURCE_DIR} ${REMOTE_PATH}; bye" \
+            "sftp://${SFTP_HOST}:${SFTP_PORT}"
 
+      # ================================================================
+      # .auth/ DEPLOYMENT (Refs #204)
+      # Uploads web/.auth/ (.htaccess, keys.example.php) as a sibling of
+      # public_html/. The real keys.php is written manually by the
+      # operator on the server and MUST be preserved, so we use
+      # --no-delete and exclude keys.php from the mirror. This ensures
+      # the directory exists on the server without ever clobbering real
+      # secrets.
+      # ================================================================
+
+      # -- Deploy .auth/ via SFTP (SSH key) --
+      - name: Deploy .auth via SFTP (SSH key)
+        if: steps.changes.outputs.has_changes == 'true' && steps.auth.outputs.method == 'key'
+        env:
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_PORT: ${{ steps.port.outputs.port }}
+          SFTP_KEY: ${{ secrets.SFTP_KEY }}
+          REMOTE_PATH: ${{ steps.target.outputs.remote_path }}
+        run: |
+          AUTH_PATH=$(dirname "$REMOTE_PATH")/.auth/
+          echo "Deploying .auth to: $AUTH_PATH (excluding keys.php)"
+          cat > /tmp/lftp_auth.txt <<LFTP_EOF
+          set sftp:connect-program "ssh -o StrictHostKeyChecking=no -i $HOME/.ssh/deploy_key -p ${SFTP_PORT}"
+          open sftp://${SFTP_USER}@${SFTP_HOST}:${SFTP_PORT}
+          mirror --reverse --verbose ${{ steps.changes.outputs.mirror_newer_flag }} --no-empty-dirs --exclude ^keys\.php$ $LFTP_EXCLUDES web/.auth/ ${AUTH_PATH}
+          bye
+          LFTP_EOF
+          lftp -f /tmp/lftp_auth.txt
+          echo ".auth deployed to ${AUTH_PATH}"
+
+      # -- Deploy .auth/ via SFTP (password) --
+      - name: Deploy .auth via SFTP (password)
+        if: steps.changes.outputs.has_changes == 'true' && steps.auth.outputs.method == 'password'
+        env:
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_PASS: ${{ secrets.SFTP_PASSWORD }}
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_PORT: ${{ steps.port.outputs.port }}
+          REMOTE_PATH: ${{ steps.target.outputs.remote_path }}
+        run: |
+          AUTH_PATH=$(dirname "$REMOTE_PATH")/.auth/
+          echo "Deploying .auth to: $AUTH_PATH (excluding keys.php)"
+          lftp -u "${SFTP_USER},${SFTP_PASS}" \
+            -e "set sftp:auto-confirm yes; set ssl:verify-certificate no; \
+            mirror --reverse --verbose ${{ steps.changes.outputs.mirror_newer_flag }} --no-empty-dirs \
+            --exclude ^keys\.php$ $LFTP_EXCLUDES \
+            web/.auth/ ${AUTH_PATH}; bye" \
+            "sftp://${SFTP_HOST}:${SFTP_PORT}"
+          echo ".auth deployed to ${AUTH_PATH}"
+
+      # ================================================================
+      # DEPLOYMENT SUMMARY
+      # ================================================================
+
+      # -- Deployment summary in GitHub Actions UI --
       - name: Deployment summary
         if: steps.changes.outputs.has_changes == 'true'
         run: |
-          echo "### Deployed to ${{ steps.target.outputs.channel }}" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Deployment Complete" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Channel:** ${{ steps.target.outputs.channel }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Remote path:** ${{ steps.target.outputs.remote_path }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Public:** ${{ steps.target.outputs.source_dir }} → ${{ steps.target.outputs.remote_path }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Auth:** web/.auth/ → sibling .auth/ (keys.php preserved)" >> $GITHUB_STEP_SUMMARY
 
+      # -- No-deploy summary --
       - name: Skip summary
         if: steps.changes.outputs.has_changes == 'false'
         run: |
-          echo "### No deployment needed" >> $GITHUB_STEP_SUMMARY
-          echo "No deployable files changed in ${{ steps.target.outputs.source_dir }}" >> $GITHUB_STEP_SUMMARY
+          echo "### ⏭️ No deployment needed" >> $GITHUB_STEP_SUMMARY
+          echo "No deployable files changed in ${{ steps.target.outputs.source_dir }} or web/.auth/." >> $GITHUB_STEP_SUMMARY

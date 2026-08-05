@@ -13,8 +13,14 @@ ini_set('session.use_only_cookies', 1);
 ini_set('session.cookie_httponly', 1);
 ini_set('session.cookie_samesite', 'Lax');
 ini_set('session.use_trans_sid', 0);
-ini_set('session.sid_length', 48);
-ini_set('session.sid_bits_per_character', 6);
+// session.sid_length / sid_bits_per_character were DEPRECATED in PHP 8.4 (the
+// session-ID generator is now fixed at a secure default). Setting them on 8.4+
+// emits a deprecation warning that, with display_errors on, corrupts JSON API
+// responses. Only apply the hardened 48-char SID on PHP < 8.4.
+if (PHP_VERSION_ID < 80400) {
+    ini_set('session.sid_length', 48);
+    ini_set('session.sid_bits_per_character', 6);
+}
 
 if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') {
     ini_set('session.cookie_secure', 1);
