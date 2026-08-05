@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 This changelog is automatically maintained by GitHub Actions on each push.
 
+## [aa296b3] - 2026-08-05T10:34:25Z
+
+**Merge PR #263: promote alpha → beta (DNS-fetch resilience + self-hosted Swagger UI)**
+
+- Commit: [`aa296b3`](https://github.com/MWBMPartners/phpWhoIs/commit/aa296b3c801bd87aaa6a27f4119e691c705309c5)
+
+
 ## [aed2e12] - 2026-07-11T08:34:57Z
 
 **refactor: extract enrichment into module registry (no behaviour change)**
