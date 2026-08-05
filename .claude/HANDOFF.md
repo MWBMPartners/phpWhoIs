@@ -52,8 +52,23 @@ slowness thus turns a **non-critical daily maintenance job red** and emails the 
 - [done] Root cause confirmed from run #134 logs (30.7s == stream timeout).
 - [done] Branch ground truth re-verified; branch brought up to date with alpha (merge 503e84b).
 - [done] Docs surface scoped (README/SECURITY/docs.php/openapi all read).
-- [in progress] Fable 5 deep-analysis of the fetch fix (agent running).
-- [pending] phases 1 & 2 implementation.
+- [done] Fable 5 deep-analysis of the fetch fix (validated root cause; diff-level plan; found
+  dead reliability-write bug + monitor webhook gap).
+- [done] **PHASE 1 COMPLETE — fetch resilience fix (commit `99b8b6b`, pushed).**
+  - `scripts/lib/fetch.php` NEW — `fetchUrlWithRetry()` (cURL-first + streams fallback, 4 attempts,
+    2/4/8s backoff + jitter, retry on transport/408/429/5xx, gzip, hard timeouts). PHP 7.4-safe.
+  - `scripts/update-dns-resolvers.php` — uses helper; soft-fail (`::warning::` + exit 0, keep
+    last-known-good) on total fetch failure or tiny/<1000-row 2xx body; hard-fail unchanged for
+    bad format / write / syntax.
+  - `tests/FetchRetryTest.php` NEW — 8 network-free PHPUnit cases.
+  - `.github/workflows/test.yml` — lint `scripts/`, run on `alpha`/`release-candidate` too.
+  - Verified locally: `php -l` clean; 8/8 logic checks; live blocked-endpoint run → 4 attempts →
+    `::warning::` → exit 0, no files touched.
+  - Issues: **#256** (this fix, stays OPEN until it reaches default branch — commit says Closes #256).
+    Follow-ups filed: **#257** (dead reliability-update write), **#258** (monitor.php webhook retry, for consideration).
+  - NOTE: fix only changes live behaviour once on `alpha`/`beta` (scheduled job checks out each
+    branch's own `scripts/`). Don't `workflow_dispatch` to validate before promotion — it'd run the old script.
+- [in progress] **PHASE 2** — docs sweep + OpenAPI refresh + vendor Swagger UI for shared hosting.
 
 ---
 
