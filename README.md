@@ -72,7 +72,7 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 - Standard rate limit headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`)
 - Domain ownership verification via DNS TXT record
 - RSS feed endpoint (`/feed`)
-- OpenAPI 3.0 specification (`/docs`)
+- OpenAPI 3.0 specification with **self-hosted Swagger UI** (`/docs` — no third-party CDN for docs assets)
 - Webhook notifications for domain changes
 - Admin dashboard with usage statistics
 
@@ -91,7 +91,7 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 
 ## Tech Stack
 
-- **Backend**: PHP 8.4+
+- **Backend**: PHP 8.0+ (8.4 recommended)
 - **Frontend**: Bootstrap 5.3, Bootstrap Icons, vanilla JavaScript
 - **Caching**: Redis → Memcached → file-based (15min TTL)
 - **DNS**: PHP `dns_get_record()`, system `whois` and `dig` commands
@@ -118,7 +118,8 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 │   │   ├── assets/
 │   │   │   ├── css/style.css      # Styles (4 themes + print)
 │   │   │   ├── images/            # Favicons and logos
-│   │   │   └── api/openapi.yaml   # OpenAPI 3.0 specification
+│   │   │   ├── api/openapi.yaml   # OpenAPI 3.0 specification
+│   │   │   └── vendor/swagger-ui/ # Self-hosted Swagger UI (see scripts/vendor-swagger-ui.sh)
 │   │   ├── includes/
 │   │   │   ├── config.php         # Application configuration
 │   │   │   ├── functions.php      # Core functions (~2300 lines)
@@ -127,6 +128,7 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 │   │   │   └── footer.php         # Shared footer template
 │   │   └── lang/                  # i18n (en, es, fr, de)
 │   └── public_html/               # Production (main branch)
+├── scripts/                       # Maintenance scripts (DNS resolver updater, Swagger UI vendoring)
 ├── tests/                         # PHPUnit tests
 ├── .github/workflows/             # CI/CD pipelines
 └── .claude/                       # Claude Code context
@@ -134,14 +136,35 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 
 ## Deployment
 
-Deployment is automated via GitHub Actions:
+Changes flow through a promotion chain and deploy via GitHub Actions.
 
-| Branch | Deploys to | Trigger |
-|--------|-----------|---------|
-| `beta` | `public_html_beta/` | Push |
-| `main` | `public_html/` | Push |
+**Branch flow:** `alpha → beta → release-candidate → main`
 
-Workflows: version bump → changelog → minification → SFTP upload.
+| Branch | Role | CI / Deploy |
+|--------|------|-------------|
+| `alpha` | Integration | Lint + PHPUnit |
+| `beta` | Active development | Lint + tests, auto version-bump, deploy `public_html_beta/` to the beta site on push |
+| `release-candidate` | Pre-production gate | Lint + tests |
+| `main` | Production | Sync `public_html_beta/ → public_html/`, then SFTP-deploy production |
+
+Deploy workflows: version bump → changelog → minification → SFTP upload.
+
+### Automated maintenance
+
+A scheduled workflow (`update-dns-resolvers.yml`, daily at 04:00 UTC) refreshes
+`includes/dns_resolvers.php` on each active branch from
+[public-dns.info](https://public-dns.info) (defaults: minimum reliability 0.80,
+max 2 auto-sourced entries per country; hand-curated `source=manual` entries are
+never touched). The fetch is resilient — 4 attempts with exponential backoff and
+jitter, cURL with a PHP-streams fallback (`scripts/lib/fetch.php`) — and
+**soft-fails, keeping the last-known-good list**, if the upstream is briefly
+unavailable, so a transient outage never fails the job.
+
+### Vendored assets
+
+Swagger UI is self-hosted under `assets/vendor/swagger-ui/` (version in its
+`VERSION` file) so `/docs` needs no CDN and works on plain shared hosting.
+Upgrade with `scripts/vendor-swagger-ui.sh <version>` and commit the result.
 
 ## API Usage
 
@@ -163,7 +186,7 @@ Full API documentation: [/docs](https://beta.whois.mwhost.online/docs)
 
 ## Requirements
 
-- PHP 8.4+
+- PHP 8.0+ (8.4 recommended — uses `str_contains`/`str_starts_with`; the health check flags < 8.4 as a warning)
 - `curl` extension (recommended for RDAP and external APIs)
 - `whois` system command
 - `dig` command (for DNSSEC, CAA, DANE/TLSA checks)
