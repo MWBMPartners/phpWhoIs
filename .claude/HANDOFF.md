@@ -68,7 +68,23 @@ slowness thus turns a **non-critical daily maintenance job red** and emails the 
     Follow-ups filed: **#257** (dead reliability-update write), **#258** (monitor.php webhook retry, for consideration).
   - NOTE: fix only changes live behaviour once on `alpha`/`beta` (scheduled job checks out each
     branch's own `scripts/`). Don't `workflow_dispatch` to validate before promotion — it'd run the old script.
-- [in progress] **PHASE 2** — docs sweep + OpenAPI refresh + vendor Swagger UI for shared hosting.
+- [done] **PHASE 2 COMPLETE — docs + OpenAPI + vendored Swagger UI (Fable 5-planned).**
+  - **Swagger UI vendored** locally (`assets/vendor/swagger-ui/`, swagger-ui-dist@5.32.12) in both
+    trees via new `scripts/vendor-swagger-ui.sh` (npm-registry pull; jsdelivr is proxy-blocked).
+    `docs.php` repointed to local assets, broken `SwaggerUIStandalonePreset` reference fixed, and
+    a CSP + security headers added (mirrors `tlds.php`). Commits `8754efd` + `da03455` (the vendor
+    files were first silently dropped by the `vendor/` .gitignore rule — added a negation). Issue **#259**.
+    Verified end-to-end with headless Chromium: 13 opblocks render, DomainCheckr title, **no CSP violations**.
+  - **OpenAPI refreshed** to match `lookup.php` (v1.24→1.49.0, DomainCheckr title, suggest/dns_propagation_only
+    modes, /feed fix + /feed-watchlist, false-SRI + rate-limit-header corrections). swagger-cli valid,
+    both trees identical. Commit `68d8047`. Addresses part of **#245** (Retry-After code, tlds?json, examples remain).
+  - **SECURITY.md** rewritten (real policy, GitHub private vuln reporting). Commit `c92517a`.
+  - **README** refreshed (PHP 8.0+, promotion chain, DNS auto-update, self-hosted docs, vendored assets).
+    Commit `5c6c384`. **.claude memory** synced (this commit).
+  - Docs-sweep tracking issue **#260**.
+- **STATUS: all requested work done on this branch. Ready for the owner to open ONE PR → `alpha`.**
+  No PR opened (per working agreement §7 — owner asks first). Follow-ups still open: #257, #258, #245 (partial),
+  plus a `for consideration` for app-wide Bootstrap vendoring + SRI.
 
 ---
 
@@ -76,7 +92,7 @@ slowness thus turns a **non-critical daily maintenance job red** and emails the 
 
 `claude/daily-update-tasks-failures-q0w1xt` (based on `main`, will target **`alpha`** via a single PR created later).
 
-**Branch flow:** `claude/*` → `alpha` → `beta` → `main` (production).
+**Branch flow:** `claude/*` → `alpha` → `beta` → `release-candidate` → `main` (production).
 
 **Rules in force (standing instructions — see `.claude/memory/standing_instructions.md`):**
 - Deep analysis & deep planning: **sequential Fable 5 agents** (fall back to Opus if unavailable; retry Fable first each run).
