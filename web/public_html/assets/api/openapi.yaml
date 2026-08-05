@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: mwWhoIs API
+  title: DomainCheckr API (mwWhoIs)
   description: |
     Comprehensive domain intelligence API providing WHOIS/RDAP lookups, DNS records,
     SSL/TLS certificates, email security, security assessments, and much more.
@@ -13,7 +13,9 @@ info:
     ## Rate Limiting
     - **Default:** 30 requests per 60-second window per session and per IP address.
     - **API Key users:** Configurable per-key limits (up to 300+/min for premium tiers).
-    - **Headers:** `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` included in all responses.
+    - **Headers:** `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` included on responses
+      that pass authentication and rate-limiting (not on 4xx errors — the rate-limit headers are set after
+      the 401/403/429 early-exits in `lookup.php`). There is no `Retry-After` header.
     - Exceeding the limit returns HTTP 429.
 
     ## Caching
@@ -26,9 +28,9 @@ info:
 
     ## Security
     - Content Security Policy (CSP) on all pages
-    - Subresource Integrity (SRI) on CDN assets
+    - Swagger UI self-hosted (no third-party CDN for API-docs assets); Bootstrap served from jsdelivr CDN
     - WHOIS contact masking available for GDPR compliance
-  version: "1.24"
+  version: "1.49.0" # Keep in sync with includes/infoAppVer.php (not auto-bumped)
   contact:
     name: MWBM Partners Ltd
   license:
@@ -59,6 +61,17 @@ paths:
             type: string
             enum: [rdap, whois]
             default: rdap
+        - name: suggest
+          in: query
+          description: |
+            Switches the endpoint into on-demand domain-suggestions mode. When `suggest=1`, the request
+            body's `domain` field is checked across popular alternative TLDs instead of performing a full
+            lookup, and the response is a `SuggestResponse` instead of a `LookupResponse`. Still rate-limited
+            like the main lookup. An invalid/unparseable domain returns `{"suggestions": [], "grid": null}`
+            with HTTP 200 rather than an error.
+          schema:
+            type: string
+            enum: ["1"]
         - name: X-API-Key
           in: header
           description: Optional API key for authenticated access with higher rate limits.
@@ -82,6 +95,12 @@ paths:
                 source:
                   type: string
                   enum: [rdap, whois]
+                dns_propagation_only:
+                  type: string
+                  description: |
+                    When set to a truthy value, skips the full lookup pipeline and returns only a
+                    lightweight `PropagationRefreshResponse` (`{"dns_propagation": {...}}`) — used by the
+                    UI to refresh the DNS propagation panel without re-running the whole lookup.
       responses:
         "200":
           description: Successful lookup
@@ -101,7 +120,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/LookupResponse"
+                oneOf:
+                  - $ref: "#/components/schemas/LookupResponse"
+                  - $ref: "#/components/schemas/SuggestResponse"
+                  - $ref: "#/components/schemas/PropagationRefreshResponse"
+                description: |
+                  `LookupResponse` for a normal lookup, `SuggestResponse` when `?suggest=1` was used, or
+                  `PropagationRefreshResponse` when `dns_propagation_only` was set in the request body.
         "400":
           description: Invalid input
           content:
@@ -110,14 +135,36 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
           description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "403":
           description: CSRF validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "405":
-          description: Method not allowed (POST only)
+          description: Method not allowed (POST only). Empty body.
+          headers:
+            Allow:
+              schema:
+                type: string
+                enum: [POST]
+              description: Always "POST".
         "413":
           description: Request body exceeds 1,024 bytes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
           description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /health:
     get:
@@ -133,11 +180,30 @@ paths:
 
   /feed:
     get:
-      operationId: rssFeed
-      summary: RSS feed of watched domain changes
+      operationId: changelogFeed
+      summary: RSS feed of application changelog entries
+      description: |
+        Parses `CHANGELOG.md` into an RSS 2.0 feed of recent application changes (not domain/watchlist
+        changes — see `/feed-watchlist` for that). Limited to the most recent 20 entries.
       responses:
         "200":
-          description: RSS 2.0 feed
+          description: RSS 2.0 feed of changelog entries
+          content:
+            application/xml:
+              schema:
+                type: string
+
+  /feed-watchlist:
+    get:
+      operationId: watchlistFeed
+      summary: RSS feed of WHOIS changes for watched domains
+      description: |
+        Returns an RSS 2.0 feed built from the watched-domains change log written by `monitor.php`
+        (falls back to last-checked status items when no change log exists yet). Access is currently
+        gated client-side only, via the browser's `watchedDomains` localStorage.
+      responses:
+        "200":
+          description: RSS 2.0 feed of watched-domain changes
           content:
             application/rss+xml:
               schema:
@@ -439,7 +505,8 @@ components:
           type: array
           items:
             type: string
-          description: Available alternative domains (registered domains only).
+          description: >-
+            Always empty; use POST /lookup?suggest=1 (retained for backward compatibility).
         tech_stack:
           type: array
           nullable: true
@@ -458,18 +525,9 @@ components:
             sitemaps: { type: array, items: { type: string } }
             crawl_delay: { type: integer, nullable: true }
         dns_propagation:
-          type: object
+          allOf:
+            - $ref: "#/components/schemas/DnsPropagation"
           nullable: true
-          properties:
-            resolvers:
-              type: array
-              items:
-                type: object
-                properties:
-                  resolver: { type: string }
-                  ip: { type: string }
-                  answers: { type: array, items: { type: string } }
-            consistent: { type: boolean }
         security_score:
           type: object
           nullable: true
@@ -497,6 +555,66 @@ components:
         error:
           type: string
 
+    DnsPropagation:
+      type: object
+      properties:
+        resolvers:
+          type: array
+          items:
+            type: object
+            properties:
+              resolver: { type: string }
+              ip: { type: string }
+              answers: { type: array, items: { type: string } }
+        consistent: { type: boolean }
+
+    SuggestResponse:
+      type: object
+      description: |
+        Response body for POST /lookup?suggest=1 (on-demand domain-suggestions mode).
+      required: [suggestions, grid]
+      properties:
+        suggestions:
+          type: array
+          items:
+            type: string
+          description: Available alternative domains (subset of grid.results where availability=available).
+        grid:
+          type: object
+          nullable: true
+          description: Null when the submitted domain is invalid/unparseable.
+          properties:
+            label:
+              type: string
+              description: The domain label (SLD) checked across alternative TLDs.
+            current_tld:
+              type: string
+              description: The TLD of the originally submitted domain (excluded from results).
+            results:
+              type: array
+              items:
+                type: object
+                properties:
+                  domain:
+                    type: string
+                  tld:
+                    type: string
+                  availability:
+                    type: string
+                    enum: [available, registered, unknown]
+                  cached:
+                    type: boolean
+
+    PropagationRefreshResponse:
+      type: object
+      description: |
+        Response body for POST /lookup with a truthy dns_propagation_only field — a lightweight refresh
+        that returns only the DNS propagation panel data.
+      required: [dns_propagation]
+      properties:
+        dns_propagation:
+          $ref: "#/components/schemas/DnsPropagation"
+
     HealthResponse:
       type: object
       properties:
@@ -513,3 +631,43 @@ components:
           format: date-time
         checks:
           type: object
+          description: Dependency/diagnostic checks, keyed by check name.
+          properties:
+            php:
+              type: object
+              properties:
+                status: { type: string, enum: [ok, warning, error] }
+                version: { type: string }
+            curl:
+              type: object
+              properties:
+                status: { type: string, enum: [ok, warning] }
+                detail: { type: string }
+            whois:
+              type: object
+              properties:
+                status: { type: string, enum: [ok, error] }
+                detail: { type: string }
+            sessions:
+              type: object
+              properties:
+                status: { type: string, enum: [ok, error] }
+                detail: { type: string }
+            cache:
+              type: object
+              properties:
+                status: { type: string, enum: [ok, warning] }
+                detail: { type: string }
+                cached_entries: { type: integer }
+            tld_data:
+              type: object
+              properties:
+                status: { type: string, enum: [ok, warning] }
+                tlds_file: { type: string }
+                suffixes_file: { type: string }
+            error_log:
+              type: object
+              properties:
+                status: { type: string, enum: [ok] }
+                path: { type: string }
+                exists: { type: boolean }
