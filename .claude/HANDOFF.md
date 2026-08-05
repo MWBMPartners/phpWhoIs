@@ -25,12 +25,19 @@ and `exit(1)` on ANY failure. The 30.7s gap == the 30s stream timeout → the fe
 for the alpha runner while the beta runner (seconds apart) got through. A transient upstream
 slowness thus turns a **non-critical daily maintenance job red** and emails the owner a false alarm.
 
-### Branch ground truth (re-verified 2026-08-05 — supersedes stale notes further down)
-- `public_html_beta/` **exists on ALL of alpha, beta, main** (layouts have re-converged).
-- `scripts/update-dns-resolvers.php`, `.github/workflows/update-dns-resolvers.yml`,
-  `docs.php` (10745B) and `assets/api/openapi.yaml` (16328B) are **byte-identical across
-  alpha/beta/main** and our working HEAD. No divergence — docs/OpenAPI work is now LOW risk
-  (beta's feared "v1.50 ~1500-line openapi" is NOT present; current is the 16KB version everywhere).
+### Branch ground truth
+> **2026-08-05 — CORRECTED (this note supersedes the two bullets below).** The earlier
+> "layouts re-converged / byte-identical / no v1.50 openapi" claims were based on a STALE
+> `origin/beta` ref and were WRONG. Truth confirmed during the PR #263 resolution:
+> **beta and main are SINGLE-SOURCE** (only `web/public_html/`; `web/public_html_beta/` was
+> deleted 2026-07-10) and **beta is AHEAD of alpha** (has `assetVersion()`/Issue #218,
+> `modules.php`, `web/.auth/`, extra tests, and a **v1.50 OpenAPI spec**). Alpha was the stale
+> dual-tree. The PR #263 merge (commit `23c411c`) makes alpha single-source too and layers our
+> net-new work (DNS resilience, vendored Swagger UI, SECURITY.md) onto beta's v1.50 base.
+> `scripts/update-dns-resolvers.php` stays layout-invariant → writes `web/public_html/includes/dns_resolvers.php`.
+
+- ~~`public_html_beta/` exists on ALL of alpha, beta, main~~ (WRONG — see correction above).
+- ~~docs.php/openapi byte-identical across branches; no v1.50 openapi~~ (WRONG — beta had v1.50).
 - Working branch `claude/daily-update-tasks-failures-q0w1xt`: PR #253 already merged into alpha.
   This session **merged `origin/alpha` back in** (non-destructive, no force-push) so the branch is
   a strict superset of alpha → the NEXT PR (to be created later, when owner asks) shows a clean diff.
