@@ -1,6 +1,6 @@
 # WHOIS Lookup — Beta
 
-**Version:** 1.50.4-beta
+**Version:** 1.50.5-beta
 **Branch:** `beta`
 **Status:** Active development
 

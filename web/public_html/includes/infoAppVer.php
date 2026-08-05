@@ -23,7 +23,7 @@
 		}
 
 		//Version
-			$app["Application"]["Version"]["Number"] = "1.50.4";
+			$app["Application"]["Version"]["Number"] = "1.50.5";
 			$app["Application"]["Version"]["Name"] = NULL;
 			
 			// Environment-based override (failsafe)
