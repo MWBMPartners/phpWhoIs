@@ -11,7 +11,7 @@ type: project
 **Tech Stack:**
 
 - Frontend: Bootstrap 5.3, vanilla JS (no jQuery/frameworks), Bootstrap Icons
-- Backend: PHP 7.4+, RDAP-first with WHOIS fallback, cURL for external APIs
+- Backend: PHP 8.0+ (8.4 recommended), RDAP-first with WHOIS fallback, cURL for external APIs
 - Caching: Redis → Memcached → file-based fallback (15min TTL)
 - Rate limiting: Dual session + IP-based (30 req/60s default, configurable per API key tier)
 - Security: CSRF tokens, input sanitisation, CSP headers, session hardening, DNT support

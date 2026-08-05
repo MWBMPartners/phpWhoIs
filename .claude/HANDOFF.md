@@ -1,13 +1,98 @@
 # Handoff Document — mwWhoIs
 
 > Living document. Update as work progresses so any session can resume instantly.
-> Last updated: 2026-08-04 (session: daily-update-tasks-failures).
+> Last updated: 2026-08-05 (session: daily-update-tasks-failures — round 2).
+
+---
+
+## ⏱️ ACTIVE SESSION (2026-08-05) — NEW failure: CSV fetch timeout on `alpha`
+
+**This is a DIFFERENT bug from the 2026-08-04 path-mismatch fix (that one is DONE and live on all branches).**
+
+### What happened
+Daily "Update DNS Resolvers" run **#134** (run_id 30977141653, 2026-08-05 05:07 UTC): the
+**matrix workflow is now working** (both legs run) — `update (beta)` **succeeded** (14s), but
+`update (alpha)` **failed** (40s) at the CSV fetch:
+```
+Fetching https://public-dns.info/nameservers.csv ...     @ 05:07:31.004
+Error: failed to fetch CSV from public-dns.info          @ 05:08:01.677   (= 30.7s)
+```
+
+### Root cause (CONFIRMED)
+`scripts/update-dns-resolvers.php` (~lines 81-88) fetches the CSV with a **single**
+`@file_get_contents($csvUrl, false, $ctx)` — `'timeout' => 30`, **no retry, no fallback**,
+and `exit(1)` on ANY failure. The 30.7s gap == the 30s stream timeout → the fetch **timed out**
+for the alpha runner while the beta runner (seconds apart) got through. A transient upstream
+slowness thus turns a **non-critical daily maintenance job red** and emails the owner a false alarm.
+
+### Branch ground truth (re-verified 2026-08-05 — supersedes stale notes further down)
+- `public_html_beta/` **exists on ALL of alpha, beta, main** (layouts have re-converged).
+- `scripts/update-dns-resolvers.php`, `.github/workflows/update-dns-resolvers.yml`,
+  `docs.php` (10745B) and `assets/api/openapi.yaml` (16328B) are **byte-identical across
+  alpha/beta/main** and our working HEAD. No divergence — docs/OpenAPI work is now LOW risk
+  (beta's feared "v1.50 ~1500-line openapi" is NOT present; current is the 16KB version everywhere).
+- Working branch `claude/daily-update-tasks-failures-q0w1xt`: PR #253 already merged into alpha.
+  This session **merged `origin/alpha` back in** (non-destructive, no force-push) so the branch is
+  a strict superset of alpha → the NEXT PR (to be created later, when owner asks) shows a clean diff.
+
+### Plan for this session (in order)
+1. **[phase 1 — PRIMARY]** Harden the CSV fetch: retry + exponential backoff, timeout tuning,
+   empty/garbage-body guard, **soft-fail** (`::warning::` + exit 0, keep last-known-good) on total
+   fetch failure vs **hard-fail** on malformed CSV / write / syntax errors. Add a dependency-free
+   PHPUnit test (fail-then-succeed / all-fail). Deep analysis via **Fable 5** (running now).
+2. **[phase 2]** Thorough docs sweep: README.md (PHP version, branch flow, DNS auto-update),
+   **SECURITY.md** (replace GitHub stub with a real policy), in-app `docs.php`, `.claude/` memory.
+3. **[phase 2]** OpenAPI/Swagger: refresh `assets/api/openapi.yaml` to match current features;
+   **vendor Swagger UI locally** (assets/vendor/swagger-ui/) for shared hosting + fix the
+   `docs.php:200` broken `SwaggerUIStandalonePreset` reference + CSP self-hosting.
+4. Per task: individual commit + push to working branch, update/close the GitHub issue, update
+   `.claude/` memory + this handoff. **No PR stacking** — one branch, one later PR to `alpha`.
+
+### Progress (this session)
+- [done] Root cause confirmed from run #134 logs (30.7s == stream timeout).
+- [done] Branch ground truth re-verified; branch brought up to date with alpha (merge 503e84b).
+- [done] Docs surface scoped (README/SECURITY/docs.php/openapi all read).
+- [done] Fable 5 deep-analysis of the fetch fix (validated root cause; diff-level plan; found
+  dead reliability-write bug + monitor webhook gap).
+- [done] **PHASE 1 COMPLETE — fetch resilience fix (commit `99b8b6b`, pushed).**
+  - `scripts/lib/fetch.php` NEW — `fetchUrlWithRetry()` (cURL-first + streams fallback, 4 attempts,
+    2/4/8s backoff + jitter, retry on transport/408/429/5xx, gzip, hard timeouts). PHP 7.4-safe.
+  - `scripts/update-dns-resolvers.php` — uses helper; soft-fail (`::warning::` + exit 0, keep
+    last-known-good) on total fetch failure or tiny/<1000-row 2xx body; hard-fail unchanged for
+    bad format / write / syntax.
+  - `tests/FetchRetryTest.php` NEW — 8 network-free PHPUnit cases.
+  - `.github/workflows/test.yml` — lint `scripts/`, run on `alpha`/`release-candidate` too.
+  - Verified locally: `php -l` clean; 8/8 logic checks; live blocked-endpoint run → 4 attempts →
+    `::warning::` → exit 0, no files touched.
+  - Issues: **#256** (this fix, stays OPEN until it reaches default branch — commit says Closes #256).
+    Follow-ups filed: **#257** (dead reliability-update write), **#258** (monitor.php webhook retry, for consideration).
+  - NOTE: fix only changes live behaviour once on `alpha`/`beta` (scheduled job checks out each
+    branch's own `scripts/`). Don't `workflow_dispatch` to validate before promotion — it'd run the old script.
+- [done] **PHASE 2 COMPLETE — docs + OpenAPI + vendored Swagger UI (Fable 5-planned).**
+  - **Swagger UI vendored** locally (`assets/vendor/swagger-ui/`, swagger-ui-dist@5.32.12) in both
+    trees via new `scripts/vendor-swagger-ui.sh` (npm-registry pull; jsdelivr is proxy-blocked).
+    `docs.php` repointed to local assets, broken `SwaggerUIStandalonePreset` reference fixed, and
+    a CSP + security headers added (mirrors `tlds.php`). Commits `8754efd` + `da03455` (the vendor
+    files were first silently dropped by the `vendor/` .gitignore rule — added a negation). Issue **#259**.
+    Verified end-to-end with headless Chromium: 13 opblocks render, DomainCheckr title, **no CSP violations**.
+  - **OpenAPI refreshed** to match `lookup.php` (v1.24→1.49.0, DomainCheckr title, suggest/dns_propagation_only
+    modes, /feed fix + /feed-watchlist, false-SRI + rate-limit-header corrections). swagger-cli valid,
+    both trees identical. Commit `68d8047`. Addresses part of **#245** (Retry-After code, tlds?json, examples remain).
+  - **SECURITY.md** rewritten (real policy, GitHub private vuln reporting). Commit `c92517a`.
+  - **README** refreshed (PHP 8.0+, promotion chain, DNS auto-update, self-hosted docs, vendored assets).
+    Commit `5c6c384`. **.claude memory** synced (this commit).
+  - Docs-sweep tracking issue **#260**.
+- **STATUS: all requested work done on this branch. Ready for the owner to open ONE PR → `alpha`.**
+  No PR opened (per working agreement §7 — owner asks first). Follow-ups still open: #257, #258, #245 (partial),
+  plus a `for consideration` for app-wide Bootstrap vendoring + SRI.
+
+---
 
 ## Current working branch
 
 `claude/daily-update-tasks-failures-q0w1xt` (based on `main`, will target **`alpha`** via a single PR created later).
 
-**Branch flow:** `claude/*` → `alpha` → `beta` → `main` (production).
+**Branch flow:** `claude/*` → `alpha` → `beta` → `release-candidate` → `main` (production).
 
 **Rules in force (standing instructions — see `.claude/memory/standing_instructions.md`):**
 - Deep analysis & deep planning: **sequential Fable 5 agents** (fall back to Opus if unavailable; retry Fable first each run).
@@ -88,6 +173,13 @@ producing a needless daily commit. Fix: skip writing when resolver data is uncha
 - [done] Issue **#252** filed (CI hardening: `deploy.yml` deploys even when the sync job fails — confirmed on `main`). Beta-dependent workflow items flagged "verify on beta".
 - [done] Remaining analysis findings preserved in `.claude/memory/findings_backlog.md` (security + workflow items to verify on `beta`; docs/OpenAPI/Swagger deferred). MEMORY.md index updated.
 - [deferred] Tasks #4 (deep planning), #5 (docs), #6 (OpenAPI/Swagger UI) — per user-declined scope decision, NOT done on this stale-main branch. Do on a fresh `beta`-based branch if pursued.
+- [DONE] **Promotion chain complete (2026-08-04, at owner's explicit request).** Fix promoted to production:
+  - **#253** `claude/daily-update-tasks-failures-q0w1xt → alpha` — merged (conflict: `.claude/HANDOFF.md`, took ours).
+  - **#254** integration branch `claude/promote-dns-to-beta → beta` — merged (conflicts on the 2 DNS files + HANDOFF resolved in favour of the layout-invariant version; beta's hardcoded `public_html` was a strict subset; NO `web/`/`tests/` regressions). No deploy (beta's `deploy.yml` is `paths:web/**`-gated; no web changes).
+  - **#255** `beta → main` — merged. **Production release v1.48.0 → v1.50.3** (169 commits/95 files). All CI green (PHP lint, PHPUnit, actionlint, CodeQL). **Production SFTP deploy SUCCEEDED** (run 30914193391).
+  - `main` now runs the fixed layout-invariant DNS workflow — daily failure resolved from next 04:00 UTC run.
+  - **#251 CLOSED** (fix live on main). **#252 CLOSED** — superseded: beta's rewritten single-source `deploy.yml` (now on main) has one `deploy` job gated only by `if: vars.SFTP_ENABLED=='true'`; the old sync-job + `always()` structure no longer exists.
+  - Security + remaining workflow-robustness findings still open in `findings_backlog.md` for a future `beta`-based pass.
 
 ## Deep-analysis key findings (Fable 5, 2026-08-04)
 
