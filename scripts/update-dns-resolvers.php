@@ -24,6 +24,9 @@ $minReliability  = (float)(getenv('DNS_MIN_RELIABILITY') ?: 0.80);  // Minimum r
 $maxPerCountry   = (int)(getenv('DNS_MAX_PER_COUNTRY') ?: 2);       // Max auto-sourced entries per country
 $csvUrl          = 'https://public-dns.info/nameservers.csv';
 
+// Resilient fetch helper (retry + backoff + jitter, cURL with streams fallback).
+require __DIR__ . '/lib/fetch.php';
+
 // ── Locate resolver file(s) — layout-invariant ──
 // Prefer the beta source-of-truth, fall back to public_html. Both may exist on
 // alpha/main (public_html is auto-synced from public_html_beta); on beta only
@@ -78,14 +81,27 @@ foreach ($existing as $r) {
     $existingByIp[$r['ip']] = $r;
 }
 
-// ── Fetch public-dns.info CSV ──
+// ── Fetch public-dns.info CSV (retry + backoff — see scripts/lib/fetch.php) ──
 echo "Fetching $csvUrl ...\n";
-$ctx = stream_context_create(['http' => ['timeout' => 30, 'user_agent' => 'mwWhoIs-DNS-Updater/1.0']]);
-$csv = @file_get_contents($csvUrl, false, $ctx);
-if ($csv === false) {
-    fwrite(STDERR, "Error: failed to fetch CSV from public-dns.info\n");
-    exit(1);
+$fetch = fetchUrlWithRetry($csvUrl, [
+    'attempts'       => 4,        // 1 try + 3 retries
+    'baseDelay'      => 2,        // backoff ≈ 2s, 4s, 8s (+ 0–1s jitter)
+    'connectTimeout' => 10,
+    'timeout'        => 60,       // hard per-attempt wall-clock cap
+    'minBytes'       => 51200,    // real CSV is multi-MB; < 50KB ⇒ truncated/garbage
+    'userAgent'      => 'mwWhoIs-DNS-Updater/1.0',
+]);
+if (!$fetch['ok']) {
+    // Transient upstream failure — keep the last-known-good resolver list and
+    // exit GREEN so a public-dns.info hiccup never turns the daily job red (it
+    // only emails a false alarm). Genuine regressions (unexpected CSV format,
+    // write/syntax errors) still exit 1 further below.
+    echo "::warning title=DNS resolver update skipped::Failed to fetch $csvUrl after "
+        . "{$fetch['attempts']} attempt(s) — last error: HTTP {$fetch['httpCode']} {$fetch['error']}. "
+        . "Existing resolver list left unchanged.\n";
+    exit(0);
 }
+$csv = $fetch['body'];
 
 // Parse CSV — columns: ip_address,name,as_number,as_org,country_code,city,version,error,dnssec,reliability,...
 $lines = explode("\n", trim($csv));
@@ -99,6 +115,17 @@ $asOrgIdx      = array_search('as_org', $header);
 if ($ipIdx === false || $countryIdx === false || $reliabilityIdx === false) {
     fwrite(STDERR, "Error: unexpected CSV format\n");
     exit(1);
+}
+
+// Guard: a 2xx body that parses to implausibly few rows is a truncated/garbled
+// upstream, NOT "0 candidates" — never let it erode the resolver list. The real
+// file carries tens of thousands of rows; anything under 1000 is treated as a
+// transient upstream fault (soft-fail, keep last-known-good).
+if (count($lines) < 1000) {
+    echo "::warning title=DNS resolver update skipped::Fetched CSV has only "
+        . count($lines) . " data rows (expected tens of thousands) — treating as a "
+        . "transient upstream fault. Existing resolver list left unchanged.\n";
+    exit(0);
 }
 
 $candidates = [];

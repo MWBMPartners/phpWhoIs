@@ -4,16 +4,21 @@ on:
   push:
     branches:
       - main
+      - release-candidate
       - beta
+      - alpha
     paths:
       - 'web/**/*.php'
+      - 'scripts/**'
       - 'tests/**'
       - 'composer.json'
       - 'phpunit.xml'
   pull_request:
     branches:
       - main
+      - release-candidate
       - beta
+      - alpha
 
 jobs:
   lint:
@@ -30,7 +35,7 @@ jobs:
       - name: Lint all PHP files
         run: |
           ERRORS=0
-          for file in $(find web -name "*.php" -type f); do
+          for file in $(find web scripts -name "*.php" -type f); do
             php -l "$file" || ERRORS=$((ERRORS + 1))
           done
           if [ $ERRORS -gt 0 ]; then

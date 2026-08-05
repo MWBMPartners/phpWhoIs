@@ -11,6 +11,17 @@
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'session_config.php';
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'asset_version.php';
 
+// ─── Security headers (mirrors index.php / tlds.php) ───
+header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: DENY");
+header("X-XSS-Protection: 1; mode=block");
+header("Referrer-Policy: strict-origin-when-cross-origin");
+// Swagger UI assets are self-hosted (assets/vendor/swagger-ui). jsdelivr is
+// still permitted for Bootstrap CSS/JS + the Bootstrap-Icons webfont only.
+// 'unsafe-inline' is required for the page's inline theme/init script and for
+// the inline styles Swagger UI injects at runtime.
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net; img-src 'self' data:; connect-src 'self'");
+
 // ─── Access gate: logged-in developer accounts only (Issue #172) ───
 // Uncomment the block below once the user account system (#163) is live:
 // if (empty($_SESSION['logged_in']) || empty($_SESSION['is_developer'])) {
@@ -45,7 +56,7 @@ $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
     <link rel="icon" type="image/svg+xml" href="assets/images/favicon.svg">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+    <link rel="stylesheet" href="assets/vendor/swagger-ui/swagger-ui.css?v=<?php echo assetVersion(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'swagger-ui' . DIRECTORY_SEPARATOR . 'swagger-ui.css'); ?>">
     <link rel="stylesheet" href="assets/css/style.css?v=<?php echo assetVersion(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'style.css'); ?>">
     <style>
         /* Swagger UI overrides to match site theme */
@@ -150,7 +161,7 @@ $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
     <?php require __DIR__ . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'footer.php'; ?>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script src="assets/vendor/swagger-ui/swagger-ui-bundle.js?v=<?php echo assetVersion(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'swagger-ui' . DIRECTORY_SEPARATOR . 'swagger-ui-bundle.js'); ?>"></script>
     <script>
         // ── Theme (synced with main site via localStorage) ──
         var themeIcon = document.getElementById('themeIcon');
@@ -198,7 +209,7 @@ $appName = isset($app["Application"]["Name"]) && $app["Application"]["Name"]
             url: 'assets/api/openapi.yaml',
             dom_id: '#swagger-ui',
             deepLinking: true,
-            presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],
+            presets: [SwaggerUIBundle.presets.apis],
             layout: 'BaseLayout'
         });
     </script>

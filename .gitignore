@@ -33,6 +33,13 @@ second_level_suffixes.txt
 suffix_list_metadata.json
 public_suffix_list.dat
 
+# Self-hosted Swagger UI assets are committed on purpose (the general `vendor/`
+# rule above targets Composer's root vendor/ dir). /docs serves these locally so
+# the API docs work on shared hosting with no CDN. Re-include the directory
+# first, then its contents (a file cannot be re-included if its parent is ignored).
+!web/public_html/assets/vendor/
+!web/public_html/assets/vendor/**
+
 # Secrets in web/.auth/ — the real keys.php is NEVER committed; only the
 # .htaccess guard and the *.example.php template are tracked.
 web/.auth/*

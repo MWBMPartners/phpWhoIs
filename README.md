@@ -72,7 +72,7 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 - Standard rate limit headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`)
 - Domain ownership verification via DNS TXT record
 - RSS feed endpoint (`/feed`)
-- OpenAPI 3.0 specification (`/docs`)
+- OpenAPI 3.0 specification with **self-hosted Swagger UI** (`/docs` — no third-party CDN for docs assets)
 - Webhook notifications for domain changes
 - Admin dashboard with usage statistics
 
@@ -91,7 +91,7 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 
 ## Tech Stack
 
-- **Backend**: PHP 8.4+
+- **Backend**: PHP 8.0+ (8.4 recommended)
 - **Frontend**: Bootstrap 5.3, Bootstrap Icons, vanilla JavaScript
 - **Caching**: Redis → Memcached → file-based (15min TTL)
 - **DNS**: PHP `dns_get_record()`, system `whois` and `dig` commands
@@ -118,7 +118,8 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 │   │   ├── assets/
 │   │   │   ├── css/style.css      # Styles (4 themes + print)
 │   │   │   ├── images/            # Favicons and logos
-│   │   │   └── api/openapi.yaml   # OpenAPI 3.0 specification
+│   │   │   ├── api/openapi.yaml   # OpenAPI 3.0 specification
+│   │   │   └── vendor/swagger-ui/ # Self-hosted Swagger UI (see scripts/vendor-swagger-ui.sh)
 │   │   ├── includes/
 │   │   │   ├── config.php         # Application configuration
 │   │   │   ├── functions.php      # Core functions (~2300 lines)
@@ -130,6 +131,7 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 │       ├── .htaccess              # Deny-all protection
 │       ├── keys.php               # API keys and credentials (not tracked)
 │       └── keys.example.php       # Template for keys.php
+├── scripts/                       # Maintenance scripts (DNS resolver updater, Swagger UI vendoring)
 ├── tests/                         # PHPUnit tests
 ├── .github/workflows/             # CI/CD pipelines
 └── .claude/                       # Claude Code context
@@ -137,7 +139,7 @@ DomainCheckr is a comprehensive domain intelligence platform built in PHP. Enter
 
 ## Deployment
 
-Deployment is automated via GitHub Actions. All branches deploy from the same `web/public_html/` source; the branch determines the server folder:
+Deployment is automated via GitHub Actions. Changes flow through a promotion chain (`alpha → beta → main`). All branches deploy from the same `web/public_html/` source; the branch determines the server folder:
 
 | Branch | Server folder | SFTP secret | Trigger |
 |--------|---|---|---------|
@@ -146,6 +148,23 @@ Deployment is automated via GitHub Actions. All branches deploy from the same `w
 | `main` | `public_html` (production) | `SFTP_LIVE_PATH` | Push |
 
 Workflows: version bump → changelog → minification → SFTP upload. The deploy channel (alpha/beta/live) is detected via a CI-injected `.env-channel` file.
+
+### Automated maintenance
+
+A scheduled workflow (`update-dns-resolvers.yml`, daily at 04:00 UTC) refreshes
+`includes/dns_resolvers.php` on each active branch from
+[public-dns.info](https://public-dns.info) (defaults: minimum reliability 0.80,
+max 2 auto-sourced entries per country; hand-curated `source=manual` entries are
+never touched). The fetch is resilient — 4 attempts with exponential backoff and
+jitter, cURL with a PHP-streams fallback (`scripts/lib/fetch.php`) — and
+**soft-fails, keeping the last-known-good list**, if the upstream is briefly
+unavailable, so a transient outage never fails the job.
+
+### Vendored assets
+
+Swagger UI is self-hosted under `assets/vendor/swagger-ui/` (version in its
+`VERSION` file) so `/docs` needs no CDN and works on plain shared hosting.
+Upgrade with `scripts/vendor-swagger-ui.sh <version>` and commit the result.
 
 ## API Usage
 
@@ -167,7 +186,7 @@ Full API documentation: [/docs](https://beta.whois.mwhost.online/docs)
 
 ## Requirements
 
-- PHP 8.4+
+- PHP 8.0+ (8.4 recommended — uses `str_contains`/`str_starts_with`; the health check flags < 8.4 as a warning)
 - `curl` extension (recommended for RDAP and external APIs)
 - `whois` system command
 - `dig` command (for DNSSEC, CAA, DANE/TLSA checks)

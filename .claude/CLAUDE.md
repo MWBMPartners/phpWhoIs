@@ -9,7 +9,7 @@ All Claude memory, context, and configuration should be stored in this `.claude/
 - **Name:** WHOIS Lookup (mwWhoIs)
 - **Owner:** MWBM Partners Ltd (t/a MWservices)
 - **Type:** PHP web application — domain WHOIS/RDAP lookup tool
-- **Branch strategy:** `alpha` and `beta` (development) → `main` (production). All branches deploy from `web/public_html/` to different server folders via SFTP secrets.
+- **Branch strategy:** promotion chain `alpha` → `beta` → `main` (production); a `release-candidate` gate is planned (CI triggers exist in test.yml) but the branch is not yet created. All branches deploy from `web/public_html/` to different server folders via SFTP secrets.
 - **Deployment:** Automated via GitHub Actions (SFTP), triggered on push
 - **Versioning:** Semantic versioning, auto-incremented by CI from commit message prefixes
 
@@ -35,7 +35,7 @@ tests/                          # PHPUnit tests
 
 ## Key Technical Details
 
-- PHP 7.4+ with Bootstrap 5.3 frontend
+- PHP 8.0+ (8.4 recommended) with Bootstrap 5.3 frontend
 - RDAP-first lookups with WHOIS fallback
 - Dual rate limiting (session + IP-based)
 - Caching: Redis → Memcached → file fallback (15min TTL)
